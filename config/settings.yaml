@@ -1,0 +1,118 @@
+# 限额监控系统 - 核心配置
+# ================================================================================
+
+# 项目信息
+project:
+  name: "限额监控自动化系统"
+  version: "1.0.0"
+  description: "固定收益事业部债券投资限额监控"
+
+# 数据源配置
+data_sources:
+  # Excel 文件路径
+  excel_files:
+    bond_pool: "sample data/阶段/限额监控_阶段0_风控债券池.xlsx"
+    stage_1: "sample data/阶段/限额监控_阶段1.xlsx"
+    stage_2: "sample data/阶段/限额监控_阶段2.xlsx"
+    bond_holdings: "sample data/债券持仓表.xlsx"
+    net_assets: "sample data/净资产.xlsx"
+    instrument_pool: "sample data/金融工具池设置.xlsx"
+    
+  # Access 数据库
+  access_db:
+    bond_pool_db: "sample data/风控部债券池.accdb"
+    driver: "{Microsoft Access Driver (*.mdb, *.accdb)}"
+    
+  # Wind API（如适用）
+  wind:
+    enabled: false  # 是否启用 Wind API
+    # api_key: ${WIND_API_KEY}  # 从环境变量读取
+    
+  # 核算系统（待配置）
+  accounting_system:
+    type: "excel"  # 或 "database", "api"
+    path: "sample data/债券持仓表.xlsx"
+
+# 输出配置
+output:
+  # 输出目录
+  directories:
+    processed: "data/processed"
+    reports: "data/output"
+    logs: "logs"
+    
+  # 报表格式
+  reports:
+    format: "excel"  # xlsx
+    include_charts: true
+    include_summary: true
+    
+  # 文件命名
+  filename_pattern: "限额监控报告_{date}.xlsx"
+  date_format: "%Y%m%d"
+
+# 日志配置
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} - {message}"
+  rotation: "10 MB"  # 日志轮转大小
+  retention: "30 days"  # 保留时间
+  
+# 计算配置
+calculation:
+  # 日期配置
+  business_date: "auto"  # auto 表示使用当前日期，也可指定 "2026-01-19"
+  
+  # 精度配置
+  decimal_places: 2
+  
+  # 并行计算
+  parallel:
+    enabled: false
+    workers: 4
+
+# 数据校验
+validation:
+  # 是否启用数据校验
+  enabled: true
+  
+  # 校验规则
+  rules:
+    check_missing_values: true
+    check_data_types: true
+    check_duplicates: true
+    
+  # 容错配置
+  tolerance:
+    max_missing_rate: 0.05  # 最大缺失率 5%
+    
+# 告警配置
+alerts:
+  enabled: true
+  
+  # 告警阈值
+  thresholds:
+    critical: 0.95  # 超限 95% 时告警
+    warning: 0.90   # 接近限额 90% 时预警
+    
+  # 告警方式（待实现）
+  channels:
+    email: false
+    wechat: false
+    console: true
+
+# 性能配置
+performance:
+  # 缓存配置
+  cache:
+    enabled: false
+    ttl: 3600  # 缓存时间（秒）
+    
+  # 数据加载优化
+  chunk_size: 10000  # 分块读取大文件
+  
+# 开发配置
+development:
+  debug_mode: true
+  save_intermediate_results: true  # 保存中间结果以便调试
+  compare_with_excel: true  # 与 Excel 结果对比

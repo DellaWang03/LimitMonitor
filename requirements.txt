@@ -1,0 +1,33 @@
+# 核心数据处理
+pandas>=2.0.0
+numpy>=1.24.0
+openpyxl>=3.1.0
+
+# 数据库连接
+pyodbc>=4.0.0              # Access 数据库（必需）
+
+# 配置管理
+pyyaml>=6.0
+
+# 日志
+loguru>=0.7.0
+
+# Wind API（必需 - 用户已确认有授权）
+WindPy
+
+# Excel 交互（必需 - Windows环境用于To_WindCode函数）
+xlwings>=0.30.0           # Windows环境自动化Excel
+
+# 任务调度（可选 - 生产环境使用）
+# schedule>=1.2.0
+# APScheduler>=3.10.0
+
+# 性能优化（可选）
+# polars>=0.19.0     # 比pandas更快的数据处理
+# dask>=2023.0.0     # 大数据并行处理
+
+# 开发工具
+pytest>=7.4.0
+pytest-cov>=4.1.0
+black>=23.0.0        # 代码格式化
+flake8>=6.0.0        # 代码检查
