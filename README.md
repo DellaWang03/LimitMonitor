@@ -32,7 +32,7 @@ pip install -r requirements.txt
 
 ### 3. 准备数据
 
-将源数据文件放入 `sample data/` 目录：
+将源数据文件放入 `限额/` 目录：
 - `统计报表底稿2_债券SPPI.xlsx`
 - `限额监控_阶段0.xlsx`
 - `限额监控_阶段1.xlsx`
@@ -121,14 +121,20 @@ LimitMonitorAutomation/
 │   ├── extractors/          # 数据提取器
 │   ├── transformers/        # 数据转换器
 │   └── calculators/         # 限额计算器
-├── sample data/             # 源数据文件
+├── 限额/                     # 数据源目录 ⭐
+│   ├── 风控部债券池.accdb    # Access数据库
+│   ├── 标准日期表.xlsx       # 交易日日历
+│   ├── 统计报表底稿1_债券.xlsx
+│   └── ...                  # 其他数据源文件
 ├── data/                    # 输出数据
 │   ├── current/            # 最新数据（3个stage输出）
 │   └── history/            # 历史数据快照
-├── config/                  # 配置文件
+├── config/                  # 配置文件 ⭐
 │   ├── limits.yaml         # 限额配置
-│   └── settings.yaml       # 系统设置
+│   └── settings.yaml       # 系统设置（含数据源路径）
 ├── docs/                    # 文档
+│   ├── CONFIG_MANAGEMENT.md  # 配置管理说明 ⭐
+│   └── DATE_VALIDATOR_FIX.md # 日期验证修复说明
 ├── scripts/                 # 辅助脚本
 ├── tests/                   # 测试文件
 ├── validation/              # 验证脚本
@@ -143,6 +149,21 @@ LimitMonitorAutomation/
 ---
 
 ## 🔧 配置说明
+
+### settings.yaml - 系统配置 ⭐
+
+**数据源路径配置**（v2.1新增）：
+```yaml
+data_sources:
+  # 数据源根目录（相对于项目根目录）
+  data_dir: "限额"
+```
+
+- 所有主程序（`run_stage0/1/2.py`）从此配置读取数据源路径
+- 修改此配置即可切换整个系统的数据源目录
+- 无需在多个文件中修改硬编码路径
+
+**详细说明**：查看 [`docs/CONFIG_MANAGEMENT.md`](docs/CONFIG_MANAGEMENT.md)
 
 ### limits.yaml - 限额配置
 
@@ -276,6 +297,31 @@ find data/history/ -type d -mtime +30 -exec rm -rf {} +
 
 ## 📜 更新日志
 
+### v2.3 (2026-01-29)
+- ✅ **修复KPI卡片总持仓重复计算问题（重要）**
+  - Page1-单一信用限额：移除对已汇总列的求和，统一使用明细持仓
+  - Page4-专业担保明细：修正多业务分类计算逻辑，确保包含所有业务分类的持仓
+  - 关键修复：公司数量用 `nunique()` 去重，总持仓/总限额用最新日期所有记录求和
+  - 修复工具池读取：动态检测工作表名称（sheet0.xml/sheet1.xml）
+  - 详见：`docs/KPI_FIX.md`
+
+### v2.2 (2026-01-29)
+- ✅ **修复高收益债券识别逻辑（重要）**
+  - 金融工具池筛选：只保留品种="可转债"的记录
+  - 匹配字段修正：改用"资产名称（简称）"而非"资产代码"
+  - 穿透表逻辑完善：通过ISIN码匹配"类型"列，对所有债券生效
+  - 移除账户类型限制：所有账户的可转债都检查白名单
+  - **预期效果**：高收益总额从47,373.47万增加至接近PBI的48,885.07万
+- ✅ 与PBI M-code逻辑完全一致
+- ✅ 详细文档：`docs/HIGH_YIELD_BOND_FIX.md`
+
+### v2.1 (2026-01-29)
+- ✅ 实现统一配置管理
+- ✅ 数据源路径从配置文件读取
+- ✅ 修复交易日判断逻辑（使用日期类别）
+- ✅ 数据源切换到 `/限额` 目录
+- ✅ 增强配置加载器功能
+
 ### v2.0 (2026-01-24)
 - ✅ 完成UI现代化改造
 - ✅ 修复滕州信华合并逻辑
@@ -299,4 +345,4 @@ find data/history/ -type d -mtime +30 -exec rm -rf {} +
 
 ---
 
-**最后更新**: 2026-01-24
+**最后更新**: 2026-01-29
