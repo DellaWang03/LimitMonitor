@@ -146,7 +146,12 @@ def render_data_table(
                 total_row[col] = pd.NA  # 保持列仍为数值型，排序正常；若改为 "" 则列变 object、排序异常
             else:
                 total_row[col] = ""
-        display_df = pd.concat([display_df, pd.DataFrame([total_row])], ignore_index=True)
+        # 按 display_df 的列顺序和类型构造总计行，避免 concat 时的 FutureWarning（空/全 NA 列推断行为变更）
+        total_df = pd.DataFrame([total_row], columns=display_df.columns)
+        for col in display_df.columns:
+            if col in total_df.columns and display_df[col].dtype != total_df[col].dtype:
+                total_df[col] = total_df[col].astype(display_df[col].dtype)
+        display_df = pd.concat([display_df, total_df], ignore_index=True)
     
     # 底部统计和操作栏（放在表格上方）
     if show_summary or enable_export:
