@@ -144,7 +144,7 @@ def render(filters: dict, data_loader):
             
             st.dataframe(
                 display_df,
-                use_container_width=True,
+                width='stretch',
                 height=450,
                 hide_index=True
             )
@@ -206,7 +206,7 @@ def render(filters: dict, data_loader):
                 
                 st.dataframe(
                     asset_summary_with_total,
-                    use_container_width=True,
+                    width='stretch',
                     height=350,
                     hide_index=True
                 )
@@ -249,7 +249,7 @@ def render(filters: dict, data_loader):
                 
                 st.dataframe(
                     issuer_summary_with_total,
-                    use_container_width=True,
+                    width='stretch',
                     height=350,
                     hide_index=True
                 )

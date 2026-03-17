@@ -83,82 +83,69 @@ def render_data_table(
     # 准备显示数据（不影响原始数据精度）
     display_df = df.copy()
     
-    # 百分比列名关键词（用于识别需要特殊格式化的列）
+    # 日期列转为字符串，避免 PyArrow 序列化 object/datetime 混合时报错
+    if '日期' in display_df.columns:
+        display_df['日期'] = pd.to_datetime(display_df['日期'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('')
+    
+    # 百分比列名关键词（用于识别需要按百分比显示的列）
     percentage_keywords = ['集中度', '比例', '占比', '率', '%']
-    
+    # 列名包含以下任一则为「金额/剩余额度」列，不按百分比格式化（单位：万元等）
+    quota_exclude_keywords = ['剩余额度(万)', '剩余额度（万）']
+
     def is_percentage_column(col_name):
-        """判断是否为百分比列"""
-        return any(kw in str(col_name) for kw in percentage_keywords)
-    
-    def format_cell(val, is_pct=False):
-        """格式化单元格值（智能保留小数位）"""
-        if pd.isna(val):
-            return ''
-        if isinstance(val, (int, float)):
-            if is_pct and abs(val) <= 1:
-                # 百分比列且值在0-1范围：转换为百分比显示（最多2位小数）
-                pct_val = val * 100
-                if pct_val == int(pct_val):
-                    return f"{int(pct_val)}%"
-                elif abs(pct_val * 10 - int(pct_val * 10)) < 0.01:
-                    return f"{pct_val:.1f}%"
-                else:
-                    return f"{pct_val:.2f}%"
-            elif is_pct:
-                # 百分比列但值已经是百分比形式（>1）
-                if val == int(val):
-                    return f"{int(val)}%"
-                elif abs(val * 10 - int(val * 10)) < 0.01:
-                    return f"{val:.1f}%"
-                else:
-                    return f"{val:.2f}%"
-            else:
-                # 普通数值：智能保留小数位（整数不显示小数点，最多2位小数）
-                if val == int(val):
-                    # 整数：不显示小数点
-                    return f"{int(val):,}"
-                elif abs(val * 10 - int(val * 10)) < 0.01:
-                    # 一位小数
-                    return f"{val:,.1f}"
-                else:
-                    # 两位或更多小数：最多保留2位
-                    return f"{val:,.2f}"
-        return str(val)
-    
-    # 预处理：将datetime列转换为字符串格式
-    for col in display_df.columns:
-        if pd.api.types.is_datetime64_any_dtype(display_df[col]):
-            display_df[col] = display_df[col].dt.strftime('%Y-%m-%d')
-    
-    # 计算总计值（在格式化之前）
+        """判断是否为百分比列（排除「剩余额度(万)」等金额列）"""
+        name = str(col_name)
+        if any(kw in name for kw in quota_exclude_keywords):
+            return False
+        return any(kw in name for kw in percentage_keywords)
+
+    # 计算总计值（在修改 display_df 之前，用原始数值）
     total_values = {}
     if add_total_row and total_columns:
         for col in total_columns:
             if col in display_df.columns and pd.api.types.is_numeric_dtype(display_df[col].dtype):
                 total_values[col] = display_df[col].sum()
-    
-    # 格式化所有数值列（统一保留2位小数）
+
+    # 保持数值/日期类型以便列头排序正确；仅对「百分比列」做缩放便于用 column_config 显示为 X.XX%
     for col in display_df.columns:
         if pd.api.types.is_numeric_dtype(display_df[col].dtype):
-            is_pct = is_percentage_column(col)
-            display_df[col] = display_df[col].apply(lambda x, p=is_pct: format_cell(x, p))
-        else:
-            # 非数值列：转为字符串，清理nan
+            if is_percentage_column(col):
+                # 0-1 的小数转为 0-100，便于 column_config 用 "%.2f%%" 显示且排序仍按数值
+                def scale_pct(x):
+                    if pd.isna(x):
+                        return x
+                    return x * 100 if abs(x) <= 1 else x
+                display_df[col] = display_df[col].apply(scale_pct)
+        # 非数值列：清理 nan 等，保持原类型供展示
+        elif not pd.api.types.is_datetime64_any_dtype(display_df[col].dtype):
             display_df[col] = display_df[col].astype(str).replace('nan', '').replace('NaT', '').replace('None', '')
-    
-    # 添加总计行
+
+    # 在添加总计行之前根据当前列类型构建 column_config（避免总计行把首列变为 object 后类型判断错误）
+    column_config = {}
+    for col in display_df.columns:
+        if pd.api.types.is_datetime64_any_dtype(display_df[col].dtype):
+            column_config[col] = st.column_config.DatetimeColumn(col, format="YYYY-MM-DD")
+        elif pd.api.types.is_numeric_dtype(display_df[col].dtype):
+            if is_percentage_column(col):
+                column_config[col] = st.column_config.NumberColumn(col, format="%.2f%%")
+            else:
+                column_config[col] = st.column_config.NumberColumn(col, format="%.2f")
+        # 非数值非日期列不设 column_config，使用默认展示
+
+    # 添加总计行（数值列保持数值类型，便于 column_config 统一格式化与排序）
+    # 说明：未参与合计的数值列填 pd.NA，以保持列类型为数值、列头排序正常；Streamlit 会将该行标为含缺失值（行首可能显示小叹号），
+    # 且 st.column_config.NumberColumn 无“将 null 显示为空”的配置，故 NA 的展示由 Streamlit 决定（多为空白或 "None"）。
     if add_total_row and total_columns and total_values:
         total_row = {}
         for col in display_df.columns:
             if col in total_values:
-                val = total_values[col]
-                is_pct = is_percentage_column(col)
-                total_row[col] = format_cell(val, is_pct)
+                total_row[col] = total_values[col]
             elif col == display_df.columns[0]:
                 total_row[col] = "合计"
+            elif pd.api.types.is_numeric_dtype(display_df[col].dtype):
+                total_row[col] = pd.NA  # 保持列仍为数值型，排序正常；若改为 "" 则列变 object、排序异常
             else:
                 total_row[col] = ""
-        
         display_df = pd.concat([display_df, pd.DataFrame([total_row])], ignore_index=True)
     
     # 底部统计和操作栏（放在表格上方）
@@ -211,12 +198,13 @@ def render_data_table(
     # 添加间距
     st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
     
-    # 显示表格
+    # 显示表格（column_config 仅控制显示格式，列仍为数值/日期类型，列头排序正确）
     st.dataframe(
         display_df,
-        use_container_width=True,
+        width='stretch',
         height=height,
-        hide_index=True
+        hide_index=True,
+        column_config=column_config
     )
 
 

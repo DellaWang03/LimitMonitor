@@ -120,7 +120,7 @@ def render(filters: dict, data_loader):
                     labels={'单一地域总持仓_PR': '持仓(万)', '省份': '省份'}
                 )
                 fig.update_layout(xaxis_tickangle=-45)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             
             with col2:
                 # 城投持仓Top10
@@ -135,7 +135,7 @@ def render(filters: dict, data_loader):
                         labels={'单一地域城投总持仓_PR': '持仓(万)', '省份': '省份'}
                     )
                     fig2.update_layout(xaxis_tickangle=-45)
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig2, width='stretch')
     
     # ==================== Tab2: 区域集中度汇总 ====================
     with tab2:
@@ -215,7 +215,7 @@ def render(filters: dict, data_loader):
                     xaxis_tickangle=-45
                 )
                 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             
             with col2:
                 # 剩余额度分布
@@ -238,4 +238,4 @@ def render(filters: dict, data_loader):
                         labels={'剩余额度(万)': '剩余额度(万)', '省份': '省份'}
                     )
                     fig2.update_layout(xaxis_tickangle=-45)
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig2, width='stretch')

@@ -128,7 +128,7 @@ def render(filters: dict, data_loader):
                     st.markdown("### 📋 省份明细")
                     st.dataframe(
                         province_summary,
-                        use_container_width=True,
+                        width='stretch',
                         height=450,
                         hide_index=True
                     )
@@ -144,7 +144,7 @@ def render(filters: dict, data_loader):
                         hole=0.4
                     )
                     fig.update_traces(textposition='inside', textinfo='percent+label')
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
                 
                 # 可选：展开债券明细（仅供参考，注意不含做市业务数据）
                 if '省份类别' in df_detail.columns:
@@ -240,7 +240,7 @@ def render(filters: dict, data_loader):
                         st.markdown("### 📋 行业明细")
                         st.dataframe(
                             industry_summary,
-                            use_container_width=True,
+                            width='stretch',
                             height=450,
                             hide_index=True
                         )
@@ -258,7 +258,7 @@ def render(filters: dict, data_loader):
                             color_discrete_map={'✅ 正常': '#2ecc71', '⚠️ 超限': '#e74c3c'}
                         )
                         fig.update_layout(xaxis_tickangle=-45)
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width='stretch')
                     
                     # 可选：展开债券明细
                     with st.expander("🔍 查看债券级别明细"):

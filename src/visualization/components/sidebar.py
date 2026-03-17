@@ -96,7 +96,8 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
             ("专业担保明细", "🏢"),
             ("高风险类明细", "⚠️"),
             ("地域类明细", "🗺️"),
-            ("高收益明细", "💰")
+            ("高收益明细", "💰"),
+            ("单券可购额度查询", "🔍"),
         ]
         
         # 使用radio按钮组
@@ -121,11 +122,11 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🔄 刷新", use_container_width=True):
+            if st.button("🔄 刷新", width='stretch'):
                 st.cache_data.clear()
                 st.rerun()
         with col2:
-            if st.button("📥 导出", use_container_width=True):
+            if st.button("📥 导出", width='stretch'):
                 st.info("开发中...")
         
     return selected_page, target_date
@@ -193,6 +194,12 @@ def _render_page_metrics(data_loader, page_name: str):
             if '库存数量(万)_PR' in df.columns:
                 total_pos = df['库存数量(万)_PR'].sum()
                 st.caption(f"💰 投资规模: {total_pos:,.0f}万")
+        
+        elif page_name == "单券可购额度查询":
+            df = data_loader.load_stage1_credit_1_2()
+            if '日期' in df.columns:
+                st.caption(f"📅 数据日期: {df['日期'].max().strftime('%Y-%m-%d')}")
+            st.caption("🔍 输入债券代码/名称查询可购额度")
         
         else:
             # 默认显示全局信息
