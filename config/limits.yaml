@@ -91,18 +91,7 @@ high_risk_province:
   # 省份字段
   province_field: "省份"
 
-# 8. 新老划断
-new_old_cutoff:
-  # 判断标准
-  cutoff_date: null  # 从新老划断表动态读取
-  
-  # 新老债券标记
-  enabled: true
-  
-  # 源表
-  source_table: "新老划断"
-
-# 9. 高收益债券
+# 8. 高收益债券
 high_yield:
   # 穿透计算
   penetration_enabled: true

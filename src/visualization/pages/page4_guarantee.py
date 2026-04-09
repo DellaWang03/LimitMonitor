@@ -22,10 +22,26 @@ def render(filters: dict, data_loader):
     with st.spinner("加载数据中..."):
         df = data_loader.load_stage1_guarantee()
     
-    # KPI卡片区域
-    total_companies = len(df)
-    total_position = df['单一担保人总持仓_PR'].sum() if '单一担保人总持仓_PR' in df.columns else 0
-    total_limit = df['单一担保公司规模限额'].sum() if '单一担保公司规模限额' in df.columns else 0
+    # KPI卡片区域 - 修正计算逻辑
+    # 公司数量：去重计算（按公司名称）
+    # 总持仓/总限额：使用最新日期所有记录的总和（包含所有业务分类，不去重）
+    if '授信担保公司名称' in df.columns and '日期' in df.columns:
+        # 1. 先筛选最新日期的所有记录（包含所有业务分类）
+        latest_date = df['日期'].max()
+        df_latest_date = df[df['日期'] == latest_date].copy()
+        
+        # 2. 公司数量：按公司名称去重计算
+        total_companies = df_latest_date['授信担保公司名称'].nunique()
+        
+        # 3. 总持仓、总限额：使用最新日期所有记录的总和（不去重，包含所有业务分类）
+        total_position = df_latest_date['单一担保人总持仓_PR'].sum() if '单一担保人总持仓_PR' in df_latest_date.columns else 0
+        total_limit = df_latest_date['单一担保公司规模限额'].sum() if '单一担保公司规模限额' in df_latest_date.columns else 0
+    else:
+        # 如果缺少必要列，使用原始数据（可能不准确）
+        total_companies = df['授信担保公司名称'].nunique() if '授信担保公司名称' in df.columns else len(df)
+        total_position = df['单一担保人总持仓_PR'].sum() if '单一担保人总持仓_PR' in df.columns else 0
+        total_limit = df['单一担保公司规模限额'].sum() if '单一担保公司规模限额' in df.columns else 0
+    
     usage_rate = (total_position / total_limit * 100) if total_limit > 0 else 0
     
     col1, col2, col3, col4 = st.columns(4)
@@ -58,12 +74,15 @@ def render(filters: dict, data_loader):
         """, unsafe_allow_html=True)
     
     with col4:
-        usage_color = "#22c55e" if usage_rate < 80 else ("#eab308" if usage_rate < 100 else "#ef4444")
+        thresholds = data_loader.load_alert_thresholds()
+        _warn = thresholds['warning'] * 100
+        _over = thresholds['overlimit'] * 100
+        usage_color = "#22c55e" if usage_rate < _warn else ("#eab308" if usage_rate < _over else "#ef4444")
         st.markdown(f"""
         <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px;">
             <p style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 8px 0;">使用率</p>
             <p style="font-size: 1.75rem; font-weight: 700; color: {usage_color}; margin: 0;">{usage_rate:.1f}%</p>
-            <p style="font-size: 0.75rem; color: #94a3b8; margin: 4px 0 0 0;">{'正常' if usage_rate < 80 else ('警戒' if usage_rate < 100 else '超限')}</p>
+            <p style="font-size: 0.75rem; color: #94a3b8; margin: 4px 0 0 0;">{'正常' if usage_rate < _warn else ('警戒' if usage_rate < _over else '超限')}</p>
         </div>
         """, unsafe_allow_html=True)
     

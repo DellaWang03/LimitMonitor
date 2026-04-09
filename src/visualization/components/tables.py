@@ -3,6 +3,7 @@
 """
 import streamlit as st
 import pandas as pd
+import numpy as np
 from io import BytesIO
 
 
@@ -126,10 +127,18 @@ def render_data_table(
         if pd.api.types.is_datetime64_any_dtype(display_df[col].dtype):
             column_config[col] = st.column_config.DatetimeColumn(col, format="YYYY-MM-DD")
         elif pd.api.types.is_numeric_dtype(display_df[col].dtype):
-            if is_percentage_column(col):
+            if col == '内部证券账户覆盖数':
+                column_config[col] = st.column_config.NumberColumn(col, format="%d")
+            elif is_percentage_column(col):
                 column_config[col] = st.column_config.NumberColumn(col, format="%.2f%%")
             else:
                 column_config[col] = st.column_config.NumberColumn(col, format="%.2f")
+        elif col == '代码':
+            column_config[col] = st.column_config.TextColumn("ISIN码/资产代码", width="medium")
+        elif col in {'资产名称', '证券名称'}:
+            column_config[col] = st.column_config.TextColumn(col, width="medium")
+        elif col == '债券分类2':
+            column_config[col] = st.column_config.TextColumn("债券分类", width="small")
         # 非数值非日期列不设 column_config，使用默认展示
 
     # 添加总计行（数值列保持数值类型，便于 column_config 统一格式化与排序）
@@ -143,14 +152,18 @@ def render_data_table(
             elif col == display_df.columns[0]:
                 total_row[col] = "合计"
             elif pd.api.types.is_numeric_dtype(display_df[col].dtype):
-                total_row[col] = pd.NA  # 保持列仍为数值型，排序正常；若改为 "" 则列变 object、排序异常
+                total_row[col] = np.nan  # 用 np.nan 便于 astype(float)，避免 pd.NA 转 float 报 NAType 错误
             else:
                 total_row[col] = ""
         # 按 display_df 的列顺序和类型构造总计行，避免 concat 时的 FutureWarning（空/全 NA 列推断行为变更）
         total_df = pd.DataFrame([total_row], columns=display_df.columns)
         for col in display_df.columns:
             if col in total_df.columns and display_df[col].dtype != total_df[col].dtype:
-                total_df[col] = total_df[col].astype(display_df[col].dtype)
+                try:
+                    total_df[col] = total_df[col].astype(display_df[col].dtype)
+                except (TypeError, ValueError):
+                    # 含 nan 的列无法转为整数等，保持原类型，concat 时会自动兼容（如 int+float→float）
+                    pass
         display_df = pd.concat([display_df, total_df], ignore_index=True)
     
     # 底部统计和操作栏（放在表格上方）

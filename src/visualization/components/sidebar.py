@@ -5,6 +5,10 @@ import streamlit as st
 from datetime import datetime, date
 from typing import Optional
 
+SIDEBAR_BADGE_BG = "rgba(59, 130, 246, 0.14)"
+SIDEBAR_BADGE_BORDER = "rgba(96, 165, 250, 0.22)"
+SIDEBAR_BADGE_TEXT = "#dbeafe"
+
 
 def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]:
     """
@@ -24,7 +28,7 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
             <h1 style="font-size: 1.5rem; font-weight: 700; color: #f8fafc; margin: 0; display: flex; align-items: center; gap: 10px;">
                 <span style="font-size: 1.75rem;">📊</span> 限额监控
             </h1>
-            <p style="font-size: 0.75rem; color: #94a3b8; margin: 0.5rem 0 0 0;">
+            <p style="font-size: 0.75rem; color: #cbd5e1; margin: 0.5rem 0 0 0;">
                 Risk Limit Monitoring System
             </p>
         </div>
@@ -34,7 +38,7 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
         
         # ========== 日期选择器 ==========
         st.markdown("""
-        <p style="font-size: 0.7rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem;">
+        <p style="font-size: 0.7rem; font-weight: 600; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem;">
             数据日期
         </p>
         """, unsafe_allow_html=True)
@@ -51,22 +55,32 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
         target_date = None
         
         if date_mode == "历史数据":
-            # 导入 DataLoader 以获取可用日期
+            # 导入 DataLoader 以获取可用日期及数据日期（用于展示「归档日 (数据日期: xxx)」）
             from src.visualization.data_loader import DataLoader as DL
             available_dates = DL.get_available_dates()
-            
+
+            def _format_archive_option(d):
+                data_date = DL.get_data_date_for_archive(d)
+                if data_date:
+                    return f"{d.strftime('%Y年%m月%d日')} (数据日期: {data_date})"
+                return d.strftime('%Y年%m月%d日')
+
             if available_dates:
                 target_date = st.selectbox(
                     "选择日期",
                     options=available_dates,
-                    format_func=lambda d: d.strftime('%Y年%m月%d日'),
+                    format_func=_format_archive_option,
                     key="selected_date",
                     label_visibility="collapsed"
                 )
-                # 显示当前日期指示器
+                # 显示当前选中：归档日 + 数据日期（若有）
+                data_date_str = DL.get_data_date_for_archive(target_date)
+                date_label = f"归档: {target_date.strftime('%Y-%m-%d')}"
+                if data_date_str:
+                    date_label += f" · 数据: {data_date_str}"
                 st.markdown(f"""
-                <div style="background: rgba(59, 130, 246, 0.15); border-radius: 6px; padding: 8px 12px; margin-top: 8px;">
-                    <span style="color: #93c5fd; font-size: 0.8rem;">📅 {target_date.strftime('%Y-%m-%d')}</span>
+                <div style="background: {SIDEBAR_BADGE_BG}; border: 1px solid {SIDEBAR_BADGE_BORDER}; border-radius: 8px; padding: 8px 12px; margin-top: 8px;">
+                    <span style="color: {SIDEBAR_BADGE_TEXT}; font-size: 0.8rem;">📅 {date_label}</span>
                 </div>
                 """, unsafe_allow_html=True)
             else:
@@ -75,8 +89,8 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
             # 显示最新数据日期
             latest_date = data_loader.get_latest_date()
             st.markdown(f"""
-            <div style="background: rgba(34, 197, 94, 0.15); border-radius: 6px; padding: 8px 12px; margin-top: 8px;">
-                <span style="color: #86efac; font-size: 0.8rem;">📅 {latest_date.strftime('%Y-%m-%d')}</span>
+            <div style="background: {SIDEBAR_BADGE_BG}; border: 1px solid {SIDEBAR_BADGE_BORDER}; border-radius: 8px; padding: 8px 12px; margin-top: 8px;">
+                <span style="color: {SIDEBAR_BADGE_TEXT}; font-size: 0.8rem;">📅 {latest_date.strftime('%Y-%m-%d')}</span>
             </div>
             """, unsafe_allow_html=True)
         
@@ -84,7 +98,7 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
         
         # 页面导航
         st.markdown("""
-        <p style="font-size: 0.7rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem;">
+        <p style="font-size: 0.7rem; font-weight: 600; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem;">
             功能模块
         </p>
         """, unsafe_allow_html=True)
@@ -93,6 +107,7 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
             ("单一信用限额", "📋"),
             ("特定信用限额", "📌"),
             ("分类信用限额", "📑"),
+            ("全量债券监管集中度", "🌐"),
             ("专业担保明细", "🏢"),
             ("高风险类明细", "⚠️"),
             ("地域类明细", "🗺️"),
@@ -111,24 +126,6 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
         # 提取页面名称（去掉emoji）
         selected_page = selected.split(" ", 1)[1]
         
-        st.markdown("---")
-        
-        # 快捷操作
-        st.markdown("""
-        <p style="font-size: 0.7rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem;">
-            快捷操作
-        </p>
-        """, unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 刷新", width='stretch'):
-                st.cache_data.clear()
-                st.rerun()
-        with col2:
-            if st.button("📥 导出", width='stretch'):
-                st.info("开发中...")
-        
     return selected_page, target_date
 
 
@@ -144,21 +141,21 @@ def _render_page_metrics(data_loader, page_name: str):
         if page_name == "单一信用限额":
             df = data_loader.load_stage1_credit_1_2()
             st.caption(f"📅 数据日期: {df['日期'].max().strftime('%Y-%m-%d')}")
-            st.caption(f"📊 债券总数: {df['资产代码'].nunique()}只")
+            st.caption(f"📊 监控对象数: {df['资产代码'].nunique()}个")
             overlimit = len(df[df['是否超限'] == '是'])
-            st.caption(f"⚠️ 超限债券: {overlimit}只")
+            st.caption(f"⚠️ 超限对象: {overlimit}个")
             
         elif page_name == "特定信用限额":
             df = data_loader.load_stage1_credit_1_1()
             st.caption(f"📅 数据日期: {df['日期'].max().strftime('%Y-%m-%d')}")
-            st.caption(f"📊 债券总数: {df['资产代码'].nunique()}只")
+            st.caption(f"📊 监控对象数: {df['资产代码'].nunique()}个")
             
         elif page_name == "分类信用限额":
             df = data_loader.load_stage1_credit_1_2()
             st.caption(f"📅 数据日期: {df['日期'].max().strftime('%Y-%m-%d')}")
             if '债券分类2' in df.columns:
                 st.caption(f"📑 分类数量: {df['债券分类2'].nunique()}类")
-            st.caption(f"📊 债券总数: {df['资产代码'].nunique()}只")
+            st.caption(f"📊 监控对象数: {df['资产代码'].nunique()}个")
             
         elif page_name == "专业担保明细":
             df = data_loader.load_stage1_guarantee()
@@ -167,6 +164,14 @@ def _render_page_metrics(data_loader, page_name: str):
             if '单一担保人总持仓_PR' in df.columns:
                 total_pos = df['单一担保人总持仓_PR'].sum()
                 st.caption(f"💰 总持仓: {total_pos:,.0f}万")
+
+        elif page_name == "全量债券监管集中度":
+            df = data_loader.load_stage1_full_regulatory_concentration()
+            st.caption(f"📅 数据日期: {df['日期'].max().strftime('%Y-%m-%d')}")
+            st.caption(f"📊 监控对象数: {len(df)}个")
+            if '是否可计算' in df.columns:
+                calculable = len(df[df['是否可计算'] == '是'])
+                st.caption(f"🧮 可计算对象: {calculable}个")
             
         elif page_name == "高风险类明细":
             df = data_loader.load_stage2_credit_2()

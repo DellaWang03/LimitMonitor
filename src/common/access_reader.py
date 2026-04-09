@@ -3,8 +3,11 @@ Access数据库读取器
 支持在macOS和Windows上读取.accdb文件
 """
 
+import subprocess
 import pandas as pd
 from pathlib import Path
+from typing import Optional
+from datetime import datetime, timedelta
 import platform
 from loguru import logger
 
@@ -12,16 +15,27 @@ from loguru import logger
 class AccessDatabaseReader:
     """Access数据库读取器"""
     
-    def __init__(self, db_path: Path):
+    def __init__(
+        self,
+        db_path: Path,
+        export_dir: Optional[Path] = None,
+        source_accdb_path: Optional[Path] = None,
+        freshness_threshold_date: Optional[datetime] = None,
+    ):
         """
         初始化Access数据库读取器
         
         参数:
-            db_path: Access数据库文件路径(.accdb)
+            db_path: Access数据库文件路径(.accdb)，用于同目录导出文件查找及 pyodbc
+            export_dir: 仅用于风控部债券池：导出 CSV 的目录（如 data_config_source），先刷新再从此处读
+            source_accdb_path: 仅用于风控部债券池：mdb-export 的 .accdb 路径（如 SMB 挂载路径）
         """
         self.db_path = Path(db_path)
+        self.export_dir = Path(export_dir) if export_dir else None
+        self.source_accdb_path = Path(source_accdb_path) if source_accdb_path else None
+        self.freshness_threshold_date = freshness_threshold_date.date() if isinstance(freshness_threshold_date, datetime) else freshness_threshold_date
         
-        if not self.db_path.exists():
+        if not self.export_dir and not self.db_path.exists():
             raise FileNotFoundError(f"Access数据库不存在: {db_path}")
         
         self.system = platform.system()
@@ -62,6 +76,45 @@ class AccessDatabaseReader:
             except Exception as e:
                 logger.warning(f"⚠️  pyodbc读取失败: {e}")
                 logger.warning(f"   将尝试fallback到导出文件...")
+        
+        # 仅风控部债券池：若配置了 export_dir + source_accdb_path，先检查与 mdb-export 写入路径相同的 CSV 是否已为最新，是则跳过导出
+        if (
+            table_name == "风控部债券池"
+            and self.export_dir
+            and self.source_accdb_path
+        ):
+            # 与 _try_mdb_export 写入路径一致：export_dir / 风控部债券池.csv
+            out_csv = self.export_dir / f"{table_name}.csv"
+            need_export = True
+            if out_csv.exists():
+                max_date = self._csv_max_date(out_csv)
+                threshold = self.freshness_threshold_date or (datetime.now().date() - timedelta(days=1))
+                if max_date is not None:
+                    if max_date.date() >= threshold:
+                        need_export = False
+                        logger.info(f"  CSV 已为最新日期 {max_date.date()}（≥T-1），跳过 mdb-export")
+                    else:
+                        logger.info(f"  CSV 最大日期 {max_date.date()} 早于 T-1 {threshold}，将重新导出")
+                else:
+                    # 解析失败时：若文件在 24 小时内修改过，视为刚导出，跳过
+                    try:
+                        mtime = out_csv.stat().st_mtime
+                        age_seconds = datetime.now().timestamp() - mtime
+                        if age_seconds <= 86400:  # 24h
+                            need_export = False
+                            logger.info(f"  CSV 为 24 小时内写入，跳过 mdb-export")
+                        else:
+                            logger.info(f"  无法解析 CSV 最大日期且文件超过 24h，将重新导出")
+                    except OSError:
+                        logger.info(f"  无法解析 CSV 最大日期，将重新导出")
+            else:
+                logger.info(f"  export_dir 下无 CSV，将执行 mdb-export")
+            if need_export and self.system == "Darwin" and self.source_accdb_path.exists():
+                self._try_mdb_export(table_name, self.source_accdb_path, self.export_dir)
+            if out_csv.exists():
+                df = pd.read_csv(out_csv)
+                logger.info(f"✓ 从 export_dir 读取风控部债券池: {len(df)} 行")
+                return df
         
         # 策略2: 检查是否有导出的Excel/CSV文件（开发环境或fallback）
         exported_files = [
@@ -119,7 +172,64 @@ class AccessDatabaseReader:
         
         # 所有策略都失败
         self._raise_access_error(table_name, stage0_excel)
-    
+
+    def _csv_max_date(self, csv_path: Path) -> Optional[pd.Timestamp]:
+        """
+        仅读 CSV 的「日期」列并返回最大日期，用于判断是否需重新从 .accdb 导出。
+        与 mdb-export 写入的 CSV 路径一致时，日期格式通常为 MM/DD/YY HH:MM:SS。
+        失败或缺少列时返回 None。
+        """
+        try:
+            chunks = pd.read_csv(csv_path, usecols=["日期"], chunksize=100_000, encoding="utf-8")
+            max_ts = None
+            for ch in chunks:
+                if ch.empty or "日期" not in ch.columns:
+                    continue
+                # mdb-export 导出格式多为 "01/26/25 00:00:00"，指定 format 避免推断并加速
+                ser = pd.to_datetime(ch["日期"], format="%m/%d/%y %H:%M:%S", errors="coerce")
+                if ser.isna().all():
+                    ser = pd.to_datetime(ch["日期"], errors="coerce")
+                m = ser.max()
+                if pd.notna(m) and (max_ts is None or m > max_ts):
+                    max_ts = m
+            result = max_ts if isinstance(max_ts, pd.Timestamp) else None
+            if result is None:
+                logger.info("  无法从 CSV 解析出最大日期（列缺失或格式不符）")
+            return result
+        except Exception as e:
+            logger.info(f"  读取 CSV 最大日期失败: {e}")
+            return None
+
+    def _try_mdb_export(self, table_name: str, accdb_path: Path, export_dir: Path) -> bool:
+        """
+        使用 mdb-export 将 Access 表导出为 CSV 到 export_dir（仅用于风控部债券池）。
+        需要系统已安装 mdb-tools (brew install mdbtools)。返回 True 表示写入成功。
+        """
+        out_file = export_dir / f"{table_name}.csv"
+        try:
+            result = subprocess.run(
+                ["mdb-export", str(accdb_path), table_name],
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+            if result.returncode != 0:
+                logger.warning(f"mdb-export 失败: {result.stderr or result.stdout}")
+                return False
+            export_dir.mkdir(parents=True, exist_ok=True)
+            out_file.write_text(result.stdout, encoding="utf-8")
+            logger.info(f"✓ mdb-export 已写入: {out_file}")
+            return True
+        except FileNotFoundError:
+            logger.warning("未找到 mdb-export，请安装: brew install mdbtools")
+            return False
+        except subprocess.TimeoutExpired:
+            logger.warning("mdb-export 超时")
+            return False
+        except Exception as e:
+            logger.warning(f"mdb-export 异常: {e}")
+            return False
+
     def _raise_access_error(self, table_name: str, stage0_excel: Path):
         """抛出详细的错误信息"""
         if self.system == 'Windows':

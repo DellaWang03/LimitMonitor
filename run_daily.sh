@@ -84,22 +84,19 @@ if [ -f "$WARNING_FILE" ]; then
         ARCHIVED=false
     fi
 else
-    # 数据完整，正常归档
+    # 数据完整，调用 Python 归档脚本（含 data_date.txt，与看板历史日期展示一致）
     echo "✅ 数据完整性检查通过，开始归档..."
     
-    HISTORY_DIR="$PROJECT_ROOT/data/history/$TODAY"
-    mkdir -p "$HISTORY_DIR"
-    
     if [ -d "$CURRENT_DIR/stage0_output" ] && [ -d "$CURRENT_DIR/stage1_output" ] && [ -d "$CURRENT_DIR/stage2_output" ]; then
-        echo "  从 current/ 目录备份完整数据（Stage0/1/2）..."
-        cp -r "$CURRENT_DIR/stage0_output" "$HISTORY_DIR/"
-        cp -r "$CURRENT_DIR/stage1_output" "$HISTORY_DIR/"
-        cp -r "$CURRENT_DIR/stage2_output" "$HISTORY_DIR/"
-        echo "  ✅ 已归档: stage0_output (配置文件)"
-        echo "  ✅ 已归档: stage1_output (业务数据)"
-        echo "  ✅ 已归档: stage2_output (业务数据)"
-        echo "✅ 数据已备份到: $HISTORY_DIR"
-        ARCHIVED=true
+        python3 scripts/daily_archive.py
+        if [ $? -eq 0 ]; then
+            ARCHIVED=true
+            echo "✅ 数据已备份到: $PROJECT_ROOT/data/history/$TODAY"
+        else
+            echo "❌ 归档失败"
+            ARCHIVED=false
+            exit 1
+        fi
     else
         echo "⚠️  数据目录不完整，跳过归档"
         ARCHIVED=false

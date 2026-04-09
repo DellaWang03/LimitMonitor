@@ -1,11 +1,96 @@
 """
 每日归档脚本 - 将current/的数据完整备份到history/
 用于每天运行完Stage0/1/2后，保存当天的完整数据快照
+归档时写入 data_date.txt 记录输出表中的实际数据日期，供看板下拉展示「归档日 (数据日期: xxx)」
 """
 from pathlib import Path
 import shutil
 from datetime import datetime
+import json
 import sys
+
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
+
+
+def _ensure_project_import_path(project_root: Path):
+    """确保脚本模式下可以导入项目内模块。"""
+    project_root_str = str(project_root)
+    if project_root_str not in sys.path:
+        sys.path.insert(0, project_root_str)
+
+
+def _write_high_yield_limit_snapshot(project_root: Path, history_target: Path):
+    """写入高收益年度限额历史快照，避免历史页面回看时使用当前配置源。"""
+    snapshot_file = history_target / "high_yield_limit_snapshot.json"
+    payload = {
+        "snapshot_type": "high_yield_limit",
+        "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "annual_limit_wan": 100000,
+        "source": "fallback",
+    }
+
+    try:
+        _ensure_project_import_path(project_root)
+        from src.utils.config_loader import ConfigLoader
+
+        config = ConfigLoader(str(project_root / "config"))
+        source_file = config.get_data_file_path("限额监控_阶段0_指标设置.xlsx")
+        payload["source_file"] = str(source_file)
+
+        if pd is None:
+            payload["source"] = "fallback_no_pandas"
+            payload["error"] = "pandas_not_available"
+        else:
+            df = pd.read_excel(str(source_file), sheet_name="高收益限额")
+            row = df[df["指标"].astype(str).str.strip() == "年度高收益债券投资本金规模"]
+            if row.empty:
+                payload["source"] = "fallback_missing_row"
+                payload["error"] = "annual_limit_row_not_found"
+            else:
+                payload["annual_limit_wan"] = int(row.iloc[0]["限额(万)"])
+                payload["source"] = "snapshot"
+    except Exception as e:
+        payload["source"] = "fallback_exception"
+        payload["error"] = str(e)
+
+    snapshot_file.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
+    print(f"📋 高收益限额快照已写入: {snapshot_file.name}")
+
+
+def _write_alert_thresholds_snapshot(project_root: Path, history_target: Path):
+    """写入展示用告警阈值历史快照，保证历史页面颜色和文案口径可回放。"""
+    snapshot_file = history_target / "alert_thresholds_snapshot.json"
+    payload = {
+        "snapshot_type": "alert_thresholds",
+        "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "warning": 0.80,
+        "overlimit": 1.00,
+        "source": "fallback",
+    }
+
+    try:
+        _ensure_project_import_path(project_root)
+        from src.utils.config_loader import ConfigLoader
+
+        config = ConfigLoader(str(project_root / "config"))
+        payload["warning"] = float(config.get("alerts.thresholds.warning", 0.80))
+        payload["overlimit"] = float(config.get("alerts.thresholds.overlimit", 1.00))
+        payload["source"] = "snapshot"
+    except Exception as e:
+        payload["source"] = "fallback_exception"
+        payload["error"] = str(e)
+
+    snapshot_file.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
+    print(f"📋 告警阈值快照已写入: {snapshot_file.name}")
 
 def archive_current_to_history(target_date: str = None):
     """
@@ -73,6 +158,31 @@ def archive_current_to_history(target_date: str = None):
         else:
             print(f"⏭️  {stage_name}: 跳过（不存在）")
             archived_files[stage_name] = 0
+    
+    # 写入数据日期 meta（从 Stage1 输出表读取「日期」列最大值，供看板展示）
+    data_date_str = None
+    if pd is not None and (history_target / "stage1_output").exists():
+        ref_file = history_target / "stage1_output" / "限额明细_债券持仓明细表_信用债1_2.xlsx"
+        if ref_file.exists():
+            try:
+                df = pd.read_excel(ref_file)
+                if "日期" in df.columns:
+                    df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
+                    max_date = df["日期"].max()
+                    if pd.notna(max_date):
+                        data_date_str = max_date.strftime("%Y-%m-%d")
+                        (history_target / "data_date.txt").write_text(
+                            data_date_str, encoding="utf-8"
+                        )
+                        print(f"📋 数据日期已写入: {data_date_str}")
+            except Exception as e:
+                print(f"⚠️  读取数据日期失败（不影响归档）: {e}")
+    if not data_date_str:
+        print(f"📋 未写入 data_date.txt（无 pandas 或表中无日期列）")
+
+    # 写入历史展示快照，避免历史页面回看时重新读取当前配置
+    _write_high_yield_limit_snapshot(project_root, history_target)
+    _write_alert_thresholds_snapshot(project_root, history_target)
     
     print(f"\n" + "=" * 70)
     print(f"✅ 归档完成！")

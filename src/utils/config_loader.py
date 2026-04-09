@@ -1,12 +1,19 @@
 """
 配置加载器
 用于加载和管理 YAML 配置文件
+支持路径双 profile 一键切换：local（当前环境）/ migration（另一台电脑）
 """
 
 import os
 import yaml
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+
+# migration 时从 data_config_source 读取的 3 个文件
+CONFIG_SOURCE_FILES = {
+    "发行人类型调整表.xlsx",
+    "风控部债券池_主体_虚拟添加.xlsx",
+}
 
 
 class ConfigLoader:
@@ -114,6 +121,105 @@ class ConfigLoader:
                 
         return value
     
+    def get_active_profile(self) -> str:
+        """
+        当前使用的路径 profile：local | migration
+        可通过环境变量 LIMIT_MONITOR_PROFILE 覆盖配置。
+        """
+        env_profile = os.environ.get("LIMIT_MONITOR_PROFILE", "").strip().lower()
+        if env_profile in ("local", "migration"):
+            return env_profile
+        return self.get("data_sources.active_profile", "local") or "local"
+
+    def _get_migration_profile(self) -> Optional[Dict[str, Any]]:
+        """获取 migration profile 配置，未配置或非 migration 时返回 None。"""
+        if self.get_active_profile() != "migration":
+            return None
+        profiles = self.get("data_sources.path_profiles") or {}
+        return profiles.get("migration")
+
+    def get_data_dir(self) -> Path:
+        """
+        获取数据源根目录的完整路径（按当前 profile）。
+        local：项目下 data_sources.data_dir；migration：path_profiles.migration.data_dir。
+        """
+        project_root = self.config_dir.parent
+        profile = self.get_active_profile()
+        if profile == "migration":
+            mig = self._get_migration_profile()
+            if mig and mig.get("data_dir"):
+                p = Path(mig["data_dir"])
+                return p if p.is_absolute() else project_root / p
+        data_dir_config = self.get("data_sources.data_dir", "sample data")
+        return project_root / data_dir_config
+
+    def get_data_config_source_dir(self) -> Optional[Path]:
+        """
+        migration 时返回 3 个配置表所在目录；local 时返回 None（调用方用 data_dir）。
+        """
+        mig = self._get_migration_profile()
+        if not mig or not mig.get("data_config_source"):
+            return None
+        p = Path(mig["data_config_source"])
+        project_root = self.config_dir.parent
+        return p if p.is_absolute() else project_root / p
+
+    def get_data_file_path(self, file_name: str) -> Path:
+        """
+        按当前 profile 返回数据源文件的完整路径。
+        local：data_dir / file_name；migration：按 file_subpaths / path_overrides / data_config_source。
+        """
+        project_root = self.config_dir.parent
+        profile = self.get_active_profile()
+        if profile == "local":
+            data_dir = self.get("data_sources.data_dir", "sample data")
+            return project_root / data_dir / file_name
+        mig = self._get_migration_profile()
+        if not mig:
+            data_dir = self.get("data_sources.data_dir", "sample data")
+            return project_root / data_dir / file_name
+        if file_name in CONFIG_SOURCE_FILES:
+            cfg_dir = mig.get("data_config_source")
+            if cfg_dir:
+                p = Path(cfg_dir)
+                base = p if p.is_absolute() else project_root / p
+                return base / file_name
+        overrides = mig.get("path_overrides") or {}
+        if file_name in overrides:
+            p = Path(overrides[file_name])
+            return p if p.is_absolute() else project_root / p
+        data_dir = Path(mig.get("data_dir", "."))
+        if not data_dir.is_absolute():
+            data_dir = project_root / data_dir
+        subpaths = mig.get("file_subpaths") or {}
+        sub = subpaths.get(file_name)
+        if sub:
+            return data_dir / sub / file_name
+        return data_dir / file_name
+
+    def get_data_file_path_without_override(self, file_name: str) -> Path:
+        """
+        返回数据源文件路径但不应用 path_overrides（用于从 SMB 等原始位置读取，如 mdb-export 源）。
+        仅用于风控部债券池.accdb 的自动导出场景。
+        """
+        project_root = self.config_dir.parent
+        profile = self.get_active_profile()
+        if profile == "local":
+            data_dir = self.get("data_sources.data_dir", "sample data")
+            return project_root / data_dir / file_name
+        mig = self._get_migration_profile()
+        if not mig:
+            data_dir = self.get("data_sources.data_dir", "sample data")
+            return project_root / data_dir / file_name
+        data_dir = Path(mig.get("data_dir", "."))
+        if not data_dir.is_absolute():
+            data_dir = project_root / data_dir
+        subpaths = mig.get("file_subpaths") or {}
+        sub = subpaths.get(file_name)
+        if sub:
+            return data_dir / sub / file_name
+        return data_dir / file_name
+
     def get_data_source_path(self, source_key: str) -> Path:
         """
         获取数据源文件的完整路径

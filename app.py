@@ -18,10 +18,12 @@ from src.visualization.pages import (
     page1_single_credit,
     page2_specific_credit,
     page3_category_credit,
+    page9_full_regulatory,
     page4_guarantee,
     page5_high_risk,
     page6_regional,
-    page7_high_yield
+    page7_high_yield,
+    page8_bond_quota,
 )
 
 
@@ -37,6 +39,61 @@ st.set_page_config(
 apply_custom_styles()
 
 
+def _cleanup_page_state(previous_page: str, selected_page: str):
+    """清理已离开页面的瞬时控件状态，减少切页时的额外重绘。"""
+    if previous_page == selected_page:
+        return
+
+    if previous_page == '单一信用限额':
+        keys_to_remove = [
+            '_page1_compact_controls_css_injected',
+            'page1_current_dimension_overlimit_shared',
+            'page1_current_dimension_overlimit_shared_version',
+            'page1_tab1_current_dimension_overlimit',
+            'page1_tab1_current_dimension_overlimit__shared_version',
+            'page1_tab2_current_dimension_overlimit',
+            'page1_tab2_current_dimension_overlimit__shared_version',
+            'page1_tab3_current_dimension_overlimit',
+            'page1_tab3_current_dimension_overlimit__shared_version',
+            'page1_tab4_current_dimension_overlimit',
+            'page1_tab4_current_dimension_overlimit__shared_version',
+            'page1_tab5_current_dimension_overlimit',
+            'page1_tab5_current_dimension_overlimit__shared_version',
+        ]
+        for key in keys_to_remove:
+            st.session_state.pop(key, None)
+
+    elif previous_page == '特定信用限额':
+        keys_to_remove = [
+            '_page2_compact_controls_css_injected',
+            'page2_current_dimension_overlimit_shared',
+            'page2_current_dimension_overlimit_shared_version',
+            'page2_tab1_current_dimension_overlimit',
+            'page2_tab1_current_dimension_overlimit__shared_version',
+            'page2_tab2_current_dimension_overlimit',
+            'page2_tab2_current_dimension_overlimit__shared_version',
+        ]
+        for key in keys_to_remove:
+            st.session_state.pop(key, None)
+
+    elif previous_page == '分类信用限额':
+        keys_to_remove = [
+            '_page3_compact_controls_css_injected',
+            'page3_current_dimension_overlimit_shared',
+            'page3_current_dimension_overlimit_shared_version',
+            'page3_tab1_current_dimension_overlimit',
+            'page3_tab1_current_dimension_overlimit__shared_version',
+            'page3_tab2_current_dimension_overlimit',
+            'page3_tab2_current_dimension_overlimit__shared_version',
+            'page3_tab3_current_dimension_overlimit',
+            'page3_tab3_current_dimension_overlimit__shared_version',
+            'page3_tab4_current_dimension_overlimit',
+            'page3_tab4_current_dimension_overlimit__shared_version',
+        ]
+        for key in keys_to_remove:
+            st.session_state.pop(key, None)
+
+
 def main():
     """主函数"""
     try:
@@ -49,18 +106,25 @@ def main():
         
         # 渲染左侧导航栏（包含日期选择器），获取选中的页面和日期
         selected_page, target_date = render_sidebar(temp_loader, st.session_state.current_page)
+
+        # 切页后清理上一页的瞬时状态，避免页面树差异较大时出现额外状态框闪现
+        _cleanup_page_state(st.session_state.current_page, selected_page)
         
         # 更新当前页面
         st.session_state.current_page = selected_page
         
         # ========== 根据选中的日期初始化数据加载器 ==========
-        data_loader = DataLoader(target_date=target_date)
+        # 无历史日期时直接复用 temp_loader，避免重复实例化（节省 Path.exists 检查与日志开销）
+        if target_date is None:
+            data_loader = temp_loader
+        else:
+            data_loader = DataLoader(target_date=target_date)
         
         # 只在需要筛选器的页面显示顶部筛选器
         pages_with_filters = ['单一信用限额', '特定信用限额', '分类信用限额']
         
         if selected_page in pages_with_filters:
-            filters = render_top_filters(data_loader)
+            filters = render_top_filters(data_loader, selected_page)
         else:
             filters = {}  # 不显示筛选器
         
@@ -69,10 +133,12 @@ def main():
             '单一信用限额': page1_single_credit,
             '特定信用限额': page2_specific_credit,
             '分类信用限额': page3_category_credit,
+            '全量债券监管集中度': page9_full_regulatory,
             '专业担保明细': page4_guarantee,
             '高风险类明细': page5_high_risk,
             '地域类明细': page6_regional,
-            '高收益明细': page7_high_yield
+            '高收益明细': page7_high_yield,
+            '单券可购额度查询': page8_bond_quota,
         }
         
         # 渲染选中的页面

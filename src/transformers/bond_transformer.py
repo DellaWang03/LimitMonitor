@@ -129,44 +129,6 @@ class BondTransformer:
         
         return result
     
-    def add_new_old_cutoff_flag(
-        self,
-        bond_holdings: pd.DataFrame,
-        cutoff_bonds: pd.DataFrame
-    ) -> pd.DataFrame:
-        """
-        添加新老划断标记
-        
-        Args:
-            bond_holdings: 债券持仓数据
-            cutoff_bonds: 新老划断表（包含需要标记的债券代码）
-            
-        Returns:
-            添加了新老划断标记的数据
-        """
-        result = bond_holdings.copy()
-        
-        # 查找债券代码字段
-        bond_code_field = self._find_field(
-            result.columns, ['主证券代码', '债券代码']
-        )
-        cutoff_code_field = self._find_field(
-            cutoff_bonds.columns, ['主证券代码', '债券代码']
-        )
-        
-        if bond_code_field and cutoff_code_field:
-            # 创建新老划断标记
-            cutoff_codes = set(cutoff_bonds[cutoff_code_field].unique())
-            result['是否新老划断'] = result[bond_code_field].isin(cutoff_codes)
-            
-            count = result['是否新老划断'].sum()
-            self.logger.info(f"新老划断标记: {count} 条")
-        else:
-            result['是否新老划断'] = False
-            self.logger.warning("未找到债券代码字段，无法标记新老划断")
-        
-        return result
-    
     def _find_field(self, columns: pd.Index, candidates: List[str]) -> Optional[str]:
         """
         在列中查找第一个匹配的字段名

@@ -7,6 +7,9 @@ import pandas as pd
 import numpy as np
 from loguru import logger
 from typing import Dict
+from pathlib import Path
+import json
+from ..common import normalize_security_code_series
 
 
 class LimitDetailCalculator:
@@ -20,6 +23,29 @@ class LimitDetailCalculator:
             cache: 缓存的查询结果字典
         """
         self.cache = cache
+
+    @staticmethod
+    def _load_regulatory_concentration_limit() -> float:
+        """读取监管集中度默认限额配置。"""
+        fallback = 0.16
+        config_file = Path(__file__).resolve().parents[2] / "data" / "regulatory_concentration_limit.json"
+        if not config_file.exists():
+            return fallback
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            return float(config.get('regulatory_concentration_limit', fallback))
+        except Exception as e:
+            logger.warning(f"读取监管集中度限额配置失败，使用默认值 {fallback}: {e}")
+            return fallback
+
+    @staticmethod
+    def _first_non_null(series: pd.Series):
+        """返回序列中的首个非空值。"""
+        non_null = series.dropna()
+        if len(non_null) == 0:
+            return None
+        return non_null.iloc[0]
     
     def calculate_limit_detail_1_2(self) -> pd.DataFrame:
         """
@@ -44,6 +70,9 @@ class LimitDetailCalculator:
         df = df.copy()
         
         logger.info(f"  开始计算限额明细...")
+
+        if '主证券代码_标准' not in df.columns and '主证券代码' in df.columns:
+            df['主证券代码_标准'] = normalize_security_code_series(df['主证券代码'])
         
         # 1. 筛选非高收益
         df = df[df['是否属于高收益'] == '否']
@@ -89,12 +118,21 @@ class LimitDetailCalculator:
         
         df['单一债券规模限额适用类别_base'] = df.apply(get_bond_limit_category, axis=1)
         
-        # 合并债券池
+        # 合并债券池（与 M 代码 Table.CombineColumns 一致：无条件用 "/" 连接，债券池为空时视为空串，结果带尾斜杠如 "国企/"）
+        def _apply_bond_pool(row):
+            base = row['单一债券规模限额适用类别_base']
+            if pd.isna(base) or base == '':
+                return base
+            pool = row.get('债券池', '')
+            if pd.isna(pool) or pool == '':
+                pool = ''
+            return f"{base}/{pool}"
+        
         if '债券池' in df.columns:
-            df['单一债券规模限额适用类别_base'] = df.apply(
-                lambda row: f"{row['单一债券规模限额适用类别_base']}/{row['债券池']}" 
-                if pd.notna(row.get('债券池')) else row['单一债券规模限额适用类别_base'],
-                axis=1
+            df['单一债券规模限额适用类别_base'] = df.apply(_apply_bond_pool, axis=1)
+        else:
+            df['单一债券规模限额适用类别_base'] = df['单一债券规模限额适用类别_base'].apply(
+                lambda x: f"{x}/" if pd.notna(x) and x != '' else x
             )
         
         # 处理中债隐含评级
@@ -136,10 +174,12 @@ class LimitDetailCalculator:
         # 6. 关联特批单一债券限额（优先级更高）
         df_special = self.cache.get('特批单一债券限额')
         if df_special is not None:
+            df_special = df_special.copy()
+            if '主证券代码_标准' not in df_special.columns and '主证券代码' in df_special.columns:
+                df_special['主证券代码_标准'] = normalize_security_code_series(df_special['主证券代码'])
             df = df.merge(
-                df_special[['日期', '主证券代码', '规模指标值', '集中度指标值']],
-                left_on=['日期', '资产代码'],
-                right_on=['日期', '主证券代码'],
+                df_special[['日期', '主证券代码_标准', '规模指标值', '集中度指标值']],
+                on=['日期', '主证券代码_标准'],
                 how='left',
                 suffixes=('', '_特批')
             )
@@ -149,13 +189,7 @@ class LimitDetailCalculator:
                 else row.get('单一债券规模限额指标值'),
                 axis=1
             )
-            df['单一债券集中度限额指标值'] = df.apply(
-                lambda row: row['集中度指标值'] if pd.notna(row.get('集中度指标值')) 
-                else row.get('单一债券集中度限额指标值'),
-                axis=1
-            )
-            # 删除来自特批单一债券限额表的列（保留原始主证券代码列）
-            df = df.drop(columns=['主证券代码_特批', '规模指标值', '集中度指标值'], errors='ignore')
+            df = df.drop(columns=['规模指标值', '集中度指标值'], errors='ignore')
             logger.info(f"    关联特批单一债券限额")
         
         # 7. 计算单一主体限额适用类别（第一版）
@@ -260,9 +294,12 @@ class LimitDetailCalculator:
         # 9.1 单一债券总持仓
         df_bond_pos = self.cache.get('单一债券总持仓')
         if df_bond_pos is not None:
+            df_bond_pos = df_bond_pos.copy()
+            if '主证券代码_标准' not in df_bond_pos.columns and '主证券代码' in df_bond_pos.columns:
+                df_bond_pos['主证券代码_标准'] = normalize_security_code_series(df_bond_pos['主证券代码'])
             df = df.merge(
-                df_bond_pos[['日期', '业务分类', '主证券代码', '单一债券总持仓_PR', '单一债券集中度']],
-                on=['日期', '业务分类', '主证券代码'],
+                df_bond_pos[['日期', '业务分类', '主证券代码_标准', '单一债券总持仓_PR', '单一债券集中度']],
+                on=['日期', '业务分类', '主证券代码_标准'],
                 how='left'
             )
             logger.info(f"    关联单一债券总持仓")
@@ -447,14 +484,14 @@ class LimitDetailCalculator:
             df['单一实控人是否超限'] = df.apply(check_controller_over_limit, axis=1)
         
         # 12. 综合判断是否超限
-        # 注意：单一实控人超限不计入综合判断，仅作为独立维度展示（与Excel参考文件逻辑一致）
+        # 综合口径按 5 个维度汇总：债券规模、债券集中度、主体、实控人、担保人
         df['是否超限'] = df.apply(
             lambda row: '是' if '是' in [
                 row.get('单一债券是否超限'),
                 row.get('单一债券集中度是否超限'),
                 row.get('单一主体是否超限'),
+                row.get('单一实控人是否超限'),
                 row.get('单一担保人是否超限')
-                # 不包含：单一实控人是否超限（单独作为一个维度展示）
             ] else '否',
             axis=1
         )
@@ -470,47 +507,134 @@ class LimitDetailCalculator:
     def calculate_limit_detail_single_bond(self) -> pd.DataFrame:
         """
         查询: 限额明细_单一债券
-        简化实现：基于债券持仓明细表，分组后与限额关联
+        按M代码完整实现：分组后与限额明细1_2合并，展开限额字段
+        
+        M代码关键逻辑（第729-806行）:
+        1. 源=债券持仓明细表，排除高收益，筛选非利率债
+        2. 分组：日期+主证券代码+主证券名称
+        3. 与"限额明细_债券持仓明细表_信用债1_2"按(日期+主证券代码)左连接
+        4. 展开限额相关列（单一债券规模/集中度限额、超限判断）
+        5. 去重，筛选单一债券规模限额适用类别不为null
         """
         df = self.cache.get('债券持仓明细表')
         if df is None:
             return pd.DataFrame()
         
         df = df.copy()
+
+        if '主证券代码_标准' not in df.columns and '主证券代码' in df.columns:
+            df['主证券代码_标准'] = normalize_security_code_series(df['主证券代码'])
         
-        # 排除高收益
+        # 【P1-5修复1】排除高收益（M代码第735-736行）
         df = df[~df['内部证券账户名称'].str.contains('高收益', na=False)]
         
-        # 筛选非利率债
+        # 筛选非利率债（M代码第738-739行）
         df = df[df['债券分类2'] != '利率债']
         
-        # 分组计算单一债券总持仓
-        result = df.groupby(['日期', '主证券代码', '主证券名称'], as_index=False).agg({
+        # 【P1-5修复2】分组计算单一债券总持仓和集中度（M代码第741-745行）
+        if '主证券代码' in df.columns and '主证券代码_标准' in df.columns:
+            df['_主证券代码_已标准化'] = df['主证券代码'] == df['主证券代码_标准']
+            df = df.sort_values(
+                ['日期', '主证券代码_标准', '_主证券代码_已标准化'],
+                ascending=[True, True, False]
+            )
+
+        for col in ['库存数量(万)_PR', '债券余额(亿)']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        aggregation_map = {
+            '主证券代码': 'first',
             '库存数量(万)_PR': 'sum',
             '债券余额(亿)': 'mean'
-        })
+        }
+        for optional_col in ['资产代码', '资产名称', '债务主体', '债券分类2']:
+            if optional_col in df.columns:
+                aggregation_map[optional_col] = 'first'
+
+        result = df.groupby(['日期', '主证券代码_标准', '主证券名称'], as_index=False).agg(aggregation_map)
         
         result = result.rename(columns={
-            '库存数量(万)_PR': '单一债券总持仓_PR',
-            '主证券代码': '证券代码',
+            '库存数量(万)_PR': '单一债券总持仓_PR'
+        })
+        
+        # 计算集中度（M代码第744-745行）
+        result['单一债券集中度'] = result['单一债券总持仓_PR'] / result['债券余额(亿)'] * 0.0001
+
+        # 替换错误值为null（M代码第750-751行）
+        result['单一债券集中度'] = result['单一债券集中度'].replace([float('inf'), -float('inf')], None)
+
+        # 监管集中度：单债整体口径，不区分内部证券账户，限额来自独立 JSON 配置
+        regulatory_limit = self._load_regulatory_concentration_limit()
+        result['监管集中度限额指标值'] = regulatory_limit
+        result['监管集中度'] = result['单一债券集中度']
+        result['监管集中度总额度'] = result['监管集中度限额指标值'] * result['债券余额(亿)'] * 10000
+        result['监管集中度剩余额度(万)'] = (
+            result['债券余额(亿)'] * (result['监管集中度限额指标值'] - result['监管集中度']) * 10000
+        )
+        result['监管集中度是否超限'] = result['监管集中度剩余额度(万)'].apply(
+            lambda x: '是' if pd.notna(x) and x < 0 else '否'
+        )
+        result['是否超限'] = result['监管集中度是否超限']
+        
+        # 排序（M代码第753-754行）
+        result = result.sort_values('单一债券集中度', ascending=False, na_position='last')
+        
+        # 【P1-5修复3】与"限额明细_债券持仓明细表_信用债1_2"合并（M代码第756-769行）
+        df_limit_detail = self.cache.get('限额明细_债券持仓明细表_信用债1_2')
+        if df_limit_detail is not None:
+            df_limit_detail = df_limit_detail.copy()
+            if '主证券代码_标准' not in df_limit_detail.columns and '主证券代码' in df_limit_detail.columns:
+                df_limit_detail['主证券代码_标准'] = normalize_security_code_series(df_limit_detail['主证券代码'])
+            result = result.merge(
+                df_limit_detail[[
+                    '日期', '主证券代码_标准',
+                    '单一债券规模限额适用类别', '单一债券规模限额指标值',
+                    '单一债券规模剩余额度(万)', '单一债券是否超限',
+                    '单一债券集中度限额适用类别', '单一债券集中度限额指标值',
+                    '单一债券集中度剩余额度(万)', '单一债券集中度是否超限'
+                ]],
+                on=['日期', '主证券代码_标准'],
+                how='left'
+            )
+            logger.info(f"    与限额明细1_2合并: 展开限额字段")
+        
+        # 替换null为空字符串（M代码第775-776行）
+        if '单一债券集中度是否超限' in result.columns:
+            result['单一债券集中度是否超限'] = result['单一债券集中度是否超限'].fillna('')
+        
+        # 【P1-5修复4】去重（M代码第778行）
+        result = result.drop_duplicates()
+        
+        # 重命名列（M代码第780-781行）
+        result = result.rename(columns={
+            '主证券代码_标准': '证券代码',
+            '主证券代码': '证券代码_原始',
             '主证券名称': '证券名称'
         })
         
-        # 计算集中度
-        result['单一债券集中度'] = result['单一债券总持仓_PR'] / result['债券余额(亿)'] * 0.0001
-        result = result.drop(columns=['债券余额(亿)'], errors='ignore')
+        # 保留债券余额(亿)供监管集中度展示使用
+        result = result.drop(columns=['_主证券代码_已标准化'], errors='ignore')
         
-        # 排序
-        result = result.sort_values('单一债券集中度', ascending=False, na_position='last')
+        # 【P1-5修复5】筛选：单一债券规模限额适用类别不为null（M代码第801-802行）
+        if '单一债券规模限额适用类别' in result.columns:
+            result = result[result['单一债券规模限额适用类别'].notna()]
         
-        logger.info(f"  限额明细_单一债券: {len(result)} 行")
+        logger.info(f"  限额明细_单一债券（按M代码完整实现）: {len(result)} 行")
         
         return result
     
     def calculate_limit_detail_single_issuer(self) -> pd.DataFrame:
         """
         查询: 限额明细_单一主体
-        简化实现：基于债券持仓明细表_信用债，分组计算
+        按M代码完整实现：分组后与限额明细1_2合并，展开限额字段
+        
+        M代码关键逻辑（第808-847行）:
+        1. 源=债券持仓明细表_信用债，排除高收益
+        2. 分组：日期+债务主体wind代码+债务主体
+        3. 与"限额明细_债券持仓明细表_信用债1_2"按(日期+债务主体wind代码)左连接
+        4. 展开限额相关列（单一主体限额、超限判断）
+        5. 去重
         """
         df = self.cache.get('债券持仓明细表_信用债')
         if df is None:
@@ -518,18 +642,163 @@ class LimitDetailCalculator:
         
         df = df.copy()
         
-        # 排除高收益
+        # 【P1-5修复1】排除高收益（M代码第814-815行）
         df = df[~df['内部证券账户名称'].str.contains('高收益', na=False)]
         
-        # 分组计算
+        # 【P1-5修复2】分组计算（M代码第817-819行）
         result = df.groupby(['日期', '债务主体wind代码', '债务主体'], as_index=False).agg({
             '库存数量(万)_PR': 'sum'
         })
         
         result = result.rename(columns={'库存数量(万)_PR': '单一主体总持仓_PR'})
         
-        logger.info(f"  限额明细_单一主体: {len(result)} 行")
+        # 【P1-5修复3】与"限额明细_债券持仓明细表_信用债1_2"合并（M代码第825-835行）
+        df_limit_detail = self.cache.get('限额明细_债券持仓明细表_信用债1_2')
+        if df_limit_detail is not None:
+            result = result.merge(
+                df_limit_detail[[
+                    '日期', '债务主体wind代码',
+                    '单一主体是否超限', '单一主体限额适用类别',
+                    '单一主体规模限额指标值', '单一主体规模剩余额度(万)'
+                ]],
+                on=['日期', '债务主体wind代码'],
+                how='left'
+            )
+            logger.info(f"    与限额明细1_2合并: 展开限额字段")
         
+        # 【P1-5修复4】去重（M代码第837-838行）
+        result = result.drop_duplicates()
+        
+        logger.info(f"  限额明细_单一主体（按M代码完整实现）: {len(result)} 行")
+        
+        return result
+
+    def calculate_limit_detail_full_regulatory_concentration(self) -> pd.DataFrame:
+        """
+        查询: 限额明细_全量债券监管集中度
+
+        口径：
+        1. 基于 SPPI 全量债券表
+        2. 不做高收益/利率债等业务剔除
+        3. 单债归并优先级：主证券代码_标准 -> ISIN码 -> 缺归并主键（保留展示）
+        4. 债券余额缺失时保留展示，但标记不可计算
+        """
+        df = self.cache.get('债券持仓明细表_全量债券监管集中度')
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        df = df.copy()
+
+        for col in ['库存数量(万)_PR', '债券余额(亿)']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        if '主证券代码_标准' not in df.columns and '主证券代码' in df.columns:
+            df['主证券代码_标准'] = normalize_security_code_series(df['主证券代码'])
+
+        if 'ISIN码' in df.columns:
+            df['ISIN码'] = df['ISIN码'].apply(
+                lambda x: None if pd.isna(x) or str(x).strip() in ['', 'nan', 'None', '<NA>'] else str(x).strip()
+            )
+
+        if '主证券代码_标准' in df.columns:
+            df['主证券代码_标准'] = df['主证券代码_标准'].apply(
+                lambda x: None if pd.isna(x) or str(x).strip() in ['', 'nan', 'None', '<NA>'] else str(x).strip()
+            )
+
+        df['归并主键来源'] = np.select(
+            [
+                df.get('主证券代码_标准', pd.Series(index=df.index)).notna(),
+                df.get('ISIN码', pd.Series(index=df.index)).notna(),
+            ],
+            ['主证券代码_标准', 'ISIN码'],
+            default='缺归并主键'
+        )
+
+        df['监管归并主键'] = np.where(
+            df['归并主键来源'] == '主证券代码_标准',
+            df['主证券代码_标准'],
+            np.where(
+                df['归并主键来源'] == 'ISIN码',
+                df['ISIN码'],
+                None
+            )
+        )
+
+        missing_key_mask = df['监管归并主键'].isna()
+        df.loc[missing_key_mask, '监管归并主键'] = df.loc[missing_key_mask].index.map(lambda idx: f"MISSING_KEY::{idx}")
+
+        aggregation_map = {'库存数量(万)_PR': 'sum'}
+        first_cols = [
+            '主证券代码_标准', 'ISIN码', '资产代码', '资产名称', '主证券代码', '主证券名称', '债务主体',
+            '债券分类2', '债券类型1', '金融资产会计属性', '部门', '发行人类型', '是否城投债',
+            '债券类别', 'wind行业', '省份', '债务主体wind代码', '担保人', '担保人wind代码',
+            '实际控制人名称_修正', '实际控制人名称', '归并主键来源'
+        ]
+        for col in first_cols:
+            if col in df.columns:
+                aggregation_map[col] = self._first_non_null
+
+        if '债券余额(亿)' in df.columns:
+            aggregation_map['债券余额(亿)'] = self._first_non_null
+        if '内部证券账户名称' in df.columns:
+            aggregation_map['内部证券账户名称'] = lambda s: "、".join(sorted({str(v).strip() for v in s.dropna() if str(v).strip()}))
+
+        result = df.groupby(['日期', '监管归并主键'], as_index=False).agg(aggregation_map)
+        result = result.rename(columns={'库存数量(万)_PR': '单债总持仓_PR'})
+
+        if '内部证券账户名称' in df.columns:
+            account_count_df = (
+                df.groupby(['日期', '监管归并主键'])['内部证券账户名称']
+                .apply(lambda s: s.dropna().astype(str).str.strip().replace('', np.nan).dropna().nunique())
+                .reset_index(name='内部证券账户覆盖数')
+            )
+            result = result.merge(account_count_df, on=['日期', '监管归并主键'], how='left')
+
+        limit_value = self._load_regulatory_concentration_limit()
+        result['监管集中度限额指标值'] = limit_value
+
+        def build_reason(row):
+            reasons = []
+            if row.get('归并主键来源') == '缺归并主键':
+                reasons.append('缺归并主键')
+            balance = row.get('债券余额(亿)')
+            if pd.isna(balance) or balance <= 0:
+                reasons.append('缺债券余额')
+            return '、'.join(reasons) if reasons else None
+
+        result['不可计算原因'] = result.apply(build_reason, axis=1)
+        result['是否可计算'] = result['不可计算原因'].isna().map({True: '是', False: '否'})
+
+        computable_mask = result['是否可计算'] == '是'
+        result['监管集中度'] = np.nan
+        result['监管集中度总额度'] = np.nan
+        result['监管集中度剩余额度(万)'] = np.nan
+        result.loc[computable_mask, '监管集中度'] = (
+            result.loc[computable_mask, '单债总持仓_PR'] /
+            result.loc[computable_mask, '债券余额(亿)'] * 0.0001
+        )
+        result.loc[computable_mask, '监管集中度总额度'] = (
+            result.loc[computable_mask, '监管集中度限额指标值'] *
+            result.loc[computable_mask, '债券余额(亿)'] * 10000
+        )
+        result.loc[computable_mask, '监管集中度剩余额度(万)'] = (
+            result.loc[computable_mask, '债券余额(亿)'] *
+            (result.loc[computable_mask, '监管集中度限额指标值'] - result.loc[computable_mask, '监管集中度']) *
+            10000
+        )
+
+        result['监管集中度是否超限'] = ''
+        result.loc[computable_mask, '监管集中度是否超限'] = result.loc[
+            computable_mask, '监管集中度剩余额度(万)'
+        ].apply(lambda x: '是' if pd.notna(x) and x < 0 else '否')
+        result['是否超限'] = result['监管集中度是否超限']
+
+        sort_cols = ['日期']
+        if '监管集中度' in result.columns:
+            result = result.sort_values(['日期', '监管集中度'], ascending=[False, False], na_position='last')
+
+        logger.info(f"  限额明细_全量债券监管集中度: {len(result)} 行")
         return result
     
     def calculate_limit_detail_specific_issuer(self) -> pd.DataFrame:
@@ -606,7 +875,14 @@ class LimitDetailCalculator:
     def calculate_limit_detail_specific_controller(self) -> pd.DataFrame:
         """
         查询: 限额明细_特定实控人
-        基于债券持仓明细表_信用债_合并风险限额相关，关联特定实控人限额
+        按M代码完整实现：仅排除高收益（不排除关注池）
+        
+        M代码关键逻辑（第907-958行）:
+        1. 源=债券持仓明细表_信用债_合并风险限额相关
+        2. 仅排除高收益（不排除关注池）
+        3. 与特定实控人限额合并
+        4. 筛选：指标名称不为null且不为空字符串
+        5. 分组键包含：日期、业务分类、指标名称、实控人名称、债务主体、资产代码、资产名称
         """
         df = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
         if df is None:
@@ -614,11 +890,10 @@ class LimitDetailCalculator:
         
         df = df.copy()
         
-        # 排除高收益和关注池
+        # 【P1-5修复】仅排除高收益（M代码第913-914行，未排除关注池）
         df = df[~df['内部证券账户名称'].str.contains('高收益', na=False)]
-        df = df[~df['内部证券账户名称'].str.contains('关注池', na=False)]
         
-        # 与特定实控人限额关联
+        # 与特定实控人限额关联（M代码第916-922行）
         df_limit = self.cache.get('特定实控人限额')
         if df_limit is not None:
             df = df.merge(
@@ -628,17 +903,17 @@ class LimitDetailCalculator:
                 how='left'
             )
             
-            # 筛选有特定实控人限额的记录
+            # 筛选有特定实控人限额的记录（M代码第924-925行）
             df = df[(df['指标名称'].notna()) & (df['指标名称'] != '')]
             
-            # 添加业务分类
+            # 添加业务分类（M代码第927-929行）
             df['业务分类'] = df['内部证券账户名称'].apply(
                 lambda x: '做市业务' if x == '做市交易部做市业务' else '自营业务'
             )
             
-            # 分组计算
-            # Excel M代码: {"日期", "业务分类","指标名称", "实控人名称", "债务主体", "资产代码", "资产名称"}
-            result = df.groupby(['日期', '业务分类', '指标名称', '实际控制人名称_修正',
+            # 分组计算（M代码第931-934行）
+            # 注意：M代码分组键使用"实控人名称"（即从特定实控人限额表来的列）
+            result = df.groupby(['日期', '业务分类', '指标名称', '实控人名称',
                                 '债务主体', '资产代码', '资产名称'], as_index=False).agg({
                 '库存数量(万)_PR': 'sum',
                 '指标值': 'mean'
@@ -648,7 +923,7 @@ class LimitDetailCalculator:
                 '指标值': '特定实控人限额指标值'
             })
             
-            # 关联特定实控人总持仓
+            # 关联特定实控人总持仓（M代码第936-941行）
             df_total = self.cache.get('特定实控人总持仓')
             if df_total is not None:
                 result = result.merge(
@@ -659,15 +934,15 @@ class LimitDetailCalculator:
                 )
                 result = result.drop(columns=['特定实控人名称'], errors='ignore')
                 
-                # 计算剩余额度
+                # 计算剩余额度（M代码第943-945行）
                 result['特定实控人限额剩余额度'] = result['特定实控人限额指标值'] - result['特定实控人总持仓']
                 
-                # 判断是否超限
+                # 判断是否超限（M代码第947-948行）
                 result['特定实控人限额是否超限'] = result['特定实控人限额剩余额度'].apply(
                     lambda x: '是' if pd.notna(x) and x < 0 else '否'
                 )
             
-            logger.info(f"  限额明细_特定实控人: {len(result)} 行")
+            logger.info(f"  限额明细_特定实控人（按M代码完整实现）: {len(result)} 行")
             
             return result
         
@@ -747,25 +1022,200 @@ class LimitDetailCalculator:
     def calculate_limit_detail_single_controller_max(self) -> pd.DataFrame:
         """
         查询: 限额明细_单一实控人_取最高额度
-        从单一实控人限额明细中，每个实控人取最高额度
-        """
-        df = self.calculate_limit_detail_single_controller()
+        按M代码完整实现：排序后分组取index=0，确保类别/指标值/总持仓来自同一行
         
-        if len(df) == 0:
+        M代码关键逻辑:
+        1. 仅排除高收益（不排除关注池）
+        2. 处理转债交债分支 -> 可转换债、可交换债
+        3. 两次合并单一实控人规模限额（类别+担保准入），比较后取较大值
+        4. 合并特定实控人限额，优先使用特批
+        5. 排序：日期降序、实控人升序、限额指标值降序
+        6. 分组取index=0（每组第一条，即最高额度对应行）
+        7. 过滤：实控人名称 != "0" 且 != ""
+        """
+        # 【P1-2修复1】从债券持仓明细表_信用债_合并风险限额相关开始，仅排除高收益
+        df = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
+        if df is None:
+            logger.error("债券持仓明细表_信用债_合并风险限额相关未找到")
             return pd.DataFrame()
         
-        # 按实控人分组，取最高额度
-        result = df.groupby(['日期', '业务分类', '实际控制人名称_修正'], as_index=False).agg({
-            '单一实控人限额适用类别': 'first',
-            '单一实控人规模限额指标值': 'max',
-            '单一实控人总持仓_PR': 'first',
-            '单一实控人规模剩余额度(万)': 'max',
-            '单一实控人是否超限': lambda x: '是' if '是' in x.values else '否'
+        df = df.copy()
+        
+        # 筛选：仅排除高收益（M代码第966-967行）
+        df = df[~df['内部证券账户名称'].str.contains('高收益', na=False)]
+        logger.info(f"  筛选非高收益: {len(df)} 行")
+        
+        # 【P1-2修复2】补全转债交债分支
+        # M代码第969-972行：if [债券分类2] = "转债交债" then "可转换债、可交换债"
+        def get_custom_category(row):
+            if row.get('债券分类2') == '转债交债':
+                return '可转换债、可交换债'
+            elif row.get('发行人类型_调整') == '国企':
+                return '国企'
+            elif row.get('发行人类型_调整') == '非国企':
+                return '非国企'
+            else:
+                return None
+        
+        df['自定义'] = df.apply(get_custom_category, axis=1)
+        
+        # 复制债券池列（M代码第974-975行）
+        if '债券池' in df.columns:
+            df['债券池_复制'] = df['债券池']
+        
+        # 【P1-2修复3】计算单一实控人限额适用类别（M代码第977-980行）
+        def calc_controller_limit_category(row):
+            if row.get('中债隐含评级') == 'AAA':
+                return '中债隐含评级AAA'
+            elif row.get('中债隐含评级') == 'AAA+':
+                return '中债隐含评级AAA+'
+            else:
+                # 使用发行人类型_调整和主体池拼接
+                issuer_type = row.get('发行人类型_调整', '')
+                pool = row.get('主体池', '')
+                if pd.notna(issuer_type) and pd.notna(pool):
+                    return f"{issuer_type}/{pool}"
+                elif pd.notna(issuer_type):
+                    return issuer_type
+                else:
+                    return ''
+        
+        df['单一实控人限额适用类别'] = df.apply(calc_controller_limit_category, axis=1)
+        
+        # 【P1-2修复4】第一次合并：按单一实控人限额适用类别（M代码第985-990行）
+        df_controller_limit = self.cache.get('单一实控人规模限额')
+        if df_controller_limit is not None:
+            df = df.merge(
+                df_controller_limit[['日期', '指标名称', '指标值']],
+                left_on=['单一实控人限额适用类别', '日期'],
+                right_on=['指标名称', '日期'],
+                how='left'
+            )
+            df = df.drop(columns=['指标名称'], errors='ignore')
+            df = df.rename(columns={'指标值': '单一实控人规模限额指标值1'})
+        
+        # 【P1-2修复5】第二次合并：按担保公司是否准入（M代码第992-997行）
+        if df_controller_limit is not None and '担保公司是否准入' in df.columns:
+            df = df.merge(
+                df_controller_limit[['日期', '指标名称', '指标值']],
+                left_on=['担保公司是否准入', '日期'],
+                right_on=['指标名称', '日期'],
+                how='left'
+            )
+            df = df.drop(columns=['指标名称'], errors='ignore')
+            df = df.rename(columns={'指标值': '指标值_担保'})
+            
+            # 替换null为0（M代码第999-1000行）
+            df['指标值_担保'] = df['指标值_担保'].fillna(0)
+            df['单一实控人规模限额指标值1'] = df['单一实控人规模限额指标值1'].fillna(0)
+        
+        # 重命名列（M代码第1002-1005行）
+        df = df.rename(columns={
+            '单一实控人规模限额指标值1': '单一实控人规模限额指标值1_renamed',
+            '单一实控人限额适用类别': '单一实控人限额适用类别1'
         })
         
-        logger.info(f"  限额明细_单一实控人_取最高额度: {len(result)} 行")
+        # 【P1-2修复6】合并特定实控人限额（M代码第1007-1017行）
+        df_specific_controller = self.cache.get('特定实控人限额')
+        if df_specific_controller is not None:
+            df = df.merge(
+                df_specific_controller[['日期', '实控人名称', '指标名称', '指标值']],
+                left_on=['日期', '实际控制人名称_修正'],
+                right_on=['日期', '实控人名称'],
+                how='left'
+            )
+            df = df.drop(columns=['实控人名称'], errors='ignore')
+            df = df.rename(columns={
+                '指标名称': '特批实控人指标名称',
+                '指标值': '特批实控人指标值'
+            })
         
-        return result
+        # 【P1-2修复7】条件列：选择最终的单一实控人限额适用类别（M代码第1019-1022行）
+        # if [特批实控人指标名称] <> null then [特批实控人指标名称]
+        # else if [指标值] > [单一实控人规模限额指标值1] then [担保公司是否准入]
+        # else [单一实控人限额适用类别1]
+        def select_final_category(row):
+            if pd.notna(row.get('特批实控人指标名称')):
+                return row['特批实控人指标名称']
+            elif row.get('指标值_担保', 0) > row.get('单一实控人规模限额指标值1_renamed', 0):
+                return row.get('担保公司是否准入', '')
+            else:
+                return row.get('单一实控人限额适用类别1', '')
+        
+        df['单一实控人限额适用类别'] = df.apply(select_final_category, axis=1)
+        
+        # 【P1-2修复8】条件列：选择最终的单一实控人规模限额指标值（M代码第1024-1028行）
+        def select_final_value(row):
+            if pd.notna(row.get('特批实控人指标值')):
+                return row['特批实控人指标值']
+            elif row.get('指标值_担保', 0) > row.get('单一实控人规模限额指标值1_renamed', 0):
+                return row.get('指标值_担保', 0)
+            else:
+                return row.get('单一实控人规模限额指标值1_renamed', 0)
+        
+        df['单一实控人规模限额指标值'] = df.apply(select_final_value, axis=1)
+        
+        # 添加业务分类（M代码第1030-1032行）
+        df['业务分类'] = df['内部证券账户名称'].apply(
+            lambda x: '做市业务' if x == '做市交易部做市业务' else '自营业务'
+        )
+        
+        # 选择需要的列（M代码第1034-1036行）
+        df = df[['日期', '实际控制人名称_修正', '单一实控人限额适用类别', 
+                '单一实控人规模限额指标值', '业务分类']].copy()
+        
+        # 筛选：实控人名称不为null（M代码第1038-1039行）
+        df = df[df['实际控制人名称_修正'].notna()]
+        
+        # 【P1-2修复9】合并单一实控人总持仓（M代码第1041-1048行）
+        df_controller_pos = self.cache.get('单一实控人总持仓')
+        if df_controller_pos is not None:
+            df = df.merge(
+                df_controller_pos[['日期', '业务分类', '实际控制人名称_修正', '单一实控人总持仓_PR']],
+                on=['日期', '业务分类', '实际控制人名称_修正'],
+                how='left'
+            )
+        
+        # 【P1-2修复10】排序（M代码第1054-1056行）
+        # 关键：按日期降序、实控人升序、单一实控人规模限额指标值降序
+        df = df.sort_values(
+            by=['日期', '实际控制人名称_修正', '单一实控人规模限额指标值'],
+            ascending=[False, True, False]
+        ).reset_index(drop=True)
+        
+        logger.info(f"  排序完成: 日期降序、实控人升序、限额指标值降序")
+        
+        # 【P1-2修复11】分组并添加索引（M代码第1058-1069行）
+        # 分组键：日期、业务分类、实际控制人名称_修正
+        # 每组添加索引（0, 1, 2...），然后只保留索引=0的记录
+        df['分组索引'] = df.groupby(['日期', '业务分类', '实际控制人名称_修正']).cumcount()
+        
+        # 筛选：只保留分组索引=0的记录（M代码第1076-1077行）
+        df = df[df['分组索引'] == 0].copy()
+        
+        logger.info(f"  分组取index=0: {len(df)} 行（每个实控人保留最高额度对应行）")
+        
+        # 计算剩余额度（M代码第1079-1081行）
+        df['单一实控人规模剩余额度(万)'] = df['单一实控人规模限额指标值'] - df['单一实控人总持仓_PR']
+        
+        # 判断是否超限（M代码第1083-1084行）
+        df['单一实控人是否超限'] = df['单一实控人规模剩余额度(万)'].apply(
+            lambda x: '是' if pd.notna(x) and x < 0 else '否'
+        )
+        
+        # 【P1-2修复12】过滤：实控人名称不为"0"且不为空字符串（M代码第1090-1096行）
+        df = df[
+            (df['实际控制人名称_修正'] != '0') &
+            (df['实际控制人名称_修正'] != '') &
+            (df['实际控制人名称_修正'].notna())
+        ]
+        
+        # 删除分组索引列（M代码第1093行）
+        df = df.drop(columns=['分组索引'], errors='ignore')
+        
+        logger.info(f"  限额明细_单一实控人_取最高额度（按M代码完整实现）: {len(df)} 行")
+        
+        return df
     
     def calculate_limit_detail_single_guarantee(self) -> pd.DataFrame:
         """

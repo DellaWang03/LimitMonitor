@@ -9,6 +9,7 @@ from .base64_decoder import decode_base64_table
 from .wind_code_excel_helper import WindCodeExcelHelper
 from .logger_setup import LoggerSetup
 from .province_normalizer import ProvinceNormalizer
+from .security_code_normalizer import normalize_security_code_series
 
 __all__ = [
     'WindCodeResolver',
@@ -17,4 +18,5 @@ __all__ = [
     'WindCodeExcelHelper',
     'LoggerSetup',
     'ProvinceNormalizer',
+    'normalize_security_code_series',
 ]

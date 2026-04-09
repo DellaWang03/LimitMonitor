@@ -96,6 +96,18 @@ class WindCodeExcelHelper:
             last_row = len(issuer_names) + 1
             df = ws.range(f'A1:B{last_row}').options(pd.DataFrame, header=True).value
             
+            # 统一列名，保证与 batch_resolve_missing 期望一致（xlwings/Excel 读回时列名可能异常或首列为 index）
+            if df is None or not isinstance(df, pd.DataFrame):
+                logger.warning("xlwings 未返回有效 DataFrame，返回空结果")
+                return pd.DataFrame(columns=['发行人名称', 'Wind代码'])
+            if len(df.columns) == 1:
+                df = df.reset_index()
+            if len(df.columns) < 2:
+                logger.warning(f"读回列数不足 2，实际: {df.columns.tolist()}")
+                return pd.DataFrame(columns=['发行人名称', 'Wind代码'])
+            if '发行人名称' not in df.columns or 'Wind代码' not in df.columns:
+                df = df.rename(columns={df.columns[0]: '发行人名称', df.columns[1]: 'Wind代码'})
+            
             # 保存备份
             wb.save(temp_file)
             logger.info(f"✓ 结果已保存: {temp_file}")
@@ -117,16 +129,17 @@ class WindCodeExcelHelper:
                 logger.debug(f"退出Excel: {e}")
     
     def _get_via_template(self, issuer_names: list) -> pd.DataFrame:
-        """生成Excel模板，需要手动打开保存"""
+        """生成Excel模板，需要手动打开保存。仅合并结果文件中属于本次缺失主体的行，避免误用旧结果。"""
         template_file = self.temp_dir / "wind_codes_template.xlsx"
         result_file = self.temp_dir / "wind_codes_result.xlsx"
+        issuer_set = set(issuer_names)
         
-        logger.info(f"生成Excel模板: {template_file}")
+        logger.info(f"生成Excel模板: {template_file}（{len(issuer_names)} 个缺失主体）")
         
-        # 创建DataFrame
+        # 创建DataFrame（B列用 Wind代码 便于另存为后直接识别）
         data = {
             '发行人名称': issuer_names,
-            'Wind代码_公式': [f'=To_WindCode(A{i+2})' for i in range(len(issuer_names))]
+            'Wind代码': [f'=To_WindCode(A{i+2})' for i in range(len(issuer_names))]
         }
         df = pd.DataFrame(data)
         
@@ -138,32 +151,43 @@ class WindCodeExcelHelper:
         logger.warning("=" * 80)
         logger.warning("⚠️  需要手动操作（1分钟）：")
         logger.warning(f"   1. 在Windows上打开: {template_file.absolute()}")
-        logger.warning(f"   2. 将B列的公式粘贴到B列（触发计算）")
+        logger.warning(f"   2. 将B列公式粘贴为值或等待计算完成")
         logger.warning(f"   3. 另存为: {result_file.absolute()}")
         logger.warning(f"   4. 重新运行程序")
         logger.warning("=" * 80)
         
-        # 检查是否有结果文件
+        # 检查是否有结果文件（用户可能已保存新结果）
         if result_file.exists():
             logger.info(f"✓ 发现结果文件: {result_file}")
             df_result = pd.read_excel(result_file)
             
-            # 验证列名
-            if '发行人名称' in df_result.columns and 'Wind代码' in df_result.columns:
+            # 支持列名 Wind代码 或 Wind代码_公式（模板历史曾用 _公式）
+            wind_col = None
+            if 'Wind代码' in df_result.columns:
+                wind_col = 'Wind代码'
+            elif 'Wind代码_公式' in df_result.columns:
+                wind_col = 'Wind代码_公式'
+            if '发行人名称' in df_result.columns and wind_col:
+                df_result = df_result[['发行人名称', wind_col]].copy()
+                df_result.rename(columns={wind_col: 'Wind代码'}, inplace=True)
+                # 只保留属于本次缺失主体的行，避免合并到其它批次的旧数据
+                df_result = df_result[df_result['发行人名称'].astype(str).str.strip().isin(issuer_set)]
                 # 只返回有效的Wind代码（非空、非错误值）
-                df_valid = df_result[['发行人名称', 'Wind代码']].copy()
-                df_valid = df_valid[
-                    df_valid['Wind代码'].notna() & 
-                    (df_valid['Wind代码'] != '#N/A') &
-                    (df_valid['Wind代码'] != '#NAME?') &
-                    (df_valid['Wind代码'] != '')
-                ]
+                df_valid = df_result[
+                    df_result['Wind代码'].notna() &
+                    (df_result['Wind代码'].astype(str).str.strip() != '') &
+                    (df_result['Wind代码'].astype(str) != '#N/A') &
+                    (df_result['Wind代码'].astype(str) != '#NAME?')
+                ].copy()
                 
-                logger.info(f"✓ 有效Wind代码: {len(df_valid)}/{len(df_result)} 个")
-                return df_valid
+                n_total = len(df_valid)
+                logger.info(f"✓ 有效Wind代码: {n_total} 个（均属于本次 {len(issuer_names)} 个缺失主体）")
+                if n_total < len(issuer_names):
+                    logger.warning(f"  结果行数({n_total})少于本次缺失数({len(issuer_names)})，请确认已对全部缺失主体另存为 result 后重跑")
+                return df_valid[['发行人名称', 'Wind代码']]
             else:
                 logger.warning(f"⚠️  结果文件列名不正确")
-                logger.warning(f"   期望: ['发行人名称', 'Wind代码']")
+                logger.warning(f"   期望含: 发行人名称、Wind代码（或 Wind代码_公式）")
                 logger.warning(f"   实际: {df_result.columns.tolist()}")
         
         # 返回空DataFrame（等待手动处理）

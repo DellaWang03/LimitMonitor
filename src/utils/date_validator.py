@@ -4,32 +4,40 @@
 import pandas as pd
 from pathlib import Path
 from datetime import datetime, date
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any
 from loguru import logger
 
 
 class DateValidator:
     """日期验证器 - 确保Access数据库已更新到T-1（前一个交易日）"""
     
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, config: Any = None):
         """
         初始化日期验证器
         
         Args:
-            data_dir: 数据源目录（包含标准日期表.xlsx）
+            data_dir: 数据源目录（config 为空时用于标准日期表路径）
+            config: ConfigLoader，用于 get_data_file_path 路径 profile 切换
         """
         self.data_dir = Path(data_dir)
+        self.config = config
         self._standard_dates = None
+    
+    def _date_table_path(self) -> Path:
+        """标准日期表路径（按 profile）。"""
+        if self.config is not None and hasattr(self.config, "get_data_file_path"):
+            return self.config.get_data_file_path("标准日期表.xlsx")
+        return self.data_dir / "标准日期表.xlsx"
     
     def get_standard_dates(self) -> pd.DataFrame:
         """
         读取标准日期表（交易日日历）
         
         Returns:
-            包含'日期'列的DataFrame，已按日期排序
+            包含'日期'和'日期类别'列的DataFrame，已按日期排序
         """
         if self._standard_dates is None:
-            date_file = self.data_dir / "标准日期表.xlsx"
+            date_file = self._date_table_path()
             
             if not date_file.exists():
                 raise FileNotFoundError(f"标准日期表不存在: {date_file}")
@@ -39,7 +47,12 @@ class DateValidator:
             df = df.sort_values('日期')
             self._standard_dates = df
             
-            logger.debug(f"加载标准日期表: {len(df)} 个交易日")
+            # 统计工作日数量（如果有日期类别列）
+            if '日期类别' in df.columns:
+                working_days_count = len(df[df['日期类别'] == '工作日'])
+                logger.debug(f"加载标准日期表: {len(df)} 条记录，其中 {working_days_count} 个工作日")
+            else:
+                logger.debug(f"加载标准日期表: {len(df)} 条记录")
         
         return self._standard_dates
     
@@ -64,18 +77,34 @@ class DateValidator:
         else:
             as_of_date = pd.to_datetime(as_of_date).date()
         
-        # 找到<基准日期的最大交易日（即前一个交易日）
-        valid_dates = df_dates[df_dates['日期'].dt.date < as_of_date]
+        # 检查是否有"日期类别"列
+        if '日期类别' not in df_dates.columns:
+            raise ValueError(
+                f"标准日期表缺少'日期类别'列\n"
+                f"请确认标准日期表.xlsx包含'日期'和'日期类别'两列"
+            )
+        
+        # 先筛选出"工作日"类型的记录
+        working_days = df_dates[df_dates['日期类别'] == '工作日'].copy()
+        
+        if len(working_days) == 0:
+            raise ValueError(
+                f"标准日期表中没有找到'工作日'类型的记录\n"
+                f"请检查'日期类别'列的值是否正确（应为'工作日'或'节假日'）"
+            )
+        
+        # 从工作日中找到<基准日期的最大日期（即前一个交易日）
+        valid_dates = working_days[working_days['日期'].dt.date < as_of_date]
         
         if len(valid_dates) == 0:
             raise ValueError(
-                f"标准日期表中没有找到 {as_of_date} 之前的交易日\n"
+                f"标准日期表中没有找到 {as_of_date} 之前的工作日\n"
                 f"请检查标准日期表是否已更新"
             )
         
         t_minus_1 = valid_dates['日期'].max()
         
-        logger.debug(f"基准日期: {as_of_date}, T-1日期: {t_minus_1.date()}")
+        logger.debug(f"基准日期: {as_of_date}, T-1工作日: {t_minus_1.date()}")
         return t_minus_1
     
     def validate_access_database_freshness(
@@ -110,9 +139,21 @@ class DateValidator:
         logger.info(f"{'='*70}")
         
         try:
-            # 读取Access数据库
+            # 读取Access数据库（与 stage0 一致：传入 export_dir/source_accdb_path 时先刷新再读 data_config_source，保证校验用最新数据）
             from ..common import AccessDatabaseReader
-            reader = AccessDatabaseReader(access_db_path)
+            export_dir = None
+            source_accdb_path = None
+            if self.config is not None:
+                if hasattr(self.config, "get_data_config_source_dir"):
+                    export_dir = self.config.get_data_config_source_dir()
+                if hasattr(self.config, "get_data_file_path_without_override"):
+                    source_accdb_path = self.config.get_data_file_path_without_override("风控部债券池.accdb")
+            reader = AccessDatabaseReader(
+                access_db_path,
+                export_dir=export_dir,
+                source_accdb_path=source_accdb_path,
+                freshness_threshold_date=expected_date,
+            )
             df = reader.read_table("风控部债券池")
             
             # 检查是否包含日期字段
@@ -121,8 +162,8 @@ class DateValidator:
                 logger.error(msg)
                 return False, msg, None
             
-            # 转换日期并获取最大值
-            df['日期'] = pd.to_datetime(df['日期'])
+            # 转换日期并获取最大值（风控部债券池 CSV 为 mdb-export 格式：%m/%d/%y %H:%M:%S）
+            df['日期'] = pd.to_datetime(df['日期'], format="%m/%d/%y %H:%M:%S", errors="coerce")
             actual_date = df['日期'].max()
             actual_date_str = actual_date.strftime('%Y-%m-%d')
             
@@ -174,8 +215,15 @@ class DateValidator:
         df_dates = self.get_standard_dates()
         today = datetime.now().date()
         
-        # 判断今天是否是交易日
-        is_trading_day = today in df_dates['日期'].dt.date.values
+        # 判断今天是否是工作日（交易日）
+        if '日期类别' in df_dates.columns:
+            # 筛选工作日
+            working_days = df_dates[df_dates['日期类别'] == '工作日']
+            is_trading_day = today in working_days['日期'].dt.date.values
+        else:
+            # 兼容：如果没有日期类别列，假设表中所有日期都是交易日
+            logger.warning("标准日期表缺少'日期类别'列，假设所有日期均为工作日")
+            is_trading_day = today in df_dates['日期'].dt.date.values
         
         # 获取T-1
         t_minus_1 = self.get_t_minus_1_date(today)

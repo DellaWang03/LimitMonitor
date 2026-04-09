@@ -15,7 +15,7 @@ Wind代码解析器 - 统一使用To_WindCode()策略
 
 import pandas as pd
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 from loguru import logger
 import platform
 
@@ -29,7 +29,8 @@ class WindCodeResolver:
         mapping_file: Optional[Path] = None,
         use_wind_api: bool = False,  # 强制禁用，保持与Excel一致
         use_excel_helper: bool = True,
-        cache_new_codes: bool = True
+        cache_new_codes: bool = True,
+        config: Any = None,
     ):
         """
         初始化Wind代码解析器
@@ -40,13 +41,15 @@ class WindCodeResolver:
         - 所有新增Wind代码都通过Excel To_WindCode()函数获取
         
         参数:
-            data_dir: 数据目录路径
+            data_dir: 数据目录路径（config 为空时使用）
             mapping_file: 映射表文件路径（如果为None则自动构建）
             use_wind_api: 已禁用，保持与原Excel一致性
             use_excel_helper: 是否使用Excel To_WindCode()函数
             cache_new_codes: 是否缓存查询到的新代码
+            config: ConfigLoader，用于 get_data_file_path 路径 profile 切换
         """
         self.data_dir = Path(data_dir)
+        self.config = config
         self.use_wind_api = False  # 强制禁用Wind API
         self.use_excel_helper = use_excel_helper
         self.cache_new_codes = cache_new_codes
@@ -87,6 +90,12 @@ class WindCodeResolver:
         
         # 记录未找到的发行人（用于批量Excel查询）
         self.missing_issuers = []
+    
+    def _data_file_path(self, file_name: str) -> Path:
+        """按当前 profile 返回数据源文件路径。"""
+        if self.config is not None and hasattr(self.config, "get_data_file_path"):
+            return self.config.get_data_file_path(file_name)
+        return self.data_dir / file_name
         
     def _build_base_mapping(self) -> pd.DataFrame:
         """构建基础映射表（德勤列表 + 统计报表底稿）"""
@@ -94,7 +103,7 @@ class WindCodeResolver:
         
         # 1. 德勤-主体评级列表
         try:
-            deloitte_file = self.data_dir / "德勤-主体评级列表.xlsx"
+            deloitte_file = self._data_file_path("德勤-主体评级列表.xlsx")
             logger.info(f"读取德勤列表: {deloitte_file}")
             
             df_deloitte = pd.read_excel(deloitte_file, sheet_name="Sheet1")
@@ -114,7 +123,7 @@ class WindCodeResolver:
         
         # 2. 统计报表底稿
         try:
-            report_file = self.data_dir / "统计报表底稿1_债券.xlsx"
+            report_file = self._data_file_path("统计报表底稿1_债券.xlsx")
             logger.info(f"读取统计报表底稿: {report_file}")
             
             df_report = pd.read_excel(report_file, sheet_name="债券持仓明细表")

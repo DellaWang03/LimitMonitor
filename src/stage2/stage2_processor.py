@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from loguru import logger
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 import zipfile
 import xml.etree.ElementTree as ET
 
@@ -15,20 +15,22 @@ import xml.etree.ElementTree as ET
 class Stage2Processor:
     """阶段2处理器"""
     
-    def __init__(self, data_dir: Path, output_dir: Path, stage0_output_dir: Path, stage1_output_dir: Path):
+    def __init__(self, data_dir: Path, output_dir: Path, stage0_output_dir: Path, stage1_output_dir: Path, config: Any = None):
         """
         初始化处理器
         
         Args:
-            data_dir: 数据源目录
+            data_dir: 数据源目录（local 时使用；migration 时由 config 解析路径）
             output_dir: 输出目录
             stage0_output_dir: 阶段0输出目录
             stage1_output_dir: 阶段1输出目录
+            config: ConfigLoader，用于 get_data_file_path 路径 profile 切换
         """
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
         self.stage0_output_dir = Path(stage0_output_dir)
         self.stage1_output_dir = Path(stage1_output_dir)
+        self.config = config
         self.cache = {}  # 查询结果缓存
         
         # 确保输出目录存在
@@ -39,6 +41,12 @@ class Stage2Processor:
         logger.info(f"  输出目录: {self.output_dir}")
         logger.info(f"  阶段0输出: {self.stage0_output_dir}")
         logger.info(f"  阶段1输出: {self.stage1_output_dir}")
+    
+    def _data_file_path(self, file_name: str) -> Path:
+        """按当前 profile 返回数据源文件路径。"""
+        if self.config is not None and hasattr(self.config, "get_data_file_path"):
+            return self.config.get_data_file_path(file_name)
+        return self.data_dir / file_name
     
     def process_all(self) -> Dict[str, pd.DataFrame]:
         """
@@ -110,6 +118,11 @@ class Stage2Processor:
         results['债券持仓明细表_信用债_合并风险限额相关'] = df_credit_merged
         self.cache['债券持仓明细表_信用债_合并风险限额相关'] = df_credit_merged
         logger.info(f"✓ {len(df_credit_merged)} 行")
+        
+        logger.info("\n执行查询: 债券持仓表_核算系统（与M一致：限额/债券持仓表.xlsx）")
+        df_accounting = self.query_bond_position_accounting()
+        self.cache['债券持仓表_核算系统'] = df_accounting
+        logger.info(f"✓ {len(df_accounting)} 行")
         
         # === 第2层：计算各类总持仓 ===
         logger.info("\n【第2层】计算各类总持仓")
@@ -241,7 +254,7 @@ class Stage2Processor:
         查询: 高风险行业表
         数据源: 限额监控_阶段0_指标设置.xlsx
         """
-        file_path = self.data_dir / "限额监控_阶段0_指标设置.xlsx"
+        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
         df = pd.read_excel(file_path, sheet_name="高风险行业表")
         
         # 数据清洗
@@ -262,7 +275,7 @@ class Stage2Processor:
         """
         from ..common import ProvinceNormalizer  # 导入省份标准化工具
         
-        file_path = self.data_dir / "限额监控_阶段0_指标设置.xlsx"
+        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
         df = pd.read_excel(file_path, sheet_name="高风险省份表")
         
         # 数据清洗
@@ -288,7 +301,7 @@ class Stage2Processor:
         查询: 高风险集中度限额
         数据源: 限额监控_阶段0_指标设置.xlsx
         """
-        file_path = self.data_dir / "限额监控_阶段0_指标设置.xlsx"
+        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
         df = pd.read_excel(file_path, sheet_name="高风险集中度限额")
         
         # 数据清洗
@@ -302,7 +315,7 @@ class Stage2Processor:
         查询: 地域集中度限额(含城投)
         数据源: 限额监控_阶段0_指标设置.xlsx -> 单一省份限额
         """
-        file_path = self.data_dir / "限额监控_阶段0_指标设置.xlsx"
+        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
         df = pd.read_excel(file_path, sheet_name="单一省份限额")
         
         # 数据清洗
@@ -317,7 +330,7 @@ class Stage2Processor:
         查询: ISIN码映射表
         数据源: 统计报表底稿2_债券SPPI.xlsx → 债券_含穿透持仓
         """
-        file_path = self.data_dir / "统计报表底稿2_债券SPPI.xlsx"
+        file_path = self._data_file_path("统计报表底稿2_债券SPPI.xlsx")
         df = pd.read_excel(file_path, sheet_name="债券_含穿透持仓")
         
         # 只保留资产代码和ISIN码，并去重
@@ -330,6 +343,7 @@ class Stage2Processor:
         """
         手动解析损坏的Excel文件（样式表损坏但数据完好）
         通过解析ZIP内的XML文件来提取数据
+        动态检测工作表名称（sheet0.xml、sheet1.xml等）
         """
         try:
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
@@ -344,8 +358,21 @@ class Stage2Processor:
                         if t is not None and t.text:
                             strings.append(t.text)
                 
-                # 2. 读取第一个工作表数据
-                with zip_ref.open('xl/worksheets/sheet1.xml') as f:
+                # 2. 动态查找第一个工作表
+                worksheet_files = [name for name in zip_ref.namelist() 
+                                  if name.startswith('xl/worksheets/sheet') and name.endswith('.xml')]
+                
+                if not worksheet_files:
+                    logger.error(f"手动解析Excel失败: 未找到工作表文件")
+                    return pd.DataFrame()
+                
+                # 按名称排序，使用第一个工作表
+                worksheet_files.sort()
+                sheet_path = worksheet_files[0]
+                logger.info(f"    使用工作表: {sheet_path}")
+                
+                # 3. 读取工作表数据
+                with zip_ref.open(sheet_path) as f:
                     tree = ET.parse(f)
                     root = tree.getroot()
                     rows = root.findall('.//main:row', ns)
@@ -372,6 +399,7 @@ class Stage2Processor:
                     if len(data) > 0:
                         # 第一行作为列名
                         df = pd.DataFrame(data[1:], columns=data[0])
+                        logger.info(f"    手动解析成功: {len(df)} 行, {len(df.columns)} 列")
                         return df
                     
         except Exception as e:
@@ -384,8 +412,12 @@ class Stage2Processor:
         查询: 金融工具池设置（可转债白名单）
         数据源: 金融工具池设置.xlsx
         注意：该文件样式表损坏，使用手动XML解析
+        
+        重要：与PBI M-code保持一致
+        - 只筛选"品种" = "可转债"的记录
+        - 保留"代码"和"简称"列（同时支持代码匹配和简称匹配，提高兼容性）
         """
-        file_path = self.data_dir / "金融工具池设置.xlsx"
+        file_path = self._data_file_path("金融工具池设置.xlsx")
         
         try:
             # 先尝试用pandas正常读取
@@ -393,26 +425,95 @@ class Stage2Processor:
             sheet_name = xls.sheet_names[0] if xls.sheet_names else None
             if sheet_name:
                 df = pd.read_excel(file_path, sheet_name=sheet_name)
-                if '代码' in df.columns and '简称' in df.columns:
-                    # 只保留代码和简称
-                    df = df[['代码', '简称']].copy()
-                    logger.info(f"  金融工具池设置: {len(df)} 行")
+                
+                # 筛选可转债品种（与PBI M-code保持一致）
+                if '品种' in df.columns:
+                    df = df[df['品种'] == '可转债'].copy()
+                    logger.info(f"    ✓ 筛选品种='可转债': {len(df)} 行")
+                
+                # 保留代码和简称列（同时支持两种匹配方式）
+                cols_to_keep = []
+                if '代码' in df.columns:
+                    cols_to_keep.append('代码')
+                if '简称' in df.columns:
+                    cols_to_keep.append('简称')
+                
+                if cols_to_keep:
+                    df = df[cols_to_keep].copy()
+                    
+                    # 数据清洗：严格处理空值和无效值
+                    for col in cols_to_keep:
+                        # 先保留原始NaN，转换前清理
+                        df[col] = df[col].replace(['', ' ', 'nan', 'None', 'NaN', 'NULL'], pd.NA)
+                        # 转成字符串并去除空格
+                        df[col] = df[col].astype(str).str.strip()
+                        # 再次过滤无效值（转字符串后可能产生的）
+                        df.loc[df[col].isin(['', 'nan', 'None', '<NA>', 'NaT']), col] = pd.NA
+                    
+                    # 去除完全无效的行
+                    df = df.dropna(how='all')
+                    # 去重
+                    df = df.drop_duplicates()
+                    
+                    # 统计有效数据
+                    code_count = df['代码'].notna().sum() if '代码' in df.columns else 0
+                    name_count = df['简称'].notna().sum() if '简称' in df.columns else 0
+                    logger.info(f"  金融工具池设置（可转债白名单）: {len(df)} 行 (代码: {code_count}, 简称: {name_count})")
+                    
+                    # 打印前10个简称用于调试
+                    if '简称' in df.columns and len(df) > 0:
+                        valid_names = df['简称'].dropna().head(10).tolist()
+                        logger.info(f"    前10个简称: {valid_names}")
+                    
                     return df
         except Exception as e:
             # pandas读取失败，尝试手动解析XML
             logger.warning(f"  pandas读取失败，尝试手动解析XML: {str(e)[:50]}")
             df = self._parse_damaged_excel(file_path)
             
-            if not df.empty and '代码' in df.columns and '简称' in df.columns:
-                # 只保留代码和简称
-                df = df[['代码', '简称']].copy()
-                # 数据清洗
-                df['代码'] = df['代码'].astype(str).str.strip()
-                df['简称'] = df['简称'].astype(str).str.strip()
-                # 去除空值
-                df = df[df['代码'].notna() & (df['代码'] != '') & (df['代码'] != 'nan')]
-                logger.info(f"  金融工具池设置（手动解析）: {len(df)} 行")
-                return df
+            if not df.empty:
+                # 筛选可转债品种
+                if '品种' in df.columns:
+                    df = df[df['品种'] == '可转债'].copy()
+                    logger.info(f"    ✓ 筛选品种='可转债': {len(df)} 行")
+                
+                # 保留代码和简称列
+                cols_to_keep = []
+                if '代码' in df.columns:
+                    cols_to_keep.append('代码')
+                if '简称' in df.columns:
+                    cols_to_keep.append('简称')
+                
+                if cols_to_keep:
+                    df = df[cols_to_keep].copy()
+                    
+                    # 数据清洗：严格处理空值和无效值
+                    for col in cols_to_keep:
+                        # 先保留原始NaN，转换前清理
+                        df[col] = df[col].replace(['', ' ', 'nan', 'None', 'NaN', 'NULL'], pd.NA)
+                        # 转成字符串并去除空格
+                        df[col] = df[col].astype(str).str.strip()
+                        # 再次过滤无效值（转字符串后可能产生的）
+                        df.loc[df[col].isin(['', 'nan', 'None', '<NA>', 'NaT']), col] = pd.NA
+                    
+                    # 去除完全无效的行
+                    df = df.dropna(how='all')
+                    # 去重
+                    df = df.drop_duplicates()
+                    
+                    # 统计有效数据
+                    code_count = df['代码'].notna().sum() if '代码' in df.columns else 0
+                    name_count = df['简称'].notna().sum() if '简称' in df.columns else 0
+                    logger.info(f"  金融工具池设置（手动解析，可转债白名单）: {len(df)} 行 (代码: {code_count}, 简称: {name_count})")
+                    
+                    # 打印前10个简称用于调试
+                    if '简称' in df.columns and len(df) > 0:
+                        valid_names = df['简称'].dropna().head(10).tolist()
+                        logger.info(f"    前10个简称: {valid_names}")
+                    
+                    return df
+                else:
+                    logger.warning(f"  手动解析失败或缺少'代码'/'简称'列")
             else:
                 logger.warning(f"  手动解析失败或数据格式不正确")
         
@@ -424,7 +525,7 @@ class Stage2Processor:
         查询: 穿透高收益债券表
         数据源: 限额监控_阶段0_指标设置.xlsx
         """
-        file_path = self.data_dir / "限额监控_阶段0_指标设置.xlsx"
+        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
         df = pd.read_excel(file_path, sheet_name="穿透高收益债券")
         
         logger.info(f"  穿透高收益债券表: {len(df)} 行")
@@ -456,6 +557,112 @@ class Stage2Processor:
             df['日期'] = pd.to_datetime(df['日期'])
         
         logger.info(f"  债券持仓明细表_信用债_合并风险限额相关: {len(df)} 行")
+        return df
+    
+    def query_bond_position_accounting(self) -> pd.DataFrame:
+        """
+        查询: 债券持仓表_核算系统
+        与 M 代码严格一致：读限额/债券持仓表.xlsx（与 M 的核算系统表同源），按核算日期筛选。
+        M 代码: 阶段2_query.md 第1077-1138行
+        """
+        df_credit = self.cache.get('债券持仓明细表_信用债')
+        if df_credit is None or len(df_credit) == 0:
+            logger.warning("  债券持仓表_核算系统: 依赖债券持仓明细表_信用债，请先加载")
+            return pd.DataFrame()
+        
+        # 核算日期 = 债券持仓明细表_信用债 的唯一日期（M: 核算日期）
+        accounting_dates = df_credit[['日期']].drop_duplicates()
+        accounting_dates = accounting_dates.dropna(subset=['日期'])
+        if len(accounting_dates) == 0:
+            logger.warning("  债券持仓表_核算系统: 核算日期为空")
+            return pd.DataFrame()
+        
+        file_path = self._data_file_path("债券持仓表.xlsx")
+        if not file_path.exists():
+            logger.warning(f"  债券持仓表_核算系统: 文件不存在 {file_path}")
+            return pd.DataFrame()
+        
+        xls = pd.ExcelFile(file_path)
+        sheet_name = "债券持仓表"
+        if sheet_name not in xls.sheet_names:
+            sheet_name = xls.sheet_names[0] if xls.sheet_names else None
+        if sheet_name is None:
+            logger.warning("  债券持仓表_核算系统: 无可用 Sheet")
+            return pd.DataFrame()
+        
+        df = pd.read_excel(file_path, sheet_name=sheet_name)
+        if '日期' not in df.columns:
+            logger.warning("  债券持仓表_核算系统: 缺少列 日期")
+            return pd.DataFrame()
+        
+        df['日期'] = pd.to_datetime(df['日期'], errors='coerce')
+        accounting_dates['日期'] = pd.to_datetime(accounting_dates['日期'])
+        
+        # 与核算日期左连接，只保留核算日期存在的行（M: 筛选 核算日期.日期 <> null）
+        df = df.merge(
+            accounting_dates.rename(columns={'日期': '核算日期.日期'}),
+            left_on='日期',
+            right_on='核算日期.日期',
+            how='inner'
+        )
+        df = df.drop(columns=['核算日期.日期'], errors='ignore')
+        
+        logger.info(f"  债券持仓表_核算系统: {len(df)} 行（数据源: {file_path.name}）")
+        return df
+    
+    def query_penetrate_high_yield_capital(self) -> pd.DataFrame:
+        """
+        穿透高收益_投资本金规模
+        M 代码: 阶段2_query.md 第632-659行
+        源 = 债券持仓明细表（M 中即统计报表底稿2_债券SPPI 债券_含穿透持仓），
+        与穿透高收益债券按 ISIN码 Inner Join，选列并重命名。
+        """
+        df_penetrate = self.cache.get('穿透高收益债券')
+        if df_penetrate is None or len(df_penetrate) == 0:
+            logger.warning("  穿透高收益_投资本金规模: 依赖穿透高收益债券")
+            return pd.DataFrame()
+        
+        file_path = self._data_file_path("统计报表底稿2_债券SPPI.xlsx")
+        if not file_path.exists():
+            logger.warning(f"  穿透高收益_投资本金规模: 文件不存在 {file_path}")
+            return pd.DataFrame()
+        
+        df_src = pd.read_excel(file_path, sheet_name="债券_含穿透持仓")
+        if '日期' in df_src.columns:
+            df_src['日期'] = pd.to_datetime(df_src['日期'], errors='coerce')
+        
+        need_cols = ['日期', 'ISIN码', '资产代码', '资产名称', '内部证券账户名称', '库存数量(万)_PR', '本币成本']
+        missing = [c for c in need_cols if c not in df_src.columns]
+        if missing:
+            logger.warning(f"  穿透高收益_投资本金规模: 缺少列 {missing}")
+            return pd.DataFrame()
+        
+        df_src = df_src[need_cols].copy()
+        df_src = df_src.dropna(subset=['ISIN码'])
+        
+        isin_col_penetrate = 'ISIN代码' if 'ISIN代码' in df_penetrate.columns else 'ISIN码'
+        if isin_col_penetrate not in df_penetrate.columns:
+            logger.warning("  穿透高收益_投资本金规模: 穿透表无 ISIN 列")
+            return pd.DataFrame()
+        
+        penetrate_isin = df_penetrate[[isin_col_penetrate]].drop_duplicates()
+        penetrate_isin = penetrate_isin.dropna(subset=[isin_col_penetrate])
+        penetrate_isin.columns = ['ISIN码']
+        
+        df = df_src.merge(penetrate_isin, on='ISIN码', how='inner')
+        df = df.rename(columns={
+            '内部证券账户名称': '账户',
+            '资产名称': '简称',
+            '资产代码': '代码'
+        })
+        df['持仓面额(元)'] = df['库存数量(万)_PR'] * 10000
+        df = df.drop(columns=['库存数量(万)_PR'], errors='ignore')
+        df = df.rename(columns={'本币成本': '全价成本(元)'})
+        
+        out_cols = ['日期', '账户', '简称', '代码', '持仓面额(元)', '全价成本(元)']
+        df = df[[c for c in out_cols if c in df.columns]]
+        
+        logger.info(f"  穿透高收益_投资本金规模: {len(df)} 行")
         return df
     
     # ========================================================================
@@ -1194,7 +1401,11 @@ class Stage2Processor:
         """
         限额明细_高收益
         M-code: 高收益债券持仓明细
-        主要通过账户名称识别（包含"高收益"、"可转债量化策略"等）
+        
+        与PBI M-code保持严格一致的识别规则：
+        1. 优先级最高：资产名称（简称）在金融工具池白名单中 → 纳入（可转债白名单）
+        2. 账户包含"高收益" → 全部纳入
+        3. 穿透高收益债券表中"类型"="高收益" → 纳入（通过ISIN码匹配，对所有债券生效）
         """
         df_credit = self.cache.get('债券持仓明细表_信用债')
         if df_credit is None:
@@ -1202,54 +1413,103 @@ class Stage2Processor:
         
         df = df_credit.copy()
         
-        # 添加是否高收益标识
-        # Excel规则：
-        # 1. 账户包含"高收益" → 全部纳入
-        # 2. 账户包含"可转债量化策略" → 必须在金融工具池设置白名单中
-        # 3. 账户包含"自营部交易性" + 在穿透高收益债券表中 → 纳入（外币高收益债）
+        # ===== 准备匹配数据 =====
         
-        # 获取穿透高收益债券表
-        df_penetrate = self.cache.get('穿透高收益债券')
-        penetrate_codes = set()
-        if df_penetrate is not None and '债券代码' in df_penetrate.columns:
-            penetrate_codes = set(df_penetrate['债券代码'].dropna().astype(str).str.strip().unique())
-        
-        # 获取金融工具池设置（可转债白名单）
+        # 1. 获取金融工具池设置（可转债白名单，仅按简称匹配，严格对齐M代码）
         df_tool_pool = self.cache.get('金融工具池设置')
-        tool_pool_codes = set()
-        if df_tool_pool is not None and '代码' in df_tool_pool.columns:
-            # 金融工具池中的代码不带交易所后缀，需要保存原始代码
-            tool_pool_codes = set(df_tool_pool['代码'].dropna().astype(str).str.strip().unique())
-            logger.info(f"    ✓ 金融工具池白名单: {len(tool_pool_codes)} 个债券")
+        tool_pool_names = set()  # 简称白名单
+        if df_tool_pool is not None:
+            if '简称' in df_tool_pool.columns:
+                # 过滤掉NaN和无效值
+                valid_names = df_tool_pool['简称'].dropna()
+                valid_names = valid_names[valid_names.astype(str).str.strip().isin(['', 'nan', 'None', '<NA>']) == False]
+                tool_pool_names = set(valid_names.astype(str).str.strip().unique())
+                logger.info(f"    ✓ 金融工具池白名单（可转债简称）: {len(tool_pool_names)} 个")
+                if len(tool_pool_names) > 0:
+                    sample_names = list(tool_pool_names)[:5]
+                    logger.info(f"      示例: {sample_names}")
+        
+        # 2. 获取穿透高收益债券表，构建ISIN码→类型的映射（严格对齐M代码）
+        df_penetrate = self.cache.get('穿透高收益债券')
+        penetrate_isin_dict = {}  # ISIN码 → 类型
+        if df_penetrate is not None:
+            # 尝试不同的ISIN列名
+            isin_col = None
+            if 'ISIN代码' in df_penetrate.columns:
+                isin_col = 'ISIN代码'
+            elif 'ISIN码' in df_penetrate.columns:
+                isin_col = 'ISIN码'
+            
+            if '类型' in df_penetrate.columns:
+                for _, row in df_penetrate.iterrows():
+                    type_value = str(row.get('类型', '')).strip()
+                    
+                    # 构建ISIN码映射
+                    if isin_col:
+                        isin = str(row.get(isin_col, '')).strip()
+                        if isin and type_value:
+                            penetrate_isin_dict[isin] = type_value
+                
+                logger.info(f"    ✓ 穿透高收益债券表（ISIN→类型映射）: {len(penetrate_isin_dict)} 个")
+            else:
+                logger.warning(f"    ⚠️  穿透高收益债券表缺少'类型'列")
+        
+        # ===== 高收益识别逻辑（增强版：同时支持简称和代码匹配）=====
+        
+        # 用于调试：记录每个规则匹配的数量
+        match_stats = {
+            'rule1_name': 0,  # 简称在白名单
+            'rule2_account': 0,  # 账户包含"高收益"
+            'rule3_isin': 0   # ISIN码匹配穿透表
+        }
         
         def is_high_yield(row):
             account = str(row.get('内部证券账户名称', ''))
-            code = str(row.get('资产代码', '')).strip()
+            asset_name = str(row.get('资产名称', '')).strip()  # 简称
+            asset_code = str(row.get('资产代码', '')).strip()  # 代码
+            isin = str(row.get('ISIN码', '')).strip()  # ISIN码
             
-            # 去掉交易所后缀进行匹配（如 123080.SZ → 123080）
-            code_base = code.split('.')[0] if '.' in code else code
+            # 规则1（优先级最高）：资产名称（简称）或代码在金融工具池白名单中
+            # 主要对应 PBI M-code: if [高收益量化可转债] <> null then "是"
+            if asset_name in tool_pool_names:
+                match_stats['rule1_name'] += 1
+                return '是'
             
-            # 规则1：账户包含"高收益" → 全部纳入
+            # 规则2：账户名称包含"高收益"
+            # 对应 PBI M-code: else if Text.Contains([内部证券账户名称], "高收益") then "是"
             if '高收益' in account:
+                match_stats['rule2_account'] += 1
                 return '是'
             
-            # 规则2：账户包含"可转债量化策略" → 必须在金融工具池白名单中
-            if '可转债量化策略' in account:
-                if code_base in tool_pool_codes:
+            # 规则3：穿透高收益债券表中"类型"="高收益"
+            # 对应 PBI M-code: else if [穿透债券类型] = "高收益" then "是"
+            # 注意：这对所有债券生效，不限定账户类型
+            
+            # 优先通过ISIN码匹配（与PBI一致）
+            if isin in penetrate_isin_dict:
+                if penetrate_isin_dict[isin] == '高收益':
+                    match_stats['rule3_isin'] += 1
                     return '是'
-                else:
-                    return '否'
             
-            # 规则3：自营部交易性账户 + 在穿透表中
-            if '自营部交易性' in account and code in penetrate_codes:
-                return '是'
-            
+            # 所有条件不满足，返回"否"
             return '否'
         
         df['是否高收益'] = df.apply(is_high_yield, axis=1)
         
+        # 统计识别结果（调试用）
+        high_yield_count = (df['是否高收益'] == '是').sum()
+        logger.info(f"    ✓ 识别为高收益的债券: {high_yield_count} 条")
+        logger.info(f"      规则1-简称匹配: {match_stats['rule1_name']} 条")
+        logger.info(f"      规则2-账户高收益: {match_stats['rule2_account']} 条")
+        logger.info(f"      规则3-ISIN穿透表: {match_stats['rule3_isin']} 条")
+        
         # 筛选高收益债券
         df = df[df['是否高收益'] == '是'].copy()
+        
+        # 打印一些样本用于调试
+        if len(df) > 0 and '资产名称' in df.columns:
+            sample_names = df['资产名称'].head(10).tolist()
+            logger.info(f"    前10个高收益债券: {sample_names}")
         
         # 选择输出列
         output_cols = ['日期', '内部证券账户名称', '资产代码', '资产名称', '库存数量(万)_PR', '债务主体']
@@ -1262,74 +1522,67 @@ class Stage2Processor:
     def query_high_yield_capital(self) -> pd.DataFrame:
         """
         限额明细_高收益_投资本金规模
-        
-        逻辑：从"限额明细_高收益"获取高收益债券列表，然后从SPPI表获取对应的本币成本
+        M 代码: 阶段2_query.md 第573-609行
+        源 = 债券持仓表_核算系统，与金融工具池设置左连接简称，筛选（账户含"高收益" or 可转债），
+        选列后与 穿透高收益_投资本金规模 追加合并。
         """
-        # 获取高收益债券列表（已在query_high_yield_detail中筛选好）
-        df_high_yield = self.cache.get('限额明细_高收益')
-        if df_high_yield is None or len(df_high_yield) == 0:
-            logger.warning("    ⚠️  未找到限额明细_高收益数据")
+        df_src = self.cache.get('债券持仓表_核算系统')
+        if df_src is None or len(df_src) == 0:
+            logger.warning("    ⚠️  未找到债券持仓表_核算系统，请确保已加载")
             return pd.DataFrame()
         
-        # 读取SPPI表（包含本币成本信息）
-        df_sppi = pd.read_excel(self.data_dir / "统计报表底稿2_债券SPPI.xlsx", sheet_name="债券_含穿透持仓")
+        df_src = df_src.copy()
+        if '日期' in df_src.columns:
+            df_src['日期'] = pd.to_datetime(df_src['日期'], errors='coerce')
         
-        # 确保日期字段
-        if '日期' in df_sppi.columns:
-            df_sppi['日期'] = pd.to_datetime(df_sppi['日期'])
-        if '日期' in df_high_yield.columns:
-            df_high_yield['日期'] = pd.to_datetime(df_high_yield['日期'])
-        
-        # 创建匹配键：日期 + 账户 + 资产代码
-        df_high_yield_copy = df_high_yield.copy()
-        df_high_yield_copy['匹配键'] = (
-            df_high_yield_copy['日期'].astype(str) + '|' + 
-            df_high_yield_copy['内部证券账户名称'].astype(str) + '|' + 
-            df_high_yield_copy['资产代码'].astype(str)
-        )
-        
-        df_sppi['匹配键'] = (
-            df_sppi['日期'].astype(str) + '|' + 
-            df_sppi['内部证券账户名称'].astype(str) + '|' + 
-            df_sppi['资产代码'].astype(str)
-        )
-        
-        # 从SPPI表中获取匹配的记录（获取本币成本）
-        df = df_sppi[df_sppi['匹配键'].isin(df_high_yield_copy['匹配键'])].copy()
-        
-        if len(df) == 0:
-            logger.warning("    ⚠️  SPPI表中未找到匹配数据")
+        # 列名与 M 一致：账户、简称、代码、持仓面额(元)、全价成本(元)（核算系统表已有）
+        if '账户' not in df_src.columns and '内部证券账户名称' in df_src.columns:
+            df_src['账户'] = df_src['内部证券账户名称']
+        if '简称' not in df_src.columns and '资产名称' in df_src.columns:
+            df_src['简称'] = df_src['资产名称']
+        if '代码' not in df_src.columns and '资产代码' in df_src.columns:
+            df_src['代码'] = df_src['资产代码'].astype(str).str.split('.').str[0]
+        if '代码' in df_src.columns and df_src['代码'].dtype != object:
+            df_src['代码'] = df_src['代码'].astype(str).str.split('.').str[0]
+        need_src = ['日期', '账户', '简称', '代码', '持仓面额(元)', '全价成本(元)']
+        missing_src = [c for c in need_src if c not in df_src.columns]
+        if missing_src:
+            logger.warning(f"    债券持仓表_核算系统缺少列: {missing_src}")
             return pd.DataFrame()
         
-        # 重命名列
-        df = df.rename(columns={
-            '内部证券账户名称': '账户',
-            '资产名称': '简称',
-            '资产代码': '代码'
-        })
-        
-        # 去除代码后缀（与Excel保持一致）
-        df['代码'] = df['代码'].astype(str).str.split('.').str[0]
-        
-        # 计算持仓面额
-        df['持仓面额(元)'] = df['库存数量(万)'] * 10000
-        
-        # 计算全价成本
-        # Excel M代码说重命名"本币成本"为"全价成本"，但SPPI表中"本币成本"大多为空
-        # 实际上Excel数据显示需要用成本净价计算：全价成本 = 库存数量(万) * 10000 * 成本净价(元)_初始 / 100
-        if '成本净价(元)_初始' in df.columns:
-            df['全价成本(元)'] = df['库存数量(万)'] * 10000 * df['成本净价(元)_初始'] / 100
-            # 对于有本币成本值的记录，用本币成本覆盖
-            if '本币成本' in df.columns:
-                df['全价成本(元)'] = df['全价成本(元)'].fillna(df['本币成本'])
-                df.loc[df['本币成本'].notna(), '全价成本(元)'] = df.loc[df['本币成本'].notna(), '本币成本']
+        df_tool = self.cache.get('金融工具池设置')
+        if df_tool is not None and '简称' in df_tool.columns:
+            tool_short = df_tool[['简称']].drop_duplicates()
+            tool_short = tool_short.rename(columns={'简称': '高收益量化可转债'})
+            df_src = df_src.merge(
+                tool_short,
+                left_on='简称',
+                right_on='高收益量化可转债',
+                how='left'
+            )
         else:
-            df = df.rename(columns={'本币成本': '全价成本(元)'})
+            df_src['高收益量化可转债'] = pd.NA
         
-        # 选择输出列
-        output_cols = ['日期', '账户', '简称', '代码', '持仓面额(元)', '全价成本(元)', 'ISIN码']
-        existing_cols = [col for col in output_cols if col in df.columns]
-        df = df[existing_cols]
+        # 筛选：账户包含"高收益" or 高收益量化可转债 <> null（M: Table.SelectRows）
+        account_contains = df_src['账户'].astype(str).str.contains('高收益', na=False)
+        has_convertible = df_src['高收益量化可转债'].notna()
+        df_src = df_src[account_contains | has_convertible].copy()
+        df_src = df_src[need_src]
         
-        logger.info(f"  限额明细_高收益_投资本金规模: {len(df)} 行")
+        part_accounting = df_src.drop_duplicates()
+        
+        part_penetrate = self.query_penetrate_high_yield_capital()
+        
+        out_cols = ['日期', '账户', '简称', '代码', '持仓面额(元)', '全价成本(元)']
+        part_accounting = part_accounting[[c for c in out_cols if c in part_accounting.columns]]
+        if len(part_penetrate) > 0:
+            part_penetrate = part_penetrate[[c for c in out_cols if c in part_penetrate.columns]]
+            df = pd.concat([part_accounting, part_penetrate], ignore_index=True)
+        else:
+            df = part_accounting
+        
+        if '代码' in df.columns:
+            df['代码'] = df['代码'].astype(str).str.split('.').str[0]
+        
+        logger.info(f"  限额明细_高收益_投资本金规模: {len(df)} 行（核算系统 {len(part_accounting)} + 穿透 {len(part_penetrate)}）")
         return df

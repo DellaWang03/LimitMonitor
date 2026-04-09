@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from loguru import logger
 from src.stage2 import Stage2Processor
+from src.utils.config_loader import get_config
 
 
 def main():
@@ -16,7 +17,11 @@ def main():
     
     # 设置路径
     project_root = Path(__file__).parent
-    data_dir = project_root / "sample data"
+    
+    # 从配置文件读取数据源目录
+    config = get_config()
+    data_dir = config.get_data_dir()
+    
     stage0_output_dir = project_root / "data" / "current" / "stage0_output"
     stage1_output_dir = project_root / "data" / "current" / "stage1_output"
     stage2_output_dir = project_root / "data" / "current" / "stage2_output"
@@ -41,12 +46,13 @@ def main():
     logger.info(f"阶段2输出: {stage2_output_dir}")
     logger.info("")
     
-    # 创建处理器
+    # 创建处理器（传入 config 以支持路径 profile 一键切换）
     processor = Stage2Processor(
         data_dir=data_dir,
         output_dir=stage2_output_dir,
         stage0_output_dir=stage0_output_dir,
-        stage1_output_dir=stage1_output_dir
+        stage1_output_dir=stage1_output_dir,
+        config=config
     )
     
     # 执行处理

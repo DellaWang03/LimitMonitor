@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from src.stage0 import Stage0Processor
 from src.utils.logger import LoggerSetup
 from src.utils import DateValidator
+from src.utils.config_loader import get_config
 
 
 def main():
@@ -39,11 +40,17 @@ def main():
     try:
         # 设置路径
         project_root = Path(__file__).parent
-        data_dir = project_root / "sample data"
+        
+        # 从配置文件读取数据源目录
+        config = get_config()
+        data_dir = config.get_data_dir()
+        
         output_dir = project_root / "data" / "current" / "stage0_output"
         current_dir = project_root / "data" / "current"
         
-        logger.info(f"\n数据目录: {data_dir}")
+        profile = config.get_active_profile()
+        logger.info(f"\n路径 profile: {profile} (一键切换: 修改 config/settings.yaml 中 data_sources.active_profile 或设置环境变量 LIMIT_MONITOR_PROFILE)")
+        logger.info(f"数据目录: {data_dir}")
         logger.info(f"输出目录: {output_dir}")
         
         # 检查数据目录
@@ -61,13 +68,13 @@ def main():
         expected_data_date = None
         
         try:
-            date_validator = DateValidator(data_dir)
+            date_validator = DateValidator(data_dir, config=config)
             
             # 显示业务日期信息
             date_validator.log_business_date_summary()
             
-            # 验证Access数据库新鲜度
-            access_db_path = data_dir / "风控部债券池.accdb"
+            # 验证Access数据库新鲜度（路径按当前 profile）
+            access_db_path = config.get_data_file_path("风控部债券池.accdb")
             
             if access_db_path.exists():
                 # 根据环境设置严格模式
@@ -119,10 +126,11 @@ def main():
                 os.environ['DATA_INCOMPLETE'] = 'true'
                 os.environ['DATA_INCOMPLETE_REASON'] = 'validation_failed'
         
-        # 创建处理器
+        # 创建处理器（传入 config 以支持路径 profile 一键切换）
         processor = Stage0Processor(
             data_dir=data_dir,
-            output_dir=output_dir
+            output_dir=output_dir,
+            config=config
         )
         
         # 执行所有查询

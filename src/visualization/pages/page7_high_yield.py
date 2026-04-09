@@ -6,6 +6,52 @@ import pandas as pd
 from src.visualization.components.tables import render_data_table
 
 
+def _aggregate_by_asset_and_account(df):
+    """按 日期+资产代码+内部证券账户名称 聚合明细展示。"""
+    group_keys = ['日期', '资产代码', '内部证券账户名称']
+    sum_columns = {'库存数量(万)_PR'}
+    ignored_columns = {'合并辅助列'}
+
+    if df.empty or any(col not in df.columns for col in group_keys):
+        return df, 0
+
+    working_df = df.copy()
+    duplicate_mask = working_df.duplicated(group_keys, keep=False)
+    duplicate_df = working_df[duplicate_mask]
+    non_duplicate_df = working_df[~duplicate_mask]
+
+    if duplicate_df.empty:
+        return working_df, 0
+
+    aggregated_rows = []
+    unresolved_groups = []
+
+    for _, group in duplicate_df.groupby(group_keys, sort=False, dropna=False):
+        varying_columns = []
+        for column in group.columns:
+            if column in group_keys or column in sum_columns or column in ignored_columns:
+                continue
+            if group[column].nunique(dropna=False) > 1:
+                varying_columns.append(column)
+
+        if varying_columns:
+            unresolved_groups.append(group)
+            continue
+
+        row = group.iloc[0].copy()
+        if '库存数量(万)_PR' in group.columns:
+            row['库存数量(万)_PR'] = group['库存数量(万)_PR'].sum()
+        aggregated_rows.append(row)
+
+    parts = [non_duplicate_df]
+    if aggregated_rows:
+        parts.append(pd.DataFrame(aggregated_rows))
+    if unresolved_groups:
+        parts.append(pd.concat(unresolved_groups, ignore_index=True))
+
+    return pd.concat(parts, ignore_index=True), len(unresolved_groups)
+
+
 def render(filters: dict, data_loader):
     """渲染高收益明细页面"""
     # 页面标题
@@ -27,9 +73,12 @@ def render(filters: dict, data_loader):
     # KPI卡片区域
     if len(df_capital) > 0:
         total_capital = df_capital['全价成本(元)'].sum() / 10000  # 转为万元
-        limit = 50000  # 限额5万
+        limit = data_loader.load_high_yield_annual_limit()
         remaining = limit - total_capital
         usage_rate = (total_capital / limit * 100) if limit > 0 else 0
+        thresholds = data_loader.load_alert_thresholds()
+        _warn = thresholds['warning'] * 100
+        _over = thresholds['overlimit'] * 100
         is_overlimit = remaining < 0
         
         col1, col2, col3, col4 = st.columns(4)
@@ -64,12 +113,12 @@ def render(filters: dict, data_loader):
             """, unsafe_allow_html=True)
         
         with col4:
-            usage_color = "#22c55e" if usage_rate < 80 else ("#eab308" if usage_rate < 100 else "#ef4444")
+            usage_color = "#22c55e" if usage_rate < _warn else ("#eab308" if usage_rate < _over else "#ef4444")
             st.markdown(f"""
             <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px;">
                 <p style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 8px 0;">使用率</p>
                 <p style="font-size: 1.75rem; font-weight: 700; color: {usage_color}; margin: 0;">{usage_rate:.1f}%</p>
-                <p style="font-size: 0.75rem; color: #94a3b8; margin: 4px 0 0 0;">{'正常' if usage_rate < 80 else ('警戒' if usage_rate < 100 else '超限')}</p>
+                <p style="font-size: 0.75rem; color: #94a3b8; margin: 4px 0 0 0;">{'正常' if usage_rate < _warn else ('警戒' if usage_rate < _over else '超限')}</p>
             </div>
             """, unsafe_allow_html=True)
     
@@ -80,6 +129,14 @@ def render(filters: dict, data_loader):
     
     with tab1:
         if len(df_capital) > 0:
+            if {'日期', '资产代码', '内部证券账户名称'}.issubset(df_capital.columns):
+                filtered_capital, unresolved_groups = _aggregate_by_asset_and_account(df_capital)
+            else:
+                filtered_capital, unresolved_groups = df_capital.copy(), 0
+
+            if unresolved_groups:
+                st.warning(f"有 {unresolved_groups} 组记录因关键字段不一致，已保留原明细未合并。")
+
             # 搜索框
             search_keyword = st.text_input(
                 "搜索", 
@@ -89,12 +146,12 @@ def render(filters: dict, data_loader):
             )
             
             display_columns = [
-                '日期', '账户', '简称', '代码',
+                '日期', '代码', '简称', '账户',
                 '持仓面额(元)', '全价成本(元)'
             ]
             
-            display_columns = [col for col in display_columns if col in df_capital.columns]
-            display_df = df_capital[display_columns].copy()
+            display_columns = [col for col in display_columns if col in filtered_capital.columns]
+            display_df = filtered_capital[display_columns].copy()
             
             # 应用搜索筛选
             if search_keyword:
@@ -172,10 +229,11 @@ def render(filters: dict, data_loader):
             
             if len(df_high_yield) > 0:
                 # 按资产代码汇总
-                asset_summary = df_high_yield.groupby(['资产代码', '资产名称']).agg({
+                code_column = '代码' if '代码' in df_high_yield.columns else '资产代码'
+                asset_summary = df_high_yield.groupby([code_column, '资产名称']).agg({
                     '库存数量(万)_PR': 'sum'
                 }).reset_index()
-                asset_summary.columns = ['资产代码', '资产名称', 'PR后规模(万)']
+                asset_summary.columns = ['代码', '资产名称', 'PR后规模(万)']
                 asset_summary = asset_summary.sort_values('PR后规模(万)', ascending=False)
                 
                 # 计算总计值
@@ -198,7 +256,7 @@ def render(filters: dict, data_loader):
                 
                 # 添加总计行
                 total_row = pd.DataFrame([{
-                    '资产代码': '合计',
+                    '代码': '合计',
                     '资产名称': '',
                     'PR后规模(万)': smart_format(total_val)
                 }])

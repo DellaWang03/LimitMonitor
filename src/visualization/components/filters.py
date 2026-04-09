@@ -5,19 +5,27 @@ import streamlit as st
 from typing import Dict, Any
 
 
-def render_top_filters(data_loader) -> Dict[str, Any]:
+def render_top_filters(data_loader, page_name: str) -> Dict[str, Any]:
     """
     渲染顶部筛选器
     
     Returns:
         Dict: 筛选条件字典
     """
-    st.markdown('<div class="filter-container">', unsafe_allow_html=True)
-    
+    # 债券分类和账户列表在同一数据源+页面下不会改变，缓存到 session_state 避免每次 rerun 重复
+    # 计算 .copy() + unique() + sorted()。刷新按钮会清除这些缓存键（见 sidebar.py）。
+    _lists_key = f"_filter_lists_{data_loader.data_source}_{page_name}"
+    if _lists_key not in st.session_state:
+        st.session_state[_lists_key] = {
+            'bond_types': data_loader.get_available_bond_types(),
+            'accounts': data_loader.get_available_accounts(page_name=page_name),
+        }
+    bond_types = st.session_state[_lists_key]['bond_types']
+    accounts = st.session_state[_lists_key]['accounts']
+
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        bond_types = data_loader.get_available_bond_types()
         selected_bond_type = st.selectbox(
             "债券分类",
             bond_types,
@@ -25,34 +33,32 @@ def render_top_filters(data_loader) -> Dict[str, Any]:
         )
     
     with col2:
-        accounts = data_loader.get_available_accounts()
         selected_account = st.selectbox(
-            "内部证券账户/产品",
+            "内部证券账户",
             accounts,
             index=0
         )
     
     with col3:
         search_code = st.text_input(
-            "代码/名称/债务主体",
-            placeholder="输入搜索关键词..."
+            "关键词搜索",
+            placeholder="输入代码、名称、主体、实控人或担保人"
         )
     
     with col4:
         quality_options = ["全部", "是", "否"]
         selected_quality = st.selectbox(
-            "实质",
+            "综合超限",
             quality_options,
             index=0
         )
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
+
     return {
         'bond_type': selected_bond_type,
         'account': selected_account,
         'search_keyword': search_code,
-        'quality': selected_quality
+        'quality': selected_quality,
+        'quality_field': '六维综合是否超限' if page_name == '单一信用限额' else '是否超限'
     }
 
 
@@ -85,7 +91,17 @@ def apply_filters(df, filters: Dict[str, Any]):
     if filters.get('search_keyword'):
         keyword = filters['search_keyword'].lower()
         # 在多个列中搜索
-        search_columns = ['资产代码', '资产名称', '债务主体']
+        search_columns = [
+            '代码',
+            'ISIN码',
+            '资产代码',
+            '资产名称',
+            '证券名称',
+            '债务主体',
+            '实际控制人名称_修正',
+            '调整后实际控制人',
+            '担保人'
+        ]
         mask = False
         for col in search_columns:
             if col in filtered_df.columns:
@@ -96,10 +112,11 @@ def apply_filters(df, filters: Dict[str, Any]):
         else:
             filtered_df = filtered_df[mask]
     
-    # 实质筛选
-    if filters.get('quality') and filters['quality'] != '全部' and '是否超限' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['是否超限'] == filters['quality']]
-    
+    # 综合超限筛选
+    quality_field = filters.get('quality_field')
+    if filters.get('quality') and filters['quality'] != '全部' and quality_field and quality_field in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df[quality_field] == filters['quality']]
+
     # 高风险行业是否超限筛选
     if filters.get('high_risk_industry') and filters['high_risk_industry'] != '全部' and '高风险行业是否超限' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['高风险行业是否超限'] == filters['high_risk_industry']]

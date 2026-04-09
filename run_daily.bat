@@ -90,24 +90,22 @@ if exist "%WARNING_FILE%" (
         set ARCHIVED=false
     )
 ) else (
-    REM 数据完整，正常归档
+    REM 数据完整，调用 Python 归档脚本（含 data_date.txt，与看板历史日期展示一致）
     echo ✅ 数据完整性检查通过，开始归档...
-    
-    set HISTORY_DIR=%PROJECT_ROOT%\data\history\%TODAY%
-    if not exist "%HISTORY_DIR%" mkdir "%HISTORY_DIR%"
     
     if exist "%CURRENT_DIR%\stage0_output" (
         if exist "%CURRENT_DIR%\stage1_output" (
             if exist "%CURRENT_DIR%\stage2_output" (
-                echo   从 current\ 目录备份完整数据（Stage0/1/2）...
-                xcopy /E /I /Y "%CURRENT_DIR%\stage0_output" "%HISTORY_DIR%\stage0_output\" > nul
-                xcopy /E /I /Y "%CURRENT_DIR%\stage1_output" "%HISTORY_DIR%\stage1_output\" > nul
-                xcopy /E /I /Y "%CURRENT_DIR%\stage2_output" "%HISTORY_DIR%\stage2_output\" > nul
-                echo   ✅ 已归档: stage0_output (配置文件)
-                echo   ✅ 已归档: stage1_output (业务数据)
-                echo   ✅ 已归档: stage2_output (业务数据)
-                echo ✅ 数据已备份到: %HISTORY_DIR%
-                set ARCHIVED=true
+                python scripts/daily_archive.py
+                if not errorlevel 1 (
+                    set ARCHIVED=true
+                    echo ✅ 数据已备份到: %PROJECT_ROOT%\data\history\%TODAY%
+                ) else (
+                    echo ❌ 归档失败
+                    set ARCHIVED=false
+                    pause
+                    exit /b 1
+                )
             ) else (
                 echo ⚠️  数据目录不完整，跳过归档
                 set ARCHIVED=false

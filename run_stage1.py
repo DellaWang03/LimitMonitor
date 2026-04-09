@@ -8,6 +8,7 @@ from datetime import datetime
 from loguru import logger
 from src.stage1 import Stage1Processor
 from src.common.logger_setup import LoggerSetup
+from src.utils.config_loader import get_config
 
 
 def main():
@@ -22,7 +23,11 @@ def main():
     
     # 设置路径
     base_dir = Path(__file__).parent
-    data_dir = base_dir / "sample data"
+    
+    # 从配置文件读取数据源目录
+    config = get_config()
+    data_dir = config.get_data_dir()
+    
     output_dir = base_dir / "data" / "current" / "stage1_output"
     stage0_output_dir = base_dir / "data" / "current" / "stage0_output"
     
@@ -35,11 +40,12 @@ def main():
     logger.info(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     try:
-        # 创建处理器
+        # 创建处理器（传入 config 以支持路径 profile 一键切换）
         processor = Stage1Processor(
             data_dir=data_dir,
             output_dir=output_dir,
-            stage0_output_dir=stage0_output_dir
+            stage0_output_dir=stage0_output_dir,
+            config=config
         )
         
         # 执行处理

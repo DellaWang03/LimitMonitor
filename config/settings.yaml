@@ -9,18 +9,41 @@ project:
 
 # 数据源配置
 data_sources:
+  # 数据源根目录（相对于项目根目录，local 时使用）
+  data_dir: "限额"
+  
+  # 路径配置：一键切换 local（当前环境）| migration（另一台电脑）
+  active_profile: "migration"
+  path_profiles:
+    # local：不修改现有行为，所有文件从 data_dir 下读取
+    local: {}
+    # migration：另一台电脑固定路径，按实际挂载点修改 data_dir / data_config_source / path_overrides
+    migration:
+      data_dir: "/Volumes/sjz-share/PBI"
+      data_config_source: "/Users/dellawang/Desktop/LimitMonitorAutomation/data_config_source"
+      file_subpaths:
+        金融工具池设置.xlsx: "限额/限额监控"
+        限额监控_阶段0_指标设置.xlsx: "限额/限额监控"
+        统计报表底稿1_债券.xlsx: "投资条线/2026/统计报表新"
+        统计报表底稿2_债券SPPI.xlsx: "投资条线/2026/统计报表新"
+        德勤-主体评级列表.xlsx: "投资条线/2026/统计报表新/数据源"
+        债券持仓表.xlsx: "投资条线/2026/1.收入核算/核算底稿V3"
+        标准日期表.xlsx: "日期表"
+        风控部债券池.accdb: "投资条线/债券池列表"
+      path_overrides:
+        # macOS 无法读 SMB 上的 .accdb 时，改用本机 local 同源（项目下 限额/ 目录）
+        风控部债券池.accdb: "/Users/dellawang/Desktop/LimitMonitorAutomation/限额/风控部债券池.accdb"
+        净资产.xlsx: "/Volumes/sjz-share/共享数据（财务、部门）_紫琪维护/部门数据/4.净资产/净资产.xlsx"
+  
   # Excel 文件路径
   excel_files:
-    bond_pool: "sample data/阶段/限额监控_阶段0_风控债券池.xlsx"
-    stage_1: "sample data/阶段/限额监控_阶段1.xlsx"
-    stage_2: "sample data/阶段/限额监控_阶段2.xlsx"
-    bond_holdings: "sample data/债券持仓表.xlsx"
-    net_assets: "sample data/净资产.xlsx"
-    instrument_pool: "sample data/金融工具池设置.xlsx"
+    bond_holdings: "限额/债券持仓表.xlsx"
+    net_assets: "限额/净资产.xlsx"
+    instrument_pool: "限额/金融工具池设置.xlsx"
     
   # Access 数据库
   access_db:
-    bond_pool_db: "sample data/风控部债券池.accdb"
+    bond_pool_db: "限额/风控部债券池.accdb"
     driver: "{Microsoft Access Driver (*.mdb, *.accdb)}"
     
   # Wind API（如适用）
@@ -31,7 +54,7 @@ data_sources:
   # 核算系统（待配置）
   accounting_system:
     type: "excel"  # 或 "database", "api"
-    path: "sample data/债券持仓表.xlsx"
+    path: "限额/债券持仓表.xlsx"
 
 # 输出配置
 output:
@@ -90,10 +113,10 @@ validation:
 alerts:
   enabled: true
   
-  # 告警阈值
+  # 告警阈值（两档）
   thresholds:
-    critical: 0.95  # 超限 95% 时告警
-    warning: 0.90   # 接近限额 90% 时预警
+    warning: 0.80   # 使用率 ≥ 80% 时进入警戒区间（黄色）
+    overlimit: 1.00  # 使用率 ≥ 100% 时超限（红色）
     
   # 告警方式（待实现）
   channels:

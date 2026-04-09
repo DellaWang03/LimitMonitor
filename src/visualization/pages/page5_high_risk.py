@@ -3,8 +3,55 @@
 """
 import streamlit as st
 import plotly.express as px
+import pandas as pd
 from src.visualization.components.tables import render_data_table
 from src.visualization.components.filters import apply_filters
+
+
+def _aggregate_by_asset_and_account(df):
+    """按 日期+资产代码+内部证券账户名称 聚合明细展示。"""
+    group_keys = ['日期', '资产代码', '内部证券账户名称']
+    sum_columns = {'库存数量(万)_PR'}
+    ignored_columns = {'合并辅助列'}
+
+    if df.empty or any(col not in df.columns for col in group_keys):
+        return df, 0
+
+    working_df = df.copy()
+    duplicate_mask = working_df.duplicated(group_keys, keep=False)
+    duplicate_df = working_df[duplicate_mask]
+    non_duplicate_df = working_df[~duplicate_mask]
+
+    if duplicate_df.empty:
+        return working_df, 0
+
+    aggregated_rows = []
+    unresolved_groups = []
+
+    for _, group in duplicate_df.groupby(group_keys, sort=False, dropna=False):
+        varying_columns = []
+        for column in group.columns:
+            if column in group_keys or column in sum_columns or column in ignored_columns:
+                continue
+            if group[column].nunique(dropna=False) > 1:
+                varying_columns.append(column)
+
+        if varying_columns:
+            unresolved_groups.append(group)
+            continue
+
+        row = group.iloc[0].copy()
+        if '库存数量(万)_PR' in group.columns:
+            row['库存数量(万)_PR'] = group['库存数量(万)_PR'].sum()
+        aggregated_rows.append(row)
+
+    parts = [non_duplicate_df]
+    if aggregated_rows:
+        parts.append(pd.DataFrame(aggregated_rows))
+    if unresolved_groups:
+        parts.append(pd.concat(unresolved_groups, ignore_index=True))
+
+    return pd.concat(parts, ignore_index=True), len(unresolved_groups)
 
 
 def render(filters: dict, data_loader):
@@ -86,10 +133,11 @@ def render(filters: dict, data_loader):
                 })
                 
                 # 从明细表获取债券数和超限数（仅用于统计，持仓以汇总表为准）
+                # 超限数按「高风险省份是否超限」统计，与该 Tab「高风险省份集中度」语义一致
                 if '省份类别' in df_detail.columns:
                     detail_stats = df_detail[df_detail['省份类别'] == '高风险省份'].groupby('省份').agg({
                         '资产代码': 'count',
-                        '是否超限': lambda x: (x == '是').sum()
+                        '高风险省份是否超限': lambda x: (x == '是').sum()
                     }).reset_index()
                     detail_stats.columns = ['省份', '债券数', '超限数']
                     
@@ -151,8 +199,11 @@ def render(filters: dict, data_loader):
                     with st.expander("🔍 查看债券级别明细（不含做市业务）"):
                         province_detail = df_detail[df_detail['省份类别'] == '高风险省份'].copy()
                         filtered_detail = apply_filters(province_detail, filters)
+                        filtered_detail, unresolved_groups = _aggregate_by_asset_and_account(filtered_detail)
+                        if unresolved_groups:
+                            st.warning(f"有 {unresolved_groups} 组记录因关键字段不一致，已保留原明细未合并。")
                         display_columns = [
-                            '日期', '省份', '内部证券账户名称', '资产代码', '资产名称',
+                            '日期', '代码', '资产名称', '内部证券账户名称', '省份',
                             '债务主体', '库存数量(万)_PR', '是否超限'
                         ]
                         display_columns = [col for col in display_columns if col in filtered_detail.columns]
@@ -263,8 +314,11 @@ def render(filters: dict, data_loader):
                     # 可选：展开债券明细
                     with st.expander("🔍 查看债券级别明细"):
                         filtered_detail = apply_filters(industry_detail, filters)
+                        filtered_detail, unresolved_groups = _aggregate_by_asset_and_account(filtered_detail)
+                        if unresolved_groups:
+                            st.warning(f"有 {unresolved_groups} 组记录因关键字段不一致，已保留原明细未合并。")
                         display_columns = [
-                            '日期', 'wind行业', '内部证券账户名称', '资产代码', '资产名称',
+                            '日期', '代码', '资产名称', '内部证券账户名称', 'wind行业',
                             '债务主体', '库存数量(万)_PR', '是否超限'
                         ]
                         display_columns = [col for col in display_columns if col in filtered_detail.columns]

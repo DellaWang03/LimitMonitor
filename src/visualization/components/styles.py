@@ -14,23 +14,57 @@ CUSTOM_CSS = """
 }
 
 /* 主容器背景 - 简洁浅灰 */
-.stApp {
-    background: #f8fafc;
+.stApp,
+[data-testid="stAppViewContainer"],
+.main {
+    background: #f8fafc !important;
 }
 
 /* 主内容区域 */
 .main .block-container {
-    background-color: #ffffff;
+    background: transparent;
     border-radius: 16px;
-    padding: 1.5rem 2rem;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    padding: 1rem 2rem 1.5rem;
+    box-shadow: none;
     max-width: 1400px;
 }
 
+/* Streamlit 顶部壳层 */
+header[data-testid="stHeader"],
+[data-testid="stHeader"],
+[data-testid="stToolbar"] {
+    background: #f8fafc !important;
+    border-bottom: none !important;
+    box-shadow: none !important;
+}
+
+header[data-testid="stHeader"],
+[data-testid="stHeader"] {
+    height: 0 !important;
+}
+
+[data-testid="stToolbar"] {
+    top: 0.5rem !important;
+    right: 1rem !important;
+}
+
+[data-testid="stDecoration"] {
+    display: none !important;
+}
+
 /* ====== 侧边栏样式 ====== */
-section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
-    border-right: 1px solid #334155;
+section[data-testid="stSidebar"],
+section[data-testid="stSidebar"] > div {
+    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%) !important;
+    border-right: none !important;
+    box-shadow: none !important;
+}
+
+/* 清理侧边栏和主区之间的默认分隔线 */
+[data-testid="stSidebar"] + div,
+[data-testid="stSidebarResizer"] {
+    border-left: none !important;
+    box-shadow: none !important;
 }
 
 section[data-testid="stSidebar"] .stMarkdown {
@@ -59,18 +93,48 @@ section[data-testid="stSidebar"] .stRadio label {
     padding: 10px 12px;
     margin: 2px 0;
     transition: all 0.2s ease;
-    color: #94a3b8;
+    color: #cbd5e1;
     font-weight: 500;
 }
 
+section[data-testid="stSidebar"] .stRadio label *,
+section[data-testid="stSidebar"] .stRadio [role="radiogroup"] label *,
+section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] *,
+section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label *,
+section[data-testid="stSidebar"] .stSelectbox *,
+section[data-testid="stSidebar"] .stDateInput * {
+    color: #dbe7f5 !important;
+}
+
 section[data-testid="stSidebar"] .stRadio label:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.07);
     color: #f1f5f9;
+}
+
+section[data-testid="stSidebar"] .stRadio label:hover *,
+section[data-testid="stSidebar"] .stRadio [role="radiogroup"] label:hover * {
+    color: #f8fbff !important;
 }
 
 section[data-testid="stSidebar"] .stRadio label[data-checked="true"] {
     background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
     color: white;
+}
+
+section[data-testid="stSidebar"] .stRadio label[data-checked="true"] *,
+section[data-testid="stSidebar"] .stRadio [role="radiogroup"] label[data-checked="true"] * {
+    color: #ffffff !important;
+}
+
+section[data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] > div,
+section[data-testid="stSidebar"] .stDateInput > div > div > input {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+section[data-testid="stSidebar"] .stSelectbox svg,
+section[data-testid="stSidebar"] .stDateInput svg {
+    fill: #dbe7f5 !important;
 }
 
 /* ====== 按钮样式 ====== */
@@ -319,6 +383,13 @@ h3 {
 /* ====== 加载动画 ====== */
 .stSpinner > div {
     border-top-color: #3b82f6 !important;
+}
+
+/* 隐藏 Streamlit 默认的加载/状态框，避免页面切换时出现缓存提示框 */
+div[data-testid="stSpinner"],
+div[data-testid="stStatusWidget"],
+.stSpinner {
+    display: none !important;
 }
 
 /* ====== 进度条 ====== */
