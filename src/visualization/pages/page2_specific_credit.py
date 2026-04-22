@@ -4,7 +4,7 @@
 import streamlit as st
 import pandas as pd
 from src.visualization.components.filters import apply_filters
-from src.visualization.components.tables import render_data_table
+from src.visualization.components.tables import render_data_table, aggregate_by_asset_and_account
 from src.visualization.components.controls import (
     inject_compact_controls_css,
     render_kpi_cards,
@@ -14,50 +14,7 @@ from src.visualization.components.controls import (
 _PAGE2_SHARED_KEY = "page2_current_dimension_overlimit_shared"
 
 
-def _aggregate_by_asset_and_account(df):
-    """按 日期+资产代码+内部证券账户名称 聚合明细展示。"""
-    group_keys = ['日期', '资产代码', '内部证券账户名称']
-    sum_columns = {'库存数量(万)_PR'}
-    ignored_columns = {'合并辅助列'}
-
-    if df.empty or any(col not in df.columns for col in group_keys):
-        return df, 0
-
-    working_df = df.copy()
-    duplicate_mask = working_df.duplicated(group_keys, keep=False)
-    duplicate_df = working_df[duplicate_mask]
-    non_duplicate_df = working_df[~duplicate_mask]
-
-    if duplicate_df.empty:
-        return working_df, 0
-
-    aggregated_rows = []
-    unresolved_groups = []
-
-    for _, group in duplicate_df.groupby(group_keys, sort=False, dropna=False):
-        varying_columns = []
-        for column in group.columns:
-            if column in group_keys or column in sum_columns or column in ignored_columns:
-                continue
-            if group[column].nunique(dropna=False) > 1:
-                varying_columns.append(column)
-
-        if varying_columns:
-            unresolved_groups.append(group)
-            continue
-
-        row = group.iloc[0].copy()
-        if '库存数量(万)_PR' in group.columns:
-            row['库存数量(万)_PR'] = group['库存数量(万)_PR'].sum()
-        aggregated_rows.append(row)
-
-    parts = [non_duplicate_df]
-    if aggregated_rows:
-        parts.append(pd.DataFrame(aggregated_rows))
-    if unresolved_groups:
-        parts.append(pd.concat(unresolved_groups, ignore_index=True))
-
-    return pd.concat(parts, ignore_index=True), len(unresolved_groups)
+_aggregate_by_asset_and_account = aggregate_by_asset_and_account
 
 
 def render(filters: dict, data_loader):
@@ -107,7 +64,9 @@ def render(filters: dict, data_loader):
         ]
 
         display_columns = [col for col in display_columns if col in filtered_df.columns]
-        display_df = filtered_df[display_columns]
+        display_df = filtered_df[display_columns].rename(columns={
+            '库存数量(万)_PR': 'PR后规模(万)'
+        })
 
         render_data_table(
             display_df,
@@ -115,7 +74,7 @@ def render(filters: dict, data_loader):
             height=500,
             export_key="export_page2_tab1_specific_entity",
             add_total_row=True,
-            total_columns=['库存数量(万)_PR']
+            total_columns=['PR后规模(万)']
         )
 
     with tab2:
@@ -142,7 +101,9 @@ def render(filters: dict, data_loader):
         ]
 
         display_columns = [col for col in display_columns if col in filtered_df.columns]
-        display_df = filtered_df[display_columns]
+        display_df = filtered_df[display_columns].rename(columns={
+            '库存数量(万)_PR': 'PR后规模(万)'
+        })
 
         render_data_table(
             display_df,
@@ -150,5 +111,5 @@ def render(filters: dict, data_loader):
             height=500,
             export_key="export_page2_tab2_specific_controller",
             add_total_row=True,
-            total_columns=['库存数量(万)_PR']
+            total_columns=['PR后规模(万)']
         )

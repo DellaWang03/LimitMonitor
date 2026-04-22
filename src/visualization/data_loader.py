@@ -274,6 +274,12 @@ class DataLoader:
         file_path = self.stage2_output_dir / "高风险省份总持仓_2.xlsx"
         logger.info(f"加载文件: {file_path.name}")
         return DataLoader._load_excel_with_date(str(file_path))
+
+    def load_stage2_high_risk_industry_detail(self) -> pd.DataFrame:
+        """加载阶段2-高风险行业明细（按行业汇总，包含做市业务）"""
+        file_path = self.stage2_output_dir / "高风险行业总持仓_2.xlsx"
+        logger.info(f"加载文件: {file_path.name}")
+        return DataLoader._load_excel_with_date(str(file_path))
     
     def load_stage2_regional(self) -> pd.DataFrame:
         """加载阶段2-地域集中度限额(含城投)"""

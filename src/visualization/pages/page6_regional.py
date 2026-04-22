@@ -6,35 +6,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from src.visualization.components.tables import render_data_table
-
-
-# Tab1显示列配置
-TAB1_DISPLAY_COLUMNS = [
-    '日期', '指标名称', '指标值_地域集中度限额', '单一地域总持仓_PR',
-    '地域集中度', '单一地域总持仓剩余额度', '公司净资产(万)',
-    '指标值_城投集中度限额', '单一地域城投总持仓_PR',
-    '城投地域集中度', '单一地域城投持仓剩余额度'
-]
-
-TAB1_COLUMN_RENAME = {
-    '指标名称': '省份',
-    '指标值_地域集中度限额': '地域集中度限额',
-    '指标值_城投集中度限额': '城投集中度限额'
-}
-
-# Tab2显示列配置
-TAB2_SUMMARY_COLUMNS = [
-    '指标名称', '指标值_地域集中度限额', '单一地域总持仓_PR',
-    '地域集中度', '单一地域总持仓剩余额度'
-]
-
-TAB2_COLUMN_RENAME = {
-    '指标名称': '省份',
-    '指标值_地域集中度限额': '地域集中度限额',
-    '单一地域总持仓_PR': '持仓金额(万)',
-    '地域集中度': '持仓占净资产比',
-    '单一地域总持仓剩余额度': '剩余额度(万)'
-}
+from src.visualization.display_builders import build_page6_regional_views
 
 
 def render(filters: dict, data_loader):
@@ -53,11 +25,7 @@ def render(filters: dict, data_loader):
     
     # 加载数据（优化：只加载一次）
     with st.spinner("加载数据中..."):
-        df = data_loader.load_stage2_regional()
-        
-        # 过滤掉持仓为0的省份
-        if '单一地域总持仓_PR' in df.columns:
-            df = df[df['单一地域总持仓_PR'] > 0]
+        views = build_page6_regional_views(data_loader, filters)
     
     # 创建标签页
     tab1, tab2 = st.tabs([
@@ -81,15 +49,13 @@ def render(filters: dict, data_loader):
         st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
         
         # 应用省份搜索筛选
-        display_df = df.copy()
-        if search_province_tab1 and '指标名称' in display_df.columns:
+        display_df = views["tables"].get("tab1_detail", pd.DataFrame()).copy()
+        if search_province_tab1 and '省份' in display_df.columns:
             display_df = display_df[
-                display_df['指标名称'].astype(str).str.contains(search_province_tab1, na=False, case=False)
+                display_df['省份'].astype(str).str.contains(search_province_tab1, na=False, case=False)
             ]
         
-        # 直接处理显示数据（避免不必要的缓存和转换开销）
-        cols = [c for c in TAB1_DISPLAY_COLUMNS if c in display_df.columns]
-        display_df_tab1 = display_df[cols].rename(columns=TAB1_COLUMN_RENAME)
+        display_df_tab1 = display_df.copy()
         
         # 渲染表格
         render_data_table(
@@ -117,7 +83,7 @@ def render(filters: dict, data_loader):
                     x='省份',
                     y='单一地域总持仓_PR',
                     title='地域持仓Top10',
-                    labels={'单一地域总持仓_PR': '持仓(万)', '省份': '省份'}
+                    labels={'单一地域总持仓_PR': 'PR后规模(万)', '省份': '省份'}
                 )
                 fig.update_layout(xaxis_tickangle=-45)
                 st.plotly_chart(fig, width='stretch')
@@ -132,7 +98,7 @@ def render(filters: dict, data_loader):
                         x='省份',
                         y='单一地域城投总持仓_PR',
                         title='城投持仓Top10',
-                        labels={'单一地域城投总持仓_PR': '持仓(万)', '省份': '省份'}
+                        labels={'单一地域城投总持仓_PR': 'PR后规模(万)', '省份': '省份'}
                     )
                     fig2.update_layout(xaxis_tickangle=-45)
                     st.plotly_chart(fig2, width='stretch')
@@ -153,23 +119,12 @@ def render(filters: dict, data_loader):
         st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
         
         # 应用省份搜索筛选
-        summary_base = df.copy()
-        if search_province_tab2 and '指标名称' in summary_base.columns:
+        summary_base = views["tables"].get("tab2_summary", pd.DataFrame()).copy()
+        if search_province_tab2 and '省份' in summary_base.columns:
             summary_base = summary_base[
-                summary_base['指标名称'].astype(str).str.contains(search_province_tab2, na=False, case=False)
+                summary_base['省份'].astype(str).str.contains(search_province_tab2, na=False, case=False)
             ]
-        
-        # 直接处理汇总数据（避免不必要的缓存和转换开销）
-        cols = [c for c in TAB2_SUMMARY_COLUMNS if c in summary_base.columns]
-        summary_df = summary_base[cols].rename(columns=TAB2_COLUMN_RENAME)
-        
-        # 按地域集中度限额降序排列
-        if '地域集中度限额' in summary_df.columns:
-            summary_df = summary_df.sort_values('地域集中度限额', ascending=False)
-        
-        # 添加超限标识
-        if '剩余额度(万)' in summary_df.columns:
-            summary_df['是否超限'] = (summary_df['剩余额度(万)'] < 0).map({True: '是', False: '否'})
+        summary_df = summary_base.copy()
         
         # 渲染汇总表格
         render_data_table(
@@ -180,7 +135,7 @@ def render(filters: dict, data_loader):
             enable_export=True,
             export_key="export_page6_tab2_summary",
             add_total_row=True,
-            total_columns=['持仓金额(万)']
+            total_columns=['PR后规模(万)']
         )
         
         # 可视化 - 集中度对比

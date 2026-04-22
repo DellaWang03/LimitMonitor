@@ -14,6 +14,12 @@ try:
 except ImportError:
     pd = None
 
+# 展示层快照生成逻辑已迁移至独立模块
+_SCRIPT_DIR = Path(__file__).parent
+if str(_SCRIPT_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR.parent))
+from scripts.generate_display_snapshot import write_display_snapshots
+
 
 def _ensure_project_import_path(project_root: Path):
     """确保脚本模式下可以导入项目内模块。"""
@@ -91,6 +97,38 @@ def _write_alert_thresholds_snapshot(project_root: Path, history_target: Path):
         encoding="utf-8"
     )
     print(f"📋 告警阈值快照已写入: {snapshot_file.name}")
+
+def _write_regulatory_concentration_limit_snapshot(project_root: Path, history_target: Path):
+    """写入监管集中度限额历史快照，保证历史页面回放时使用归档当日的限额配置。"""
+    snapshot_file = history_target / "regulatory_concentration_limit_snapshot.json"
+    FALLBACK = 0.16
+    payload = {
+        "snapshot_type": "regulatory_concentration_limit",
+        "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "regulatory_concentration_limit": FALLBACK,
+        "source": "fallback",
+    }
+
+    try:
+        config_file = project_root / "data" / "regulatory_concentration_limit.json"
+        if config_file.exists():
+            with open(config_file, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            value = float(config.get("regulatory_concentration_limit", FALLBACK))
+            payload["regulatory_concentration_limit"] = value
+            payload["source"] = "snapshot"
+        else:
+            payload["source"] = "fallback_file_missing"
+    except Exception as e:
+        payload["source"] = "fallback_exception"
+        payload["error"] = str(e)
+
+    snapshot_file.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
+    print(f"📋 监管集中度限额快照已写入: {snapshot_file.name} (值: {payload['regulatory_concentration_limit']})")
+
 
 def archive_current_to_history(target_date: str = None):
     """
@@ -183,6 +221,11 @@ def archive_current_to_history(target_date: str = None):
     # 写入历史展示快照，避免历史页面回看时重新读取当前配置
     _write_high_yield_limit_snapshot(project_root, history_target)
     _write_alert_thresholds_snapshot(project_root, history_target)
+    _write_regulatory_concentration_limit_snapshot(project_root, history_target)
+
+    # 生成展示层 CSV 快照（同时写入 current/display_snapshots/ 和 history/<date>/display_snapshots/）
+    print(f"\n[5/5] 生成展示层 CSV 快照...")
+    write_display_snapshots(project_root, history_target, current_dir)
     
     print(f"\n" + "=" * 70)
     print(f"✅ 归档完成！")
@@ -191,6 +234,11 @@ def archive_current_to_history(target_date: str = None):
     print(f"   Stage1 业务文件: {archived_files.get('stage1_output', 0)} 个")
     print(f"   Stage2 业务文件: {archived_files.get('stage2_output', 0)} 个")
     print(f"\n📂 归档位置: data/history/{target_date}/")
+    print(f"   ├── stage0_output/       （stage0输出）")
+    print(f"   ├── stage1_output/       （stage1输出）")
+    print(f"   ├── stage2_output/       （stage2输出）")
+    print(f"   ├── display_snapshots/   （展示层CSV快照）")
+    print(f"   └── data_date.txt        （数据业务日期）")
     
     # 列出所有历史归档
     history_dir = project_root / "data" / "history"
@@ -208,16 +256,15 @@ def archive_current_to_history(target_date: str = None):
 def main():
     """主函数"""
     import argparse
-    
-    parser = argparse.ArgumentParser(description='每日归档脚本')
+
+    parser = argparse.ArgumentParser(description="每日归档脚本")
     parser.add_argument(
-        '--date', 
-        type=str, 
-        help='归档日期（YYYY-MM-DD格式），默认为今天'
+        "--date",
+        type=str,
+        help="归档日期（YYYY-MM-DD格式），默认为今天",
     )
-    
     args = parser.parse_args()
-    
+
     try:
         return archive_current_to_history(args.date)
     except Exception as e:

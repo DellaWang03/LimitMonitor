@@ -26,7 +26,8 @@ from ..utils import DateValidator
 class Stage0Processor:
     """阶段0数据处理器"""
     
-    def __init__(self, data_dir: Path, output_dir: Path, config: Any = None):
+    def __init__(self, data_dir: Path, output_dir: Path, config: Any = None,
+                 target_date: Optional[str] = None):
         """
         初始化阶段0处理器
         
@@ -34,10 +35,13 @@ class Stage0Processor:
             data_dir: 原始数据目录（local 时使用；migration 时由 config 解析路径）
             output_dir: 输出目录
             config: ConfigLoader 或 None，用于 get_data_file_path 一键切换路径
+            target_date: 目标日期（YYYY-MM-DD）。设置后 query_bond_pool 从 accdb 中
+                取该日期的数据而非最新日期，用于补跑历史漏跑数据（T+N 补跑 T-1）。
         """
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
         self.config = config
+        self.target_date = target_date
         
         # 创建输出目录
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -56,6 +60,8 @@ class Stage0Processor:
         self.cache = {}
         
         logger.info("阶段0处理器初始化完成")
+        if self.target_date:
+            logger.info(f"  🔁 目标日期模式: accdb 将取 {self.target_date} 的数据")
     
     def _data_file_path(self, file_name: str) -> Path:
         """按当前 profile 返回数据源文件路径；无 config 时使用 data_dir / file_name。"""
@@ -277,11 +283,23 @@ class Stage0Processor:
         # 转换日期类型（format='mixed' 避免混合格式时的推断警告）
         df['日期'] = pd.to_datetime(df['日期'], format='mixed')
         
-        # 筛选最新日期的数据
-        latest_date = df['日期'].max()
-        df = df[df['日期'] == latest_date].copy()
+        # 按目标日期或最新日期过滤
+        if self.target_date:
+            target_ts = pd.Timestamp(self.target_date)
+            available_dates = sorted(df['日期'].unique())
+            if target_ts not in df['日期'].values:
+                available_str = [str(d.date()) for d in available_dates]
+                raise ValueError(
+                    f"accdb 中不存在目标日期 {self.target_date} 的数据。"
+                    f"可用日期: {available_str}"
+                )
+            selected_date = target_ts
+            logger.info(f"  目标日期: {selected_date.date()}, {len(df[df['日期'] == selected_date])} 条记录（共 {len(available_dates)} 个可用日期）")
+        else:
+            selected_date = df['日期'].max()
+            logger.info(f"  最新日期: {selected_date.date()}, {len(df[df['日期'] == selected_date])} 条记录")
         
-        logger.info(f"  最新日期: {latest_date.date()}, {len(df)} 条记录")
+        df = df[df['日期'] == selected_date].copy()
         
         # 添加市场后缀到债券代码
         def add_market_suffix(row):
@@ -418,10 +436,11 @@ class Stage0Processor:
         df_dates = df_dates.sort_values('日期')
         
         # 【P1-3修复1】按M代码要求:仅保留本年度日期 (Date.IsInCurrentYear([日期]))
+        # 补跑模式下使用目标日期所在年份，避免跨年补跑时过滤掉历史年份的日历行
         from datetime import datetime
-        current_year = datetime.now().year
-        df_dates = df_dates[df_dates['日期'].dt.year == current_year].copy()
-        logger.info(f"  标准日期表筛选本年度({current_year}): {len(df_dates)} 天")
+        target_year = int(self.target_date[:4]) if self.target_date else datetime.now().year
+        df_dates = df_dates[df_dates['日期'].dt.year == target_year].copy()
+        logger.info(f"  标准日期表筛选年度({target_year}): {len(df_dates)} 天")
         
         # 获取虚拟添加数据
         df_virtual = self.cache.get('风控部债券池_主体_虚拟添加')

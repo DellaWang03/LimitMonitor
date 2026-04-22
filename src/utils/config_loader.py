@@ -138,13 +138,31 @@ class ConfigLoader:
         profiles = self.get("data_sources.path_profiles") or {}
         return profiles.get("migration")
 
+    def _get_local_data_dir(self) -> Path:
+        """
+        local profile 下的数据源根目录。
+        优先使用 path_profiles.local.data_dir（如 data_source_0123），
+        否则回退到 data_sources.data_dir（兼容旧配置）。
+        """
+        project_root = self.config_dir.parent
+        profiles = self.get("data_sources.path_profiles") or {}
+        local = profiles.get("local") or {}
+        if isinstance(local, dict) and local.get("data_dir"):
+            p = Path(local["data_dir"])
+            return p if p.is_absolute() else project_root / p
+        data_dir_config = self.get("data_sources.data_dir", "sample data")
+        return project_root / data_dir_config
+
     def get_data_dir(self) -> Path:
         """
         获取数据源根目录的完整路径（按当前 profile）。
-        local：项目下 data_sources.data_dir；migration：path_profiles.migration.data_dir。
+        local：path_profiles.local.data_dir（若无则 data_sources.data_dir）；
+        migration：path_profiles.migration.data_dir。
         """
         project_root = self.config_dir.parent
         profile = self.get_active_profile()
+        if profile == "local":
+            return self._get_local_data_dir()
         if profile == "migration":
             mig = self._get_migration_profile()
             if mig and mig.get("data_dir"):
@@ -167,13 +185,12 @@ class ConfigLoader:
     def get_data_file_path(self, file_name: str) -> Path:
         """
         按当前 profile 返回数据源文件的完整路径。
-        local：data_dir / file_name；migration：按 file_subpaths / path_overrides / data_config_source。
+        local：path_profiles.local.data_dir / file_name；migration：按 file_subpaths / path_overrides / data_config_source。
         """
         project_root = self.config_dir.parent
         profile = self.get_active_profile()
         if profile == "local":
-            data_dir = self.get("data_sources.data_dir", "sample data")
-            return project_root / data_dir / file_name
+            return self._get_local_data_dir() / file_name
         mig = self._get_migration_profile()
         if not mig:
             data_dir = self.get("data_sources.data_dir", "sample data")
@@ -205,8 +222,7 @@ class ConfigLoader:
         project_root = self.config_dir.parent
         profile = self.get_active_profile()
         if profile == "local":
-            data_dir = self.get("data_sources.data_dir", "sample data")
-            return project_root / data_dir / file_name
+            return self._get_local_data_dir() / file_name
         mig = self._get_migration_profile()
         if not mig:
             data_dir = self.get("data_sources.data_dir", "sample data")

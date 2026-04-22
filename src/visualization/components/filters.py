@@ -58,7 +58,7 @@ def render_top_filters(data_loader, page_name: str) -> Dict[str, Any]:
         'account': selected_account,
         'search_keyword': search_code,
         'quality': selected_quality,
-        'quality_field': '六维综合是否超限' if page_name == '单一信用限额' else '是否超限'
+        'quality_field': '是否超限'
     }
 
 

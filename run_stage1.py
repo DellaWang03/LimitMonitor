@@ -1,6 +1,4 @@
-"""
-阶段1运行脚本
-"""
+"""阶段1运行脚本"""
 
 import os
 from pathlib import Path
@@ -15,6 +13,7 @@ def main():
     """主函数"""
     # 读取环境模式
     ENV_MODE = os.getenv('LIMIT_MONITOR_ENV', 'development').lower()
+    # 补跑模式（--target-date）下，DATA_INCOMPLETE 由上游 stage0 管理，此处仅做日志展示
     data_incomplete = os.getenv('DATA_INCOMPLETE', 'false').lower() == 'true'
     
     # 初始化日志
@@ -29,6 +28,7 @@ def main():
     data_dir = config.get_data_dir()
     
     output_dir = base_dir / "data" / "current" / "stage1_output"
+
     stage0_output_dir = base_dir / "data" / "current" / "stage0_output"
     
     logger.info("=" * 80)
@@ -45,7 +45,7 @@ def main():
             data_dir=data_dir,
             output_dir=output_dir,
             stage0_output_dir=stage0_output_dir,
-            config=config
+            config=config,
         )
         
         # 执行处理

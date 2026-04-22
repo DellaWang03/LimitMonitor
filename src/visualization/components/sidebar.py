@@ -120,7 +120,7 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
         selected = st.radio(
             "选择页面",
             page_names,
-            label_visibility="collapsed"
+            label_visibility="collapsed",
         )
         
         # 提取页面名称（去掉emoji）

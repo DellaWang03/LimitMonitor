@@ -4,7 +4,7 @@
 import streamlit as st
 import pandas as pd
 from src.visualization.components.filters import apply_filters
-from src.visualization.components.tables import render_data_table
+from src.visualization.components.tables import render_data_table, aggregate_by_asset_and_account
 
 if hasattr(st, "fragment"):
     _fragment = st.fragment
@@ -169,66 +169,11 @@ def _apply_current_dimension_filter(df, dimension_column: str, filter_key: str):
     return df[df[dimension_column] == selected_value]
 
 def _apply_six_dimension_display(df: pd.DataFrame) -> pd.DataFrame:
-    """单一信用限额页统一展示六维综合超限结果。"""
-    if '六维综合是否超限' not in df.columns:
-        raise KeyError("缺少字段：六维综合是否超限")
-    result = df.copy()
-    result['是否超限'] = result['六维综合是否超限']
-    return result
+    """单一信用限额页：直接使用1_2表中的5维综合是否超限字段，与Excel版本保持一致。"""
+    return df
 
 
-def _aggregate_by_asset_and_account(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """
-    按 日期+资产代码+内部证券账户名称 聚合。
-
-    规则：
-    - 仅对「库存数量(万)_PR」求和
-    - 其余字段在组内一致时取首条
-    - 若组内关键字段不一致，则该组保留原明细，不做合并
-    """
-    group_keys = ['日期', '资产代码', '内部证券账户名称']
-    sum_columns = {'库存数量(万)_PR'}
-    ignored_columns = {'合并辅助列'}
-
-    if df.empty or any(col not in df.columns for col in group_keys):
-        return df, 0
-
-    working_df = df.copy()
-    duplicate_mask = working_df.duplicated(group_keys, keep=False)
-    duplicate_df = working_df[duplicate_mask]
-    non_duplicate_df = working_df[~duplicate_mask]
-
-    if duplicate_df.empty:
-        return working_df, 0
-
-    aggregated_rows = []
-    unresolved_groups = []
-
-    for _, group in duplicate_df.groupby(group_keys, sort=False, dropna=False):
-        varying_columns = []
-        for column in group.columns:
-            if column in group_keys or column in sum_columns or column in ignored_columns:
-                continue
-            if group[column].nunique(dropna=False) > 1:
-                varying_columns.append(column)
-
-        if varying_columns:
-            unresolved_groups.append(group)
-            continue
-
-        row = group.iloc[0].copy()
-        if '库存数量(万)_PR' in group.columns:
-            row['库存数量(万)_PR'] = group['库存数量(万)_PR'].sum()
-        aggregated_rows.append(row)
-
-    parts = [non_duplicate_df]
-    if aggregated_rows:
-        parts.append(pd.DataFrame(aggregated_rows))
-    if unresolved_groups:
-        parts.append(pd.concat(unresolved_groups, ignore_index=True))
-
-    result_df = pd.concat(parts, ignore_index=True)
-    return result_df, len(unresolved_groups)
+_aggregate_by_asset_and_account = aggregate_by_asset_and_account
 
 
 @_fragment
@@ -255,7 +200,9 @@ def _render_tab1_single_bond_fragment(base_df: pd.DataFrame, unresolved_groups: 
     ]
     
     display_columns = [col for col in display_columns if col in filtered_df.columns]
-    display_df = filtered_df[display_columns]
+    display_df = filtered_df[display_columns].rename(columns={
+        '库存数量(万)_PR': 'PR后规模(万)'
+    })
     
     render_data_table(
         display_df,
@@ -266,7 +213,7 @@ def _render_tab1_single_bond_fragment(base_df: pd.DataFrame, unresolved_groups: 
         enable_export=True,
         export_key="export_page1_tab1_single_bond",
         add_total_row=True,
-        total_columns=['库存数量(万)_PR']
+        total_columns=['PR后规模(万)']
     )
 
 
@@ -288,7 +235,9 @@ def _render_dimension_fragment(
     st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
     visible_columns = [col for col in display_columns if col in filtered_df.columns]
-    display_df = filtered_df[visible_columns]
+    display_df = filtered_df[visible_columns].rename(columns={
+        '库存数量(万)_PR': 'PR后规模(万)'
+    })
 
     render_data_table(
         display_df,
@@ -296,7 +245,7 @@ def _render_dimension_fragment(
         height=450,
         export_key=export_key,
         add_total_row=True,
-        total_columns=['库存数量(万)_PR']
+        total_columns=['PR后规模(万)']
     )
 
 
@@ -325,20 +274,10 @@ def render(filters: dict, data_loader):
     # 加载数据
     df_1_1 = data_loader.load_stage1_credit_1_1()
     df_1_2 = data_loader.load_stage1_credit_1_2()
-    required_frames = {
-        "限额明细_债券持仓明细表_信用债1_2": df_1_2,
-    }
-    missing_frames = [
-        name for name, df in required_frames.items()
-        if '六维综合是否超限' not in df.columns
-    ]
-    if missing_frames:
-        missing_text = "、".join(missing_frames)
-        st.error(
-            f"单一信用限额页缺少六维综合字段：{missing_text}。请先重新生成 Stage1 数据后再查看。"
-        )
+    if df_1_2.empty or '是否超限' not in df_1_2.columns:
+        st.error("单一信用限额页数据加载失败或缺少必要字段，请先重新生成 Stage1 数据后再查看。")
         return
-    
+
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "债券规模",
         "债券集中度",

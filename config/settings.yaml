@@ -9,14 +9,16 @@ project:
 
 # 数据源配置
 data_sources:
-  # 数据源根目录（相对于项目根目录，local 时使用）
+  # 默认/回退数据源根目录（相对于项目根目录）。
+  # local profile 实际使用 path_profiles.local.data_dir；仅当未配置 local.data_dir 时才用此项。
   data_dir: "限额"
   
   # 路径配置：一键切换 local（当前环境）| migration（另一台电脑）
   active_profile: "migration"
   path_profiles:
     # local：不修改现有行为，所有文件从 data_dir 下读取
-    local: {}
+    local:
+      data_dir: "data_source_0123"
     # migration：另一台电脑固定路径，按实际挂载点修改 data_dir / data_config_source / path_overrides
     migration:
       data_dir: "/Volumes/sjz-share/PBI"

@@ -32,11 +32,17 @@ pip install -r requirements.txt
 
 ### 3. 准备数据
 
-将源数据文件放入 `限额/` 目录：
-- `统计报表底稿2_债券SPPI.xlsx`
-- `限额监控_阶段0.xlsx`
-- `限额监控_阶段1.xlsx`
-- `限额监控_阶段2.xlsx`
+数据源路径通过 `config/settings.yaml` 的 `data_sources.active_profile` 统一配置：
+- **生产/补跑**：使用 `migration` profile，从网络共享盘读取
+- **黄金测试**：使用 `local` profile，从 `data_source_0123/` 读取
+
+主要数据源文件（由配置文件管理，无需手动放置）：
+- `风控部债券池.accdb`（债券池数据库）
+- `统计报表底稿1_债券.xlsx` / `统计报表底稿2_债券SPPI.xlsx`
+- `限额监控_阶段0_指标设置.xlsx`（限额指标配置）
+- `净资产.xlsx` / `标准日期表.xlsx`
+
+修改路径请编辑 `config/settings.yaml` 中的 `path_profiles` 配置。
 
 ### 4. 运行数据处理
 
@@ -51,10 +57,58 @@ run_daily.bat
 
 **方式二：分阶段运行**
 ```bash
-python run_stage0.py  # 阶段0: 数据提取
-python run_stage1.py  # 阶段1: 限额计算
-python run_stage2.py  # 阶段2: 汇总分析
+python run_stage0.py  # 阶段0: Wind代码处理与数据提取
+python run_stage1.py  # 阶段1: 限额明细计算
+python run_stage2.py  # 阶段2: 集中度指标计算
 ```
+
+---
+
+### 补跑历史漏跑数据（T+N 补跑 T-1）
+
+**场景**：T 日忘记运行，在 T+1（或更晚）补跑 T-1 的数据。此时统计报表底稿
+Excel 通常尚未更新仍是 T-1 数据，但 `风控部债券池.accdb` 已更新到新日期，
+需要指定目标日期。
+
+```bash
+# 1. 从 accdb 取 T-1 日期的记录（使用 migration profile，读网盘）
+python run_stage0.py --target-date 2026-04-07
+
+# 2. Stage1/Stage2 正常运行
+python run_stage1.py
+python run_stage2.py
+
+# 3. 归档到对应日期（自动同时生成 current/ 和 history/ 两端的展示层快照）
+python scripts/daily_archive.py --date 2026-04-07
+
+# 4.（可选）校验展示层快照
+python validation/validate_dashboard_display.py \
+    --ref-dir <对应日期的参考目录>
+```
+
+> **说明**：步骤3归档完成后 `display_snapshots/` 已自动写入两端，无需单独执行 `generate_display_snapshot.py`。
+
+---
+
+### 代码修改后验证（黄金集成测试）
+
+**场景**：修改了处理逻辑后，用固定的样本数据集验证代码正确性。
+
+```bash
+bash tests/run_golden_test.sh
+```
+
+- 数据源：`data_source_0123/`（2026-01-23 冻结快照）
+- 参考基准：`data_for_testing_0123/`（固定 9 张展示表 CSV）
+- 覆盖：Stage0 → Stage1 → Stage2 → 展示层全链路，任意阶段代码改动均可验证
+- 无需网络盘连接，测试输出写入 `data/current/`
+
+**黄金基准更新时机**：
+- `data_source_0123/` 的原始数据需要换新版本时（重命名目录 + 更新 `settings.yaml`）
+- 限额配置发生业务变更（`限额监控_阶段0_指标设置.xlsx` 改动）后重新导出参考CSV
+- 纯代码逻辑修改不更新基准，用基准来验证代码
+
+---
 
 ### 5. 启动Web界面
 
@@ -113,14 +167,18 @@ Stage 2: 汇总分析
 ```
 LimitMonitorAutomation/
 ├── src/                      # 源代码
-│   ├── stage0/              # 阶段0：数据提取
-│   ├── stage1/              # 阶段1：限额计算
-│   ├── stage2/              # 阶段2：汇总分析
-│   ├── visualization/       # Web可视化
+│   ├── stage0/              # 阶段0：Wind代码处理与数据提取
+│   ├── stage1/              # 阶段1：限额明细计算
+│   ├── stage2/              # 阶段2：集中度指标计算
+│   ├── visualization/       # Web可视化（Streamlit 看板）
 │   ├── common/              # 公共工具
 │   ├── extractors/          # 数据提取器
 │   ├── transformers/        # 数据转换器
-│   └── calculators/         # 限额计算器
+│   ├── calculators/         # 限额计算器
+│   ├── aggregators/         # 数据聚合器
+│   ├── outputs/             # 输出格式化
+│   ├── utils/               # 通用工具（配置加载、日志等）
+│   └── validators/          # 数据验证器
 ├── 限额/                     # 数据源目录 ⭐
 │   ├── 风控部债券池.accdb    # Access数据库
 │   ├── 标准日期表.xlsx       # 交易日日历
@@ -135,8 +193,14 @@ LimitMonitorAutomation/
 ├── docs/                    # 文档
 │   ├── CONFIG_MANAGEMENT.md  # 配置管理说明 ⭐
 │   └── DATE_VALIDATOR_FIX.md # 日期验证修复说明
-├── scripts/                 # 辅助脚本
-├── tests/                   # 测试文件
+├── scripts/                 # 运维与工具脚本
+│   ├── __init__.py         # 使 scripts 成为 Python 包（供 daily_archive.py 导入）
+│   ├── daily_archive.py    # 每日归档
+│   └── generate_display_snapshot.py  # 展示层 9 张 CSV 快照生成
+├── tests/                   # 测试与验证
+│   └── run_golden_test.sh  # 黄金集成测试入口 ⭐
+├── data_source_0123/        # 黄金测试数据源（Jan 23 冻结快照）⭐
+├── data_for_testing_0123/   # 黄金测试参考基准（Jan 23 展示层CSV）⭐
 ├── validation/              # 验证脚本
 ├── app.py                   # Web应用入口
 ├── run_stage0.py           # 运行阶段0
@@ -190,10 +254,12 @@ bash run_daily.sh
 历史数据结构：
 ```
 data/history/
-└── 2026-01-19/           # 日期文件夹
-    ├── stage0_output/    # 阶段0完整快照
-    ├── stage1_output/    # 阶段1完整快照
-    └── stage2_output/    # 阶段2完整快照
+└── 2026-04-10/              # 日期文件夹
+    ├── stage0_output/       # 阶段0完整快照
+    ├── stage1_output/       # 阶段1完整快照
+    ├── stage2_output/       # 阶段2完整快照
+    ├── display_snapshots/   # 展示层 9 张 CSV 快照
+    └── data_date.txt        # 数据业务日期
 ```
 
 ---
@@ -201,6 +267,14 @@ data/history/
 ## 🧪 测试与验证
 
 ### 运行测试
+
+**黄金集成测试（代码改动后首选）**
+
+```bash
+bash tests/run_golden_test.sh
+```
+
+一键运行全链路（Stage0→Stage1→Stage2→展示层），对比 `data_for_testing_0123/` 中的参考基准。无需网络盘，无需历史归档。
 
 ```bash
 # 环境检查
@@ -215,6 +289,26 @@ python validation/validate_stage2.py
 # 完整验证
 python validation/validate_all.py
 ```
+
+### 展示层快照校验（单模式 9 CSV 严格校验）
+
+将 Python Pipeline 生成的看板数据与 Excel 手动导出的参考 CSV 逐字段对比：
+
+```bash
+# 使用默认参考目录（data_for_testing_0410/）
+python validation/validate_dashboard_display.py
+
+# 指定参考目录或历史快照目录
+python validation/validate_dashboard_display.py --ref-dir data_for_testing_0407
+python validation/validate_dashboard_display.py --snapshot-dir data/history/2026-04-10/display_snapshots
+
+# 只校验某张表（固定 9 张清单内）
+python validation/validate_dashboard_display.py --table 单一信用限额
+```
+
+> 校验前须确保 `data/current/display_snapshots/` 已生成（`run_daily.sh` 步骤 [4/5] 自动生成；
+> 补数后可手动执行 `python scripts/generate_display_snapshot.py` 刷新）。
+> 当前黄金测试只覆盖 9 张展示表 CSV，不覆盖 KPI、page8 查询样例、page9 页面级对象。
 
 ### 数据对比
 
@@ -297,6 +391,16 @@ find data/history/ -type d -mtime +30 -exec rm -rf {} +
 
 ## 📜 更新日志
 
+### v2.4 (2026-04-14)
+- ✅ **引入黄金集成测试**（`tests/run_golden_test.sh`）
+  - 数据源：`data_source_0123/`（2026-01-23 冻结快照）
+  - 参考基准：`data_for_testing_0123/`（9个展示层CSV）
+  - 替代原「历史数据重跑」方案，覆盖 Stage0/1/2 + 展示层全链路
+- ✅ `config/settings.yaml` local profile 配置 `data_dir: "data_source_0123"`
+- ✅ `run_daily.sh` / `run_daily.bat` 步骤编号统一为 5 步制
+- ✅ 展示层快照生成独立为 `scripts/generate_display_snapshot.py`（单模式 9 CSV）
+- ✅ 新增 `scripts/__init__.py`，使 scripts 成为显式 Python 包
+
 ### v2.3 (2026-01-29)
 - ✅ **修复KPI卡片总持仓重复计算问题（重要）**
   - Page1-单一信用限额：移除对已汇总列的求和，统一使用明细持仓
@@ -345,4 +449,4 @@ find data/history/ -type d -mtime +30 -exec rm -rf {} +
 
 ---
 
-**最后更新**: 2026-01-29
+**最后更新**: 2026-04-14

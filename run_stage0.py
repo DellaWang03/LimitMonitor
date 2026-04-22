@@ -1,11 +1,18 @@
 """
 阶段0主程序
 执行阶段0的10个查询，输出到data/current/stage0_output/
+
+历史补跑模式（--target-date）:
+  在 T+N 需要补跑 T-1 数据时使用。此时统计报表底稿 Excel 通常尚未更新仍是 T-1
+  的数据，但 风控部债券池.accdb 已更新到更新日期。通过指定 --target-date，让
+  Stage0 从 accdb 中取该指定日期的记录，而非默认的最新日期。
+  Stage1/Stage2 正常运行后，用 scripts/daily_archive.py --date <date> 归档即可。
 """
 
 import sys
 import os
 import json
+import argparse
 from pathlib import Path
 from datetime import datetime
 
@@ -20,6 +27,18 @@ from src.utils.config_loader import get_config
 
 def main():
     """主函数"""
+    parser = argparse.ArgumentParser(description="阶段0：数据提取")
+    parser.add_argument(
+        "--target-date",
+        metavar="YYYY-MM-DD",
+        help=(
+            "目标日期（补跑模式）：从 风控部债券池.accdb 中取该日期的记录而非最新日期。"
+            "用于 T+N 补跑 T-1 数据，此时 Excel 底稿仍是 T-1 数据，但 accdb 已更新。"
+        ),
+    )
+    args = parser.parse_args()
+    target_date: str | None = args.target_date
+
     # 读取环境模式
     ENV_MODE = os.getenv('LIMIT_MONITOR_ENV', 'development').lower()
     
@@ -34,6 +53,8 @@ def main():
     logger.info("=" * 80)
     logger.info("限额监控系统 - 阶段0数据处理")
     logger.info(f"运行模式: {'🔴 生产环境' if ENV_MODE == 'production' else '🟡 测试环境'}")
+    if target_date:
+        logger.info(f"🔁 补跑模式: 目标日期 = {target_date}")
     logger.info(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("=" * 80)
     
@@ -52,15 +73,17 @@ def main():
         logger.info(f"\n路径 profile: {profile} (一键切换: 修改 config/settings.yaml 中 data_sources.active_profile 或设置环境变量 LIMIT_MONITOR_PROFILE)")
         logger.info(f"数据目录: {data_dir}")
         logger.info(f"输出目录: {output_dir}")
-        
         # 检查数据目录
         if not data_dir.exists():
             logger.error(f"数据目录不存在: {data_dir}")
             return 1
         
-        # 【新增】日期验证
+        # 日期验证（补跑模式跳过新鲜度检查，因为 accdb 本来就不是今天的数据）
         logger.info("\n" + "=" * 80)
-        logger.info("数据新鲜度验证")
+        if target_date:
+            logger.info(f"数据日期校验（补跑模式 - 目标日期: {target_date}）")
+        else:
+            logger.info("数据新鲜度验证")
         logger.info("=" * 80)
         
         data_is_fresh = True
@@ -73,11 +96,14 @@ def main():
             # 显示业务日期信息
             date_validator.log_business_date_summary()
             
-            # 验证Access数据库新鲜度（路径按当前 profile）
+            # 验证Access数据库新鲜度（补跑模式下跳过，accdb 会含多个日期）
             access_db_path = config.get_data_file_path("风控部债券池.accdb")
             
-            if access_db_path.exists():
-                # 根据环境设置严格模式
+            if target_date:
+                # 补跑模式：跳过新鲜度检查，accdb 本来就含多个历史日期，data_is_fresh 保持 True
+                logger.info(f"⏭️  补跑模式，跳过 accdb 新鲜度检查（目标日期: {target_date}）")
+            elif access_db_path.exists():
+                # 正常模式：做新鲜度校验
                 strict_mode = (ENV_MODE == 'production')
                 
                 is_fresh, message, actual_date = date_validator.validate_access_database_freshness(
@@ -109,6 +135,7 @@ def main():
                         os.environ['DATA_INCOMPLETE'] = 'true'
                         os.environ['DATA_INCOMPLETE_REASON'] = 'access_db_outdated'
             else:
+                # accdb 文件不存在
                 logger.warning(f"⚠️  Access数据库不存在: {access_db_path}")
                 logger.warning(f"   将使用fallback数据源（如果可用）")
                 data_is_fresh = False
@@ -130,7 +157,8 @@ def main():
         processor = Stage0Processor(
             data_dir=data_dir,
             output_dir=output_dir,
-            config=config
+            config=config,
+            target_date=target_date,
         )
         
         # 执行所有查询
@@ -160,16 +188,26 @@ def main():
                 pool_date = pd.to_datetime(df_pool['日期']).max()
                 logger.info(f"风控部债券池日期: {pool_date.date()}")
                 
-                try:
-                    date_info = date_validator.get_business_date_info()
-                    logger.info(f"预期日期（T-1）: {date_info['t_minus_1']}")
-                    
-                    if pool_date.date() == date_info['t_minus_1']:
-                        logger.info("✅ 数据日期验证通过")
+                if target_date:
+                    # 补跑模式：与目标日期对比，而非 T-1
+                    import pandas as _pd
+                    expected_ts = _pd.Timestamp(target_date)
+                    if pool_date.date() == expected_ts.date():
+                        logger.info(f"✅ 数据日期与目标日期一致（{target_date}）")
                     else:
-                        logger.warning("⚠️  数据日期与T-1不匹配")
-                except:
-                    pass
+                        logger.error(f"❌ 数据日期 {pool_date.date()} 与目标日期 {target_date} 不一致，请检查 accdb 是否含该日期数据")
+                else:
+                    # 正常模式：与 T-1 对比
+                    try:
+                        date_info = date_validator.get_business_date_info()
+                        logger.info(f"预期日期（T-1）: {date_info['t_minus_1']}")
+                        
+                        if pool_date.date() == date_info['t_minus_1']:
+                            logger.info("✅ 数据日期验证通过")
+                        else:
+                            logger.warning("⚠️  数据日期与T-1不匹配")
+                    except:
+                        pass
         
         if '债券池日期' in results:
             df_dates = results['债券池日期']

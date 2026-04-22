@@ -244,6 +244,58 @@ def render_summary_card(title: str, value: str, delta: str = None, delta_color: 
     )
 
 
+def aggregate_by_asset_and_account(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """
+    按 日期+资产代码+内部证券账户名称 聚合明细展示（page1/2/3 共用）。
+
+    规则：
+    - 仅对「库存数量(万)_PR」求和
+    - 其余字段在组内一致时取首条
+    - 若组内非求和字段存在差异，则该组保留原明细，不做合并
+    返回：(聚合后的 DataFrame, 无法合并的组数)
+    """
+    group_keys = ['日期', '资产代码', '内部证券账户名称']
+    sum_columns = {'库存数量(万)_PR'}
+    ignored_columns = {'合并辅助列'}
+
+    if df.empty or any(col not in df.columns for col in group_keys):
+        return df, 0
+
+    working_df = df.copy()
+    duplicate_mask = working_df.duplicated(group_keys, keep=False)
+    duplicate_df = working_df[duplicate_mask]
+    non_duplicate_df = working_df[~duplicate_mask]
+
+    if duplicate_df.empty:
+        return working_df, 0
+
+    aggregated_rows = []
+    unresolved_groups = []
+
+    for _, group in duplicate_df.groupby(group_keys, sort=False, dropna=False):
+        varying_columns = [
+            col for col in group.columns
+            if col not in group_keys and col not in sum_columns and col not in ignored_columns
+            and group[col].nunique(dropna=False) > 1
+        ]
+        if varying_columns:
+            unresolved_groups.append(group)
+            continue
+
+        row = group.iloc[0].copy()
+        if '库存数量(万)_PR' in group.columns:
+            row['库存数量(万)_PR'] = group['库存数量(万)_PR'].sum()
+        aggregated_rows.append(row)
+
+    parts = [non_duplicate_df]
+    if aggregated_rows:
+        parts.append(pd.DataFrame(aggregated_rows))
+    if unresolved_groups:
+        parts.append(pd.concat(unresolved_groups, ignore_index=True))
+
+    return pd.concat(parts, ignore_index=True), len(unresolved_groups)
+
+
 def render_kpi_row(metrics: dict):
     """
     渲染KPI指标行

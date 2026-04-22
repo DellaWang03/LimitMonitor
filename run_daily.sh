@@ -23,7 +23,7 @@ cd "$PROJECT_ROOT"
 
 # 1. 运行Stage0
 echo ""
-echo "[1/4] 运行Stage0 - Wind代码处理..."
+echo "[1/5] 运行Stage0 - Wind代码处理..."
 python3 run_stage0.py
 if [ $? -ne 0 ]; then
     echo "❌ Stage0运行失败"
@@ -33,7 +33,7 @@ echo "✅ Stage0完成"
 
 # 2. 运行Stage1
 echo ""
-echo "[2/4] 运行Stage1 - 限额明细计算..."
+echo "[2/5] 运行Stage1 - 限额明细计算..."
 python3 run_stage1.py
 if [ $? -ne 0 ]; then
     echo "❌ Stage1运行失败"
@@ -43,7 +43,7 @@ echo "✅ Stage1完成"
 
 # 3. 运行Stage2
 echo ""
-echo "[3/4] 运行Stage2 - 集中度指标计算..."
+echo "[3/5] 运行Stage2 - 集中度指标计算..."
 python3 run_stage2.py
 if [ $? -ne 0 ]; then
     echo "❌ Stage2运行失败"
@@ -51,9 +51,19 @@ if [ $? -ne 0 ]; then
 fi
 echo "✅ Stage2完成"
 
+# 4. 生成展示层快照（非核心，失败不阻断归档）
+echo ""
+echo "[4/5] 生成展示层 CSV 快照..."
+python3 scripts/generate_display_snapshot.py
+if [ $? -ne 0 ]; then
+    echo "⚠️  展示层快照生成失败（不影响归档，继续执行）"
+else
+    echo "✅ 展示层快照生成完成"
+fi
+
 # 4. 检查数据完整性并决定是否归档
 echo ""
-echo "[4/4] 数据归档检查..."
+echo "[5/5] 数据归档检查..."
 
 CURRENT_DIR="$PROJECT_ROOT/data/current"
 WARNING_FILE="$CURRENT_DIR/.INCOMPLETE_DATA_WARNING"

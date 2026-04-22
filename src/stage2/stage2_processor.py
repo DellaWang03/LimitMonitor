@@ -321,7 +321,16 @@ class Stage2Processor:
         # 数据清洗
         df['日期'] = pd.to_datetime(df['日期'])
         df['指标名称'] = df['指标名称'].astype(str).str.strip()
-        
+
+        # 标准化省份名称，与持仓数据（上海市/北京市…）保持一致
+        # 直辖市在配置表中以短格式存储（上海/北京/天津/重庆），必须转为长格式才能正确 join
+        from ..common import ProvinceNormalizer
+        df = ProvinceNormalizer.add_normalized_column(
+            df,
+            source_column='指标名称',
+            target_column='指标名称',
+        )
+
         logger.info(f"  地域集中度限额: {len(df)} 行, {df['指标名称'].nunique()} 个省份/地区")
         return df
     
@@ -1042,9 +1051,10 @@ class Stage2Processor:
         
         # 11. 计算剩余额度
         # 地域集中度剩余额度
-        if all(col in df.columns for col in ['公司净资产(万)', '指标值_地域集中度限额', '单一地域总持仓_PR']):
+        # M 代码: (指标值_地域集中度限额 - 地域集中度) * 信用债总持仓_PR
+        if all(col in df.columns for col in ['地域集中度', '指标值_地域集中度限额', '信用债总持仓_PR']):
             df['地域集中度剩余额度(万)'] = (
-                df['公司净资产(万)'] * 1.2 * df['指标值_地域集中度限额'] - df['单一地域总持仓_PR']
+                (df['指标值_地域集中度限额'] - df['地域集中度']) * df['信用债总持仓_PR']
             )
         
         # 城投集中度剩余额度
@@ -1059,10 +1069,11 @@ class Stage2Processor:
                 df['信用债总持仓_PR'] * df['高风险行业之和集中度限额指标值'] - df['高风险行业总持仓_PR']
             )
         
-        # 高风险省份集中度剩余额度（分母 = 公司净资产 * 1.2）
-        if all(col in df.columns for col in ['公司净资产(万)', '高风险省份之和集中度限额指标值', '高风险省份总持仓_PR']):
+        # 高风险省份集中度剩余额度
+        # M 代码: (高风险省份之和集中度限额指标值 - 高风险省份集中度) * 信用债总持仓_PR
+        if all(col in df.columns for col in ['高风险省份集中度', '高风险省份之和集中度限额指标值', '信用债总持仓_PR']):
             df['高风险省份集中度剩余额度(万)'] = (
-                df['公司净资产(万)'] * 1.2 * df['高风险省份之和集中度限额指标值'] - df['高风险省份总持仓_PR']
+                (df['高风险省份之和集中度限额指标值'] - df['高风险省份集中度']) * df['信用债总持仓_PR']
             )
         
         # 12. 判断是否超限
@@ -1443,13 +1454,15 @@ class Stage2Processor:
             if '类型' in df_penetrate.columns:
                 for _, row in df_penetrate.iterrows():
                     type_value = str(row.get('类型', '')).strip()
-                    
-                    # 构建ISIN码映射
+
+                    # 构建ISIN码映射：严格过滤 NaN，对齐 M 代码 NestedJoin 语义（NaN≠NaN）
                     if isin_col:
-                        isin = str(row.get(isin_col, '')).strip()
-                        if isin and type_value:
-                            penetrate_isin_dict[isin] = type_value
-                
+                        raw_isin = row.get(isin_col)
+                        if pd.notna(raw_isin):
+                            isin = str(raw_isin).strip()
+                            if isin and isin.lower() not in ('nan', 'none', 'nat') and type_value:
+                                penetrate_isin_dict[isin] = type_value
+
                 logger.info(f"    ✓ 穿透高收益债券表（ISIN→类型映射）: {len(penetrate_isin_dict)} 个")
             else:
                 logger.warning(f"    ⚠️  穿透高收益债券表缺少'类型'列")
@@ -1466,31 +1479,30 @@ class Stage2Processor:
         def is_high_yield(row):
             account = str(row.get('内部证券账户名称', ''))
             asset_name = str(row.get('资产名称', '')).strip()  # 简称
-            asset_code = str(row.get('资产代码', '')).strip()  # 代码
-            isin = str(row.get('ISIN码', '')).strip()  # ISIN码
-            
-            # 规则1（优先级最高）：资产名称（简称）或代码在金融工具池白名单中
-            # 主要对应 PBI M-code: if [高收益量化可转债] <> null then "是"
+
+            # 规则1（优先级最高）：资产名称（简称）在金融工具池白名单中
+            # 对应 PBI M-code: if [高收益量化可转债] <> null then "是"
             if asset_name in tool_pool_names:
                 match_stats['rule1_name'] += 1
                 return '是'
-            
+
             # 规则2：账户名称包含"高收益"
             # 对应 PBI M-code: else if Text.Contains([内部证券账户名称], "高收益") then "是"
             if '高收益' in account:
                 match_stats['rule2_account'] += 1
                 return '是'
-            
+
             # 规则3：穿透高收益债券表中"类型"="高收益"
             # 对应 PBI M-code: else if [穿透债券类型] = "高收益" then "是"
-            # 注意：这对所有债券生效，不限定账户类型
-            
-            # 优先通过ISIN码匹配（与PBI一致）
-            if isin in penetrate_isin_dict:
-                if penetrate_isin_dict[isin] == '高收益':
-                    match_stats['rule3_isin'] += 1
-                    return '是'
-            
+            # 严格过滤 NaN ISIN，对齐 M 代码 NestedJoin 语义（NaN 不匹配任何行）
+            raw_isin = row.get('ISIN码')
+            if pd.notna(raw_isin):
+                isin = str(raw_isin).strip()
+                if isin and isin.lower() not in ('nan', 'none', 'nat'):
+                    if penetrate_isin_dict.get(isin) == '高收益':
+                        match_stats['rule3_isin'] += 1
+                        return '是'
+
             # 所有条件不满足，返回"否"
             return '否'
         

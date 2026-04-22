@@ -2,54 +2,7 @@
 页面7：高收益明细 - 现代金融看板风格
 """
 import streamlit as st
-import pandas as pd
-from src.visualization.components.tables import render_data_table
-
-
-def _aggregate_by_asset_and_account(df):
-    """按 日期+资产代码+内部证券账户名称 聚合明细展示。"""
-    group_keys = ['日期', '资产代码', '内部证券账户名称']
-    sum_columns = {'库存数量(万)_PR'}
-    ignored_columns = {'合并辅助列'}
-
-    if df.empty or any(col not in df.columns for col in group_keys):
-        return df, 0
-
-    working_df = df.copy()
-    duplicate_mask = working_df.duplicated(group_keys, keep=False)
-    duplicate_df = working_df[duplicate_mask]
-    non_duplicate_df = working_df[~duplicate_mask]
-
-    if duplicate_df.empty:
-        return working_df, 0
-
-    aggregated_rows = []
-    unresolved_groups = []
-
-    for _, group in duplicate_df.groupby(group_keys, sort=False, dropna=False):
-        varying_columns = []
-        for column in group.columns:
-            if column in group_keys or column in sum_columns or column in ignored_columns:
-                continue
-            if group[column].nunique(dropna=False) > 1:
-                varying_columns.append(column)
-
-        if varying_columns:
-            unresolved_groups.append(group)
-            continue
-
-        row = group.iloc[0].copy()
-        if '库存数量(万)_PR' in group.columns:
-            row['库存数量(万)_PR'] = group['库存数量(万)_PR'].sum()
-        aggregated_rows.append(row)
-
-    parts = [non_duplicate_df]
-    if aggregated_rows:
-        parts.append(pd.DataFrame(aggregated_rows))
-    if unresolved_groups:
-        parts.append(pd.concat(unresolved_groups, ignore_index=True))
-
-    return pd.concat(parts, ignore_index=True), len(unresolved_groups)
+from src.visualization.display_builders import build_page7_high_yield_views
 
 
 def render(filters: dict, data_loader):
@@ -67,15 +20,15 @@ def render(filters: dict, data_loader):
     """, unsafe_allow_html=True)
     
     with st.spinner("加载数据中..."):
-        df_high_yield = data_loader.load_stage2_high_yield()
-        df_capital = data_loader.load_stage2_high_yield_capital()
+        views = build_page7_high_yield_views(data_loader, filters)
     
     # KPI卡片区域
-    if len(df_capital) > 0:
-        total_capital = df_capital['全价成本(元)'].sum() / 10000  # 转为万元
-        limit = data_loader.load_high_yield_annual_limit()
-        remaining = limit - total_capital
-        usage_rate = (total_capital / limit * 100) if limit > 0 else 0
+    kpi = views["kpis"].get("main", {})
+    total_capital = float(kpi.get("total_capital_wan", 0))
+    limit = float(kpi.get("annual_limit_wan", 0))
+    remaining = float(kpi.get("remaining_wan", 0))
+    usage_rate = float(kpi.get("usage_rate", 0)) * 100
+    if limit > 0:
         thresholds = data_loader.load_alert_thresholds()
         _warn = thresholds['warning'] * 100
         _over = thresholds['overlimit'] * 100
@@ -128,186 +81,33 @@ def render(filters: dict, data_loader):
     tab1, tab2 = st.tabs(["投资本金明细", "持仓汇总分析"])
     
     with tab1:
-        if len(df_capital) > 0:
-            if {'日期', '资产代码', '内部证券账户名称'}.issubset(df_capital.columns):
-                filtered_capital, unresolved_groups = _aggregate_by_asset_and_account(df_capital)
-            else:
-                filtered_capital, unresolved_groups = df_capital.copy(), 0
-
-            if unresolved_groups:
-                st.warning(f"有 {unresolved_groups} 组记录因关键字段不一致，已保留原明细未合并。")
-
-            # 搜索框
+        tab1_df = views["tables"].get("tab1_capital_detail")
+        if tab1_df is not None and len(tab1_df) > 0:
             search_keyword = st.text_input(
-                "搜索", 
+                "搜索",
                 placeholder="🔍 输入账户、代码或简称...",
                 key="high_yield_search",
                 label_visibility="collapsed"
             )
-            
-            display_columns = [
-                '日期', '代码', '简称', '账户',
-                '持仓面额(元)', '全价成本(元)'
-            ]
-            
-            display_columns = [col for col in display_columns if col in filtered_capital.columns]
-            display_df = filtered_capital[display_columns].copy()
-            
-            # 应用搜索筛选
             if search_keyword:
                 mask = False
-                search_columns = ['账户', '简称', '代码']
-                for col in search_columns:
-                    if col in display_df.columns:
-                        mask = mask | display_df[col].astype(str).str.contains(search_keyword, na=False, case=False)
-                display_df = display_df[mask]
-            
-            # 转换单位（元 -> 万元）
-            if '持仓面额(元)' in display_df.columns:
-                display_df['持仓面额(万)'] = display_df['持仓面额(元)'] / 10000
-            if '全价成本(元)' in display_df.columns:
-                display_df['全价成本(万)'] = display_df['全价成本(元)'] / 10000
-            
-            # 删除原始列
-            display_df = display_df.drop(columns=['持仓面额(元)', '全价成本(元)'], errors='ignore')
-            
-            # 格式化数值列（智能保留小数）
-            def smart_format(val):
-                if pd.isna(val):
-                    return ''
-                if isinstance(val, (int, float)):
-                    if val == int(val):
-                        return f"{int(val):,}"
-                    elif abs(val * 10 - int(val * 10)) < 0.01:
-                        return f"{val:,.1f}"
-                    else:
-                        return f"{val:,.2f}"
-                return str(val)
-            
-            for col in display_df.columns:
-                if pd.api.types.is_datetime64_any_dtype(display_df[col]):
-                    display_df[col] = display_df[col].dt.strftime('%Y-%m-%d')
-                elif pd.api.types.is_numeric_dtype(display_df[col]):
-                    display_df[col] = display_df[col].apply(smart_format)
-            
-            # 统计信息
-            st.markdown(f"""
-            <div style="display: flex; gap: 16px; margin: 12px 0;">
-                <span style="background: #f1f5f9; padding: 6px 12px; border-radius: 6px; font-size: 0.8rem;">
-                    📊 共 <strong>{len(display_df)}</strong> 条
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.dataframe(
-                display_df,
-                width='stretch',
-                height=450,
-                hide_index=True
-            )
-            
-            # 导出按钮
-            from io import BytesIO
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                display_df.to_excel(writer, index=False, sheet_name='高收益投资本金')
-            excel_data = output.getvalue()
-            
-            st.download_button(
-                label="📥 导出",
-                data=excel_data,
-                file_name=f"高收益投资本金规模_{pd.Timestamp.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="export_page7_high_yield_capital"
-            )
+                for col in ["账户", "简称", "代码"]:
+                    if col in tab1_df.columns:
+                        mask = mask | tab1_df[col].astype(str).str.contains(search_keyword, na=False, case=False)
+                tab1_df = tab1_df[mask]
+            st.dataframe(tab1_df, width='stretch', height=450, hide_index=True)
     
     with tab2:
         col_left, col_right = st.columns([1, 1])
         
         with col_left:
             st.markdown("#### 按资产名称汇总")
-            
-            if len(df_high_yield) > 0:
-                # 按资产代码汇总
-                code_column = '代码' if '代码' in df_high_yield.columns else '资产代码'
-                asset_summary = df_high_yield.groupby([code_column, '资产名称']).agg({
-                    '库存数量(万)_PR': 'sum'
-                }).reset_index()
-                asset_summary.columns = ['代码', '资产名称', 'PR后规模(万)']
-                asset_summary = asset_summary.sort_values('PR后规模(万)', ascending=False)
-                
-                # 计算总计值
-                total_val = asset_summary['PR后规模(万)'].sum()
-                
-                # 格式化数值列
-                def smart_format(val):
-                    if pd.isna(val):
-                        return ''
-                    if isinstance(val, (int, float)):
-                        if val == int(val):
-                            return f"{int(val):,}"
-                        elif abs(val * 10 - int(val * 10)) < 0.01:
-                            return f"{val:,.1f}"
-                        else:
-                            return f"{val:,.2f}"
-                    return str(val)
-                
-                asset_summary['PR后规模(万)'] = asset_summary['PR后规模(万)'].apply(smart_format)
-                
-                # 添加总计行
-                total_row = pd.DataFrame([{
-                    '代码': '合计',
-                    '资产名称': '',
-                    'PR后规模(万)': smart_format(total_val)
-                }])
-                asset_summary_with_total = pd.concat([asset_summary, total_row], ignore_index=True)
-                
-                st.dataframe(
-                    asset_summary_with_total,
-                    width='stretch',
-                    height=350,
-                    hide_index=True
-                )
+            asset_summary = views["tables"].get("tab2_asset_summary")
+            if asset_summary is not None and len(asset_summary) > 0:
+                st.dataframe(asset_summary, width='stretch', height=350, hide_index=True)
         
         with col_right:
             st.markdown("#### 按债务主体汇总")
-            
-            if len(df_high_yield) > 0:
-                # 按债务主体汇总
-                issuer_summary = df_high_yield.groupby('债务主体').agg({
-                    '库存数量(万)_PR': 'sum'
-                }).reset_index()
-                issuer_summary.columns = ['债务主体', 'PR后规模(万)']
-                issuer_summary = issuer_summary.sort_values('PR后规模(万)', ascending=False)
-                
-                # 计算总计值
-                total_val = issuer_summary['PR后规模(万)'].sum()
-                
-                # 格式化数值列
-                def smart_format(val):
-                    if pd.isna(val):
-                        return ''
-                    if isinstance(val, (int, float)):
-                        if val == int(val):
-                            return f"{int(val):,}"
-                        elif abs(val * 10 - int(val * 10)) < 0.01:
-                            return f"{val:,.1f}"
-                        else:
-                            return f"{val:,.2f}"
-                    return str(val)
-                
-                issuer_summary['PR后规模(万)'] = issuer_summary['PR后规模(万)'].apply(smart_format)
-                
-                # 添加总计行
-                total_row = pd.DataFrame([{
-                    '债务主体': '合计',
-                    'PR后规模(万)': smart_format(total_val)
-                }])
-                issuer_summary_with_total = pd.concat([issuer_summary, total_row], ignore_index=True)
-                
-                st.dataframe(
-                    issuer_summary_with_total,
-                    width='stretch',
-                    height=350,
-                    hide_index=True
-                )
+            issuer_summary = views["tables"].get("tab2_issuer_summary")
+            if issuer_summary is not None and len(issuer_summary) > 0:
+                st.dataframe(issuer_summary, width='stretch', height=350, hide_index=True)

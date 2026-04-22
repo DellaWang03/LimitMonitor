@@ -15,19 +15,25 @@ from ..common import normalize_security_code_series
 class LimitDetailCalculator:
     """限额明细计算器"""
     
-    def __init__(self, cache: Dict[str, pd.DataFrame]):
+    def __init__(self, cache: Dict[str, pd.DataFrame],
+                 regulatory_concentration_limit: float | None = None):
         """
         初始化
-        
+
         Args:
             cache: 缓存的查询结果字典
+            regulatory_concentration_limit: 监管集中度限额（如 0.16 表示 16%）。
+                显式传入时直接使用，优先于磁盘配置文件；用于历史归档回放时确保使用
+                归档当日的限额值而非当前配置文件的值（由 daily_archive.py 传入）。
         """
         self.cache = cache
+        self._regulatory_concentration_limit_override = regulatory_concentration_limit
 
-    @staticmethod
-    def _load_regulatory_concentration_limit() -> float:
-        """读取监管集中度默认限额配置。"""
+    def _load_regulatory_concentration_limit(self) -> float:
+        """读取监管集中度默认限额配置。实例级 override 优先于磁盘配置文件。"""
         fallback = 0.16
+        if self._regulatory_concentration_limit_override is not None:
+            return self._regulatory_concentration_limit_override
         config_file = Path(__file__).resolve().parents[2] / "data" / "regulatory_concentration_limit.json"
         if not config_file.exists():
             return fallback
@@ -83,13 +89,16 @@ class LimitDetailCalculator:
             lambda x: '做市业务' if x == '做市交易部做市业务' else '自营业务'
         )
         
-        # 2.1 关联限额明细_特定主体（获取指标名称）
-        # 根据M-code第192-195行，需要在此处关联并筛选
+        # 2.1 关联限额明细_特定主体（获取指标名称 + 特定主体限额指标值）
+        # M-code: 合并的查询7 同时展开 {指标名称, 特定主体限额指标值}，必须在步骤8之前完成
         df_specific_issuer = self.cache.get('限额明细_特定主体')
         if df_specific_issuer is not None and len(df_specific_issuer) > 0:
             rows_before = len(df)
+            cols_to_merge = ['业务分类', '资产代码', '日期', '指标名称']
+            if '特定主体限额指标值' in df_specific_issuer.columns:
+                cols_to_merge.append('特定主体限额指标值')
             df = df.merge(
-                df_specific_issuer[['业务分类', '资产代码', '日期', '指标名称']],
+                df_specific_issuer[cols_to_merge],
                 on=['业务分类', '资产代码', '日期'],
                 how='left'
             )
@@ -362,34 +371,42 @@ class LimitDetailCalculator:
             logger.info(f"    关联单一担保人总持仓: {rows_before} -> {rows_after} 行")
         
         # 9.5 关联单一实控人相关数据
-        # 9.5.1 单一实控人规模限额
-        df_controller_limit = self.cache.get('单一实控人规模限额')
-        if df_controller_limit is not None and '实际控制人名称_修正' in df.columns:
-            # 计算单一实控人限额适用类别（与单一主体类似的逻辑）
-            df['单一实控人限额适用类别'] = df['单一主体限额适用类别']
-            
-            df = df.merge(
-                df_controller_limit[['日期', '指标名称', '指标值']],
-                left_on=['日期', '单一实控人限额适用类别'],
-                right_on=['日期', '指标名称'],
-                how='left',
-                suffixes=('', '_实控人限额')
+        # page1/tab4 展示使用 1_2，因此这里应优先回挂“取最高额度”后的最终口径，
+        # 以确保特定实控人特批、担保额度比较等覆盖逻辑真实反映到页面字段。
+        df_controller_final = self.cache.get('限额明细_单一实控人_取最高额度')
+        if df_controller_final is None or len(df_controller_final) == 0:
+            df_controller_final = self.calculate_limit_detail_single_controller_max()
+            if isinstance(df_controller_final, pd.DataFrame) and len(df_controller_final) > 0:
+                self.cache['限额明细_单一实控人_取最高额度'] = df_controller_final
+
+        if df_controller_final is not None and len(df_controller_final) > 0 and '实际控制人名称_修正' in df.columns:
+            rows_before = len(df)
+            df_controller_final = df_controller_final.drop_duplicates(
+                subset=['日期', '业务分类', '实际控制人名称_修正'],
+                keep='first'
             )
-            df = df.drop(columns=['指标名称'], errors='ignore')
-            df = df.rename(columns={'指标值': '单一实控人规模限额指标值'})
-            logger.info(f"    关联单一实控人规模限额")
-        
-        # 9.5.2 单一实控人总持仓
-        df_controller_pos = self.cache.get('单一实控人总持仓')
-        if df_controller_pos is not None and '实际控制人名称_修正' in df.columns:
             df = df.merge(
-                df_controller_pos[['日期', '业务分类', '实际控制人名称_修正', '单一实控人总持仓_PR']],
+                df_controller_final[
+                    [
+                        '日期', '业务分类', '实际控制人名称_修正',
+                        '单一实控人限额适用类别', '单一实控人规模限额指标值',
+                        '单一实控人总持仓_PR', '单一实控人规模剩余额度(万)',
+                        '单一实控人是否超限'
+                    ]
+                ],
                 on=['日期', '业务分类', '实际控制人名称_修正'],
                 how='left',
-                suffixes=('', '_实控人总持仓')
+                suffixes=('', '_实控人最终口径')
             )
-            logger.info(f"    关联单一实控人总持仓")
-        
+            logger.info(f"    关联单一实控人最终口径: {rows_before} -> {len(df)} 行")
+        else:
+            logger.warning("    未找到单一实控人最终口径结果，1_2中的实控人字段可能无法体现特批优先覆盖")
+
+        # M代码 Table.ReplaceValue(…, null, "否", …, {"单一实控人是否超限"})
+        # Left Join 后匹配不到实控人限额的行（ETF、境外债等）值为 null，统一补"否"
+        if '单一实控人是否超限' in df.columns:
+            df['单一实控人是否超限'] = df['单一实控人是否超限'].fillna('否')
+
         # 9.6 从限额明细_特定主体获取特定主体限额指标值
         df_specific_issuer_detail = self.cache.get('限额明细_特定主体')
         if df_specific_issuer_detail is not None and len(df_specific_issuer_detail) > 0:
@@ -428,7 +445,8 @@ class LimitDetailCalculator:
         df['单一主体规模剩余额度(万)'] = df['单一主体规模限额指标值'] - df['单一主体总持仓_PR']
         
         # 计算单一实控人规模剩余额度
-        if '单一实控人规模限额指标值' in df.columns and '单一实控人总持仓_PR' in df.columns:
+        # 优先保留“取最高额度”回挂的最终结果；仅在缺失时兜底重算。
+        if '单一实控人规模剩余额度(万)' not in df.columns and '单一实控人规模限额指标值' in df.columns and '单一实控人总持仓_PR' in df.columns:
             df['单一实控人规模剩余额度(万)'] = df['单一实控人规模限额指标值'] - df['单一实控人总持仓_PR']
         
         # 计算单一担保公司规模剩余额度
@@ -480,7 +498,7 @@ class LimitDetailCalculator:
                 return '否'
             return '是' if row['单一实控人规模剩余额度(万)'] < 0 else '否'
         
-        if '单一实控人规模剩余额度(万)' in df.columns:
+        if '单一实控人是否超限' not in df.columns and '单一实控人规模剩余额度(万)' in df.columns:
             df['单一实控人是否超限'] = df.apply(check_controller_over_limit, axis=1)
         
         # 12. 综合判断是否超限

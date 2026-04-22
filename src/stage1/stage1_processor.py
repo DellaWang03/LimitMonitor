@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from loguru import logger
-from typing import Dict, Optional
+from typing import Dict
 from .stage1_limit_detail import LimitDetailCalculator
 from ..common import normalize_security_code_series
 
@@ -273,18 +273,6 @@ class Stage1Processor:
         self.cache['特定实控人总持仓'] = df_specific_controller
         logger.info(f"✓ {len(df_specific_controller)} 行")
         
-        logger.info("\n执行查询: 单一担保人总持仓")
-        df_guarantee = self.query_single_guarantee_total_position()
-        results['单一担保人总持仓'] = df_guarantee
-        self.cache['单一担保人总持仓'] = df_guarantee
-        logger.info(f"✓ {len(df_guarantee)} 行")
-        
-        logger.info("\n执行查询: 单一担保人总持仓_不剔除")
-        df_guarantee_all = self.query_single_guarantee_total_position_unfiltered()
-        results['单一担保人总持仓_不剔除'] = df_guarantee_all
-        self.cache['单一担保人总持仓_不剔除'] = df_guarantee_all
-        logger.info(f"✓ {len(df_guarantee_all)} 行")
-        
         # === 第6层：限额明细查询 ===
         logger.info("\n【第6层】限额明细查询")
         logger.info("=" * 80)
@@ -304,6 +292,20 @@ class Stage1Processor:
         results['限额明细_特定实控人'] = df_specific_controller_limit
         self.cache['限额明细_特定实控人'] = df_specific_controller_limit
         logger.info(f"✓ {len(df_specific_controller_limit)} 行")
+
+        # 重要：单一担保人总持仓依赖“限额明细_特定主体/特定实控人”的剔除结果，
+        # 必须在两张依赖表生成后再计算，否则会沿用不完整 cache，导致担保明细口径偏差。
+        logger.info("\n执行查询: 单一担保人总持仓")
+        df_guarantee = self.query_single_guarantee_total_position()
+        results['单一担保人总持仓'] = df_guarantee
+        self.cache['单一担保人总持仓'] = df_guarantee
+        logger.info(f"✓ {len(df_guarantee)} 行")
+
+        logger.info("\n执行查询: 单一担保人总持仓_不剔除")
+        df_guarantee_all = self.query_single_guarantee_total_position_unfiltered()
+        results['单一担保人总持仓_不剔除'] = df_guarantee_all
+        self.cache['单一担保人总持仓_不剔除'] = df_guarantee_all
+        logger.info(f"✓ {len(df_guarantee_all)} 行")
         
         logger.info("\n执行查询: 限额明细_债券持仓明细表_信用债1_2")
         df_limit_detail = limit_calculator.calculate_limit_detail_1_2()
@@ -313,51 +315,6 @@ class Stage1Processor:
         
         logger.info("\n执行查询: 限额明细_单一债券")
         df_bond_limit = limit_calculator.calculate_limit_detail_single_bond()
-
-        if not df_limit_detail.empty and not df_bond_limit.empty:
-            df_regulatory = df_bond_limit[['日期', '证券代码', '监管集中度是否超限']].copy()
-            df_limit_detail = df_limit_detail.copy()
-            if '主证券代码_标准' not in df_limit_detail.columns and '主证券代码' in df_limit_detail.columns:
-                df_limit_detail['主证券代码_标准'] = normalize_security_code_series(df_limit_detail['主证券代码'])
-            df_limit_detail = df_limit_detail.merge(
-                df_regulatory,
-                left_on=['日期', '主证券代码_标准'],
-                right_on=['日期', '证券代码'],
-                how='left'
-            )
-            df_limit_detail = df_limit_detail.drop(columns=['证券代码'], errors='ignore')
-            df_limit_detail['监管集中度是否超限'] = df_limit_detail['监管集中度是否超限'].fillna('否')
-            df_limit_detail['六维综合是否超限'] = df_limit_detail.apply(
-                lambda row: '是' if '是' in [
-                    row.get('单一债券是否超限'),
-                    row.get('单一债券集中度是否超限'),
-                    row.get('监管集中度是否超限'),
-                    row.get('单一主体是否超限'),
-                    row.get('单一实控人是否超限'),
-                    row.get('单一担保人是否超限')
-                ] else '否',
-                axis=1
-            )
-            results['限额明细_债券持仓明细表_信用债1_2'] = df_limit_detail
-            self.cache['限额明细_债券持仓明细表_信用债1_2'] = df_limit_detail
-
-            df_five_dim = df_limit_detail.groupby(['日期', '主证券代码_标准'], as_index=False).agg({
-                '是否超限': lambda s: '是' if '是' in set(s.dropna()) else '否'
-            }).rename(columns={'是否超限': '原五维综合是否超限'})
-            df_bond_limit = df_bond_limit.merge(
-                df_five_dim,
-                left_on=['日期', '证券代码'],
-                right_on=['日期', '主证券代码_标准'],
-                how='left'
-            )
-            df_bond_limit = df_bond_limit.drop(columns=['主证券代码_标准'], errors='ignore')
-            df_bond_limit['原五维综合是否超限'] = df_bond_limit['原五维综合是否超限'].fillna('否')
-            df_bond_limit['六维综合是否超限'] = df_bond_limit.apply(
-                lambda row: '是' if row.get('监管集中度是否超限') == '是' or row.get('原五维综合是否超限') == '是' else '否',
-                axis=1
-            )
-            df_bond_limit['是否超限'] = df_bond_limit['六维综合是否超限']
-
         results['限额明细_单一债券'] = df_bond_limit
         self.cache['限额明细_单一债券'] = df_bond_limit
         logger.info(f"✓ {len(df_bond_limit)} 行")
@@ -397,7 +354,7 @@ class Stage1Processor:
         results['限额明细_全量债券监管集中度'] = df_full_regulatory
         self.cache['限额明细_全量债券监管集中度'] = df_full_regulatory
         logger.info(f"✓ {len(df_full_regulatory)} 行")
-        
+
         # 保存结果
         logger.info("\n" + "=" * 80)
         logger.info("保存输出文件")
@@ -831,27 +788,30 @@ class Stage1Processor:
             logger.info(f"    ✓ 合并风控部债券池")
         
         # 4. 合并风控部主体池（通过债务主体获取主体池）
+        # M-code: 先用债券池的主体池(主体池.0)，再用发行人池(主体池.1)覆盖，匹配不到则回退到债券池值
         df_issuer_pool = self.cache.get('风控部主体池')
         if df_issuer_pool is not None:
+            # 先将当前主体池（来自债券池）保存为 主体池.0，供 fallback 使用
+            if '主体池' in df.columns:
+                df = df.rename(columns={'主体池': '主体池.0'})
+            
             df = df.merge(
                 df_issuer_pool[['日期', '发行人名称', '主体池']],
                 left_on=['日期', '债务主体'],
                 right_on=['日期', '发行人名称'],
-                how='left',
-                suffixes=('', '.1')
+                how='left'
             )
             df = df.drop(columns=['发行人名称'], errors='ignore')
             
             # 去重
             df = df.drop_duplicates()
             
-            # 处理主体池：如果主体池.1不为空，使用主体池.1，否则使用主体池
-            if '主体池.0' in df.columns:
-                df = df.rename(columns={'主体池': '主体池.0'})
-            
-            if '主体池.1' in df.columns:
-                df['主体池'] = df['主体池.1'].fillna(df.get('主体池.0', ''))
-                df = df.drop(columns=['主体池.0', '主体池.1'], errors='ignore')
+            # M-code: if 主体池(发行人池) <> null then 主体池 else 主体池.0(债券池)
+            if '主体池' in df.columns and '主体池.0' in df.columns:
+                df['主体池'] = df['主体池'].where(df['主体池'].notna(), df['主体池.0'])
+                df = df.drop(columns=['主体池.0'], errors='ignore')
+            elif '主体池.0' in df.columns:
+                df = df.rename(columns={'主体池.0': '主体池'})
             
             logger.info(f"    ✓ 合并风控部主体池")
         
@@ -1656,7 +1616,7 @@ class Stage1Processor:
                 how='left'
             )
             df = df.drop(columns=['指标名称'], errors='ignore')
-            df = df.rename(columns={'指标值': '单一主体规模限额指标值'})
+            df = df.rename(columns={'指标值': '单一主体规模限额指标值1'})
         
         # 第二次合并单一主体规模限额（按担保公司是否准入）（M代码第239-245行）
         if df_issuer_limit is not None and '担保公司是否准入' in df.columns:
@@ -1668,35 +1628,30 @@ class Stage1Processor:
             )
             df = df.drop(columns=['指标名称'], errors='ignore')
             df = df.rename(columns={'指标值': '指标值_担保'})
-        
-        # 重命名列（M代码第247-250行）
-        df = df.rename(columns={
-            '单一主体限额适用类别': '单一主体限额适用类别1',
-            '单一主体规模限额指标值': '单一主体规模限额指标值1'
-        })
-        
-        # 替换null为0（M代码第252-253行）
+
+        # 与限额明细_债券持仓明细表_信用债1_2 保持同一套 M 代码实现，
+        # 避免担保口径在“总持仓”和“限额明细”两条链路之间发生漂移。
+        df = df.rename(columns={'单一主体限额适用类别': '单一主体限额适用类别1'})
         df['指标值_担保'] = df['指标值_担保'].fillna(0)
-        
+        df['单一主体规模限额指标值1'] = df['单一主体规模限额指标值1'].fillna(0)
+
+        def select_issuer_limit_category(row):
+            if pd.notna(row.get('指标值_担保')) and row.get('指标值_担保', 0) > row.get('单一主体规模限额指标值1', 0):
+                return row.get('担保公司是否准入')
+
+            return row['单一主体限额适用类别1']
+
+        def select_issuer_limit_value(row):
+            if pd.notna(row.get('指标值_担保')) and row.get('指标值_担保', 0) > row.get('单一主体规模限额指标值1', 0):
+                return row.get('指标值_担保')
+
+            return row.get('单一主体规模限额指标值1')
+
         # 【P1-4修复7】选择最终的单一主体限额适用类别（M代码第255-257行）
-        df['单一主体限额适用类别'] = df.apply(
-            lambda row: (
-                row.get('担保公司是否准入')
-                if row.get('指标值_担保', 0) > row.get('单一主体规模限额指标值1', 0)
-                else row.get('单一主体限额适用类别1')
-            ),
-            axis=1
-        )
-        
+        df['单一主体限额适用类别'] = df.apply(select_issuer_limit_category, axis=1)
+
         # 选择最终的单一主体规模限额指标值（M代码第259-262行）
-        df['单一主体规模限额指标值'] = df.apply(
-            lambda row: (
-                row.get('指标值_担保')
-                if row.get('指标值_担保', 0) > row.get('单一主体规模限额指标值1', 0)
-                else row.get('单一主体规模限额指标值1')
-            ),
-            axis=1
-        )
+        df['单一主体规模限额指标值'] = df.apply(select_issuer_limit_value, axis=1)
         
         # 【P1-4修复8】关键步骤：与单一担保公司规模限额三键关联（M代码第268-274行）
         # 合并键：担保人wind代码 + 单一主体限额适用类别 + 日期
