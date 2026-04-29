@@ -1,449 +1,546 @@
 """
-数据加载器 - 支持历史数据动态加载
-负责加载Stage0/1/2的所有输出数据
-"""
-from pathlib import Path
-import json
-import pandas as pd
-import streamlit as st
-from datetime import datetime, date
-from typing import Any, Dict, List, Optional
-import logging
-from functools import lru_cache
-from src.utils.config_loader import ConfigLoader
+数据加载器 —— 全面查询 MySQL 归档库（详见 docs/db_migration_plan.md §5 阶段四）。
 
-# 配置日志
+口径要点：
+
+- 当前模式 (``target_date=None``) → 读取 ``archive_meta.is_current = 1``
+  对应的 ``archive_date``；
+- 历史模式 (``target_date=<date>``) → 读取该 ``archive_date`` 对应的快照；
+- 任一模式都**不再**读取 ``data/current/`` / ``data/history/`` 下的业务
+  Excel、配置 Excel 或 ``data_date.txt``；DB 不存在对应快照时直接抛错，
+  不静默降级（对齐 §6.1 / §6.3）。
+
+对外接口（必须保持稳定，外部页面与脚本依赖）：
+
+- ``DataLoader(target_date=None)``；
+- 12 张业务结果表的 ``load_stage*_*()``（§4.3）；
+- 4 个配置读取入口 ``load_high_yield_annual_limit`` /
+  ``load_alert_thresholds`` / ``load_regulatory_concentration_limit`` 与
+  原有 ``load_*_limit`` 命名保持兼容（§3.2 / §4.5）；
+- 静态方法 ``get_available_dates`` / ``get_data_date_for_archive``。
+
+§4.3 列出"不入库的两张表"（``load_stage1_single_bond`` /
+``load_stage1_merged``）当前没有可视化调用方，本文件保留其方法签名但调用时
+直接抛 ``NotImplementedError``，避免外部误用。
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from datetime import date, datetime
+from functools import lru_cache
+import json
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
+
+from src.utils.archive_db import ArchiveDB
+from src.visualization.code_utils import attach_display_code
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+_ARCHIVE_CATALOG_TTL_SECONDS = 10.0
+_archive_catalog_cache: Dict[str, Any] = {
+    "value": None,
+    "expires_at": 0.0,
+}
+
+
+def _copy_dataframe(df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+    if df is None:
+        return None
+    return df.copy(deep=True)
+
+
+def _get_archive_catalog_cached() -> tuple[tuple[str, Optional[str], int], ...]:
+    """
+    归档元数据目录缓存。
+
+    sidebar 会频繁读取 current/archive 日期与历史下拉项；这里把这些元数据
+    合并成一次查询，避免同一轮页面渲染里多次访问 archive_meta。
+    """
+    now = time.monotonic()
+    cached_value = _archive_catalog_cache.get("value")
+    expires_at = float(_archive_catalog_cache.get("expires_at", 0.0))
+    if cached_value is not None and now < expires_at:
+        return cached_value
+
+    db = ArchiveDB.from_env()
+    rows = db.list_archive_meta()
+    catalog = tuple(
+        (
+            str(row["archive_date"]),
+            row.get("data_date"),
+            int(row.get("is_current", 0)),
+        )
+        for row in rows
+    )
+    _archive_catalog_cache["value"] = catalog
+    _archive_catalog_cache["expires_at"] = now + _ARCHIVE_CATALOG_TTL_SECONDS
+    return catalog
+
+
+@lru_cache(maxsize=256)
+def _read_table_cached(
+    table_name: str,
+    archive_date_str: str,
+    snapshot_version: str,
+    attach_code: bool,
+) -> Optional[pd.DataFrame]:
+    """
+    表数据缓存。
+
+    key 中带上 ``snapshot_version``（当前取 archive_meta.captured_at），这样即便
+    同一个 ``archive_date`` 被重新归档，也不会误复用旧快照内容。
+    """
+    del snapshot_version  # 仅作为缓存版本键使用
+    db = ArchiveDB.from_env()
+    df = db.read_dataframe(table_name, archive_date_str)
+    if df is None:
+        return None
+    if attach_code:
+        df = attach_display_code(df)
+    return df.copy(deep=True)
+
+
+def _clear_runtime_caches() -> None:
+    """测试 / 手工刷新时使用。"""
+    _archive_catalog_cache["value"] = None
+    _archive_catalog_cache["expires_at"] = 0.0
+    _read_table_cached.cache_clear()
 
 
 class DataLoader:
-    """数据加载器 - 支持按日期加载历史数据"""
-    
+    """数据加载器 —— DB 单源（current / history 同口径）。"""
+
+    # ------------------------------------------------------------------
+    # 构造
+    # ------------------------------------------------------------------
     def __init__(self, target_date: Optional[date] = None):
         """
-        初始化数据加载器
-        
         Args:
-            target_date: 要加载的目标日期。如果为None，加载最新数据
+            target_date: 目标日期。``None`` 表示加载 ``archive_meta.is_current=1``
+                对应的当前快照；非空时按 ``archive_date = target_date`` 读取历史快照。
         """
-        # 使用Path自动处理Windows/Mac路径差异
-        self.project_root = Path(__file__).parent.parent.parent
         self.target_date = target_date
-        self.archive_root: Optional[Path] = None
-        
-        # 根据日期决定数据目录
+        self._db: ArchiveDB = ArchiveDB.from_env()
+        archive_meta: Optional[Dict[str, Any]] = None
+
         if target_date is None:
-            # 加载最新数据（优先从current目录，兼容旧结构）
-            current_stage0 = self.project_root / "data" / "current" / "stage0_output"
-            current_stage1 = self.project_root / "data" / "current" / "stage1_output"
-            current_stage2 = self.project_root / "data" / "current" / "stage2_output"
-            
-            # 兼容性处理：如果current不存在，使用旧的直接路径
-            if current_stage0.exists() and current_stage1.exists() and current_stage2.exists():
-                self.stage0_output_dir = current_stage0
-                self.stage1_output_dir = current_stage1
-                self.stage2_output_dir = current_stage2
-            else:
-                # 旧结构兼容
-                self.stage0_output_dir = self.project_root / "data" / "stage0_output"
-                self.stage1_output_dir = self.project_root / "data" / "stage1_output"
-                self.stage2_output_dir = self.project_root / "data" / "stage2_output"
-            
-            self.data_source = "最新数据"
+            archive_date_str = self._db.get_current_archive_date()
+            if archive_date_str is None:
+                raise FileNotFoundError(
+                    "DB 中不存在 current 快照（archive_meta.is_current=1 未置位），"
+                    "请先运行 scripts/daily_archive.py。"
+                )
+            archive_meta = self._db.get_archive_meta(archive_date_str)
+            if archive_meta is None:
+                raise FileNotFoundError(
+                    f"DB 中不存在 archive_date={archive_date_str} 的 archive_meta，"
+                    "快照不完整，请重新运行 scripts/daily_archive.py。"
+                )
         else:
-            # 加载历史数据（包含完整的Stage0/1/2快照）
-            date_str = target_date.strftime('%Y-%m-%d')
-            self.archive_root = self.project_root / "data" / "history" / date_str
-            self.stage0_output_dir = self.archive_root / "stage0_output"
-            self.stage1_output_dir = self.archive_root / "stage1_output"
-            self.stage2_output_dir = self.archive_root / "stage2_output"
-            self.data_source = f"历史数据 ({date_str})"
-        
-        # 验证路径存在
-        self._validate_directories()
+            archive_date_str = target_date.strftime("%Y-%m-%d")
+            archive_meta = self._db.get_archive_meta(archive_date_str)
+            if archive_meta is None:
+                raise FileNotFoundError(
+                    f"DB 中不存在 archive_date={archive_date_str} 的快照，"
+                    "请先运行 scripts/daily_archive.py --archive-date "
+                    f"{archive_date_str}。"
+                )
+
+        self.archive_date_str: str = archive_date_str
+        self._archive_meta: Dict[str, Any] = dict(archive_meta)
+        captured_at = self._archive_meta.get("captured_at")
+        self._snapshot_version: str = (
+            captured_at.isoformat() if captured_at is not None else archive_date_str
+        )
+        self.data_source: str = f"DB ({archive_date_str})"
         logger.info(f"数据加载器初始化: {self.data_source}")
-    
-    def _validate_directories(self):
-        """验证数据目录是否存在"""
-        if not self.stage0_output_dir.exists():
-            raise FileNotFoundError(f"Stage0输出目录不存在: {self.stage0_output_dir}")
-        if not self.stage1_output_dir.exists():
-            raise FileNotFoundError(f"Stage1输出目录不存在: {self.stage1_output_dir}")
-        if not self.stage2_output_dir.exists():
-            raise FileNotFoundError(f"Stage2输出目录不存在: {self.stage2_output_dir}")
-        logger.info(f"数据目录验证通过: {self.data_source}")
-    
+
+    # ------------------------------------------------------------------
+    # 元数据接口（静态方法 / 实例方法签名保持稳定）
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _make_db() -> ArchiveDB:
+        return ArchiveDB.from_env()
+
+    @staticmethod
+    def clear_runtime_caches() -> None:
+        """清理 DataLoader 运行期缓存。"""
+        _clear_runtime_caches()
+
+    def _get_archive_meta_or_raise(self) -> Dict[str, Any]:
+        """读取当前快照的 archive_meta；缺失时直接报错，不静默降级。"""
+        if not self._archive_meta:
+            raise FileNotFoundError(
+                f"DB 中不存在 archive_date={self.archive_date_str} 的 archive_meta，"
+                "快照不完整，请重新运行 scripts/daily_archive.py。"
+            )
+        return dict(self._archive_meta)
+
     @staticmethod
     def get_available_dates() -> List[date]:
         """
-        获取所有可用的历史数据日期
-        
-        Returns:
-            日期列表，从新到旧排序
+        返回 ``archive_meta`` 中所有 ``archive_date``（datetime.date 列表，
+        从新到旧排序），对齐旧版本"按目录扫描 history/"的对外行为。
         """
-        project_root = Path(__file__).parent.parent.parent
-        history_dir = project_root / "data" / "history"
-        
-        if not history_dir.exists():
-            return []
-        
-        dates = []
-        for date_folder in history_dir.iterdir():
-            if date_folder.is_dir():
-                try:
-                    # 解析日期文件夹名称（格式：YYYY-MM-DD）
-                    date_obj = datetime.strptime(date_folder.name, '%Y-%m-%d').date()
-                    # 验证该日期的数据完整性（包含Stage0/1/2）
-                    stage0_dir = date_folder / "stage0_output"
-                    stage1_dir = date_folder / "stage1_output"
-                    stage2_dir = date_folder / "stage2_output"
-                    if stage0_dir.exists() and stage1_dir.exists() and stage2_dir.exists():
-                        dates.append(date_obj)
-                except ValueError:
-                    logger.warning(f"忽略无效日期文件夹: {date_folder.name}")
-        
-        # 从新到旧排序
-        dates.sort(reverse=True)
-        return dates
-    
+        return [
+            datetime.strptime(d, "%Y-%m-%d").date()
+            for d, _, _ in _get_archive_catalog_cached()
+        ]
+
+    @staticmethod
+    def get_available_date_options() -> List[tuple[date, Optional[str]]]:
+        """返回历史日期下拉所需的 ``(archive_date, data_date)`` 列表。"""
+        return [
+            (datetime.strptime(d, "%Y-%m-%d").date(), data_date)
+            for d, data_date, _ in _get_archive_catalog_cached()
+        ]
+
     @staticmethod
     def get_data_date_for_archive(archive_date: date) -> Optional[str]:
         """
-        读取某次历史归档中记录的数据日期（data_date.txt），用于下拉展示「归档日 (数据日期: xxx)」。
-        旧归档无此文件时返回 None。
+        返回某 ``archive_date`` 对应的 ``data_date``（YYYY-MM-DD 字符串），
+        替代旧版本读取 ``data/history/<date>/data_date.txt``。
         """
-        project_root = Path(__file__).parent.parent.parent
-        meta_file = (
-            project_root
-            / "data"
-            / "history"
-            / archive_date.strftime("%Y-%m-%d")
-            / "data_date.txt"
+        target = archive_date.strftime("%Y-%m-%d")
+        for archive_date_str, data_date, _ in _get_archive_catalog_cached():
+            if archive_date_str == target:
+                return data_date
+        return None
+
+    @staticmethod
+    def get_current_archive_date() -> Optional[date]:
+        """返回 current 快照的 ``archive_date``；不存在时返回 ``None``。"""
+        for archive_date_str, _, is_current in _get_archive_catalog_cached():
+            if is_current == 1:
+                return datetime.strptime(archive_date_str, "%Y-%m-%d").date()
+        return None
+
+    @staticmethod
+    def get_current_data_date() -> Optional[str]:
+        """
+        返回 current 快照的 ``data_date``（YYYY-MM-DD）；不存在时返回 ``None``。
+        """
+        for _, data_date, is_current in _get_archive_catalog_cached():
+            if is_current == 1:
+                return data_date
+        return None
+
+    # ------------------------------------------------------------------
+    # 内部统一表读取入口
+    # ------------------------------------------------------------------
+    def _load_table(
+        self,
+        table_name: str,
+        attach_code: bool = False,
+    ) -> pd.DataFrame:
+        """
+        从 DB 读取指定表对应当前 ``archive_date`` 的数据。
+
+        - 表 / 数据缺失 → ``FileNotFoundError``（不再回退本地 Excel）；
+        - ``日期`` 列由 ``ArchiveDB.read_dataframe`` 还原为 ``datetime``；
+        - ``attach_code=True`` 时调用 ``attach_display_code`` 补充展示代码列，
+          与旧版本读 Excel 后立即 ``_attach_display_code`` 的行为对齐。
+        """
+        df = _read_table_cached(
+            table_name=table_name,
+            archive_date_str=self.archive_date_str,
+            snapshot_version=self._snapshot_version,
+            attach_code=attach_code,
         )
-        if not meta_file.exists():
-            return None
-        try:
-            return meta_file.read_text(encoding="utf-8").strip() or None
-        except Exception:
-            return None
-    
-    # ==================== 可视化层本地缓存（避免 Streamlit 缓存提示框） ====================
-    # 使用文件路径 + mtime 作为缓存键，文件变更后自动失效。
-    @staticmethod
-    @lru_cache(maxsize=128)
-    def _load_excel_cached(file_path_str: str, mtime_ns: int) -> pd.DataFrame:
-        df = pd.read_excel(file_path_str)
-        if '日期' in df.columns:
-            df['日期'] = pd.to_datetime(df['日期'], errors='coerce')
-        return df
-
-    @staticmethod
-    def _load_excel_with_date(file_path_str: str) -> pd.DataFrame:
-        file_path = Path(file_path_str)
-        mtime_ns = file_path.stat().st_mtime_ns if file_path.exists() else 0
-        return DataLoader._load_excel_cached(file_path_str, mtime_ns).copy()
-
-    @staticmethod
-    @lru_cache(maxsize=64)
-    def _load_json_cached(file_path_str: str, mtime_ns: int) -> Dict[str, Any]:
-        with open(file_path_str, 'r', encoding='utf-8') as f:
-            return json.load(f)
-
-    @staticmethod
-    def _load_json_file(file_path_str: str) -> Dict[str, Any]:
-        file_path = Path(file_path_str)
-        mtime_ns = file_path.stat().st_mtime_ns if file_path.exists() else 0
-        return dict(DataLoader._load_json_cached(file_path_str, mtime_ns))
-
-    @staticmethod
-    def clear_local_caches():
-        """清理可视化层本地缓存。"""
-        DataLoader._load_excel_cached.cache_clear()
-        DataLoader._load_json_cached.cache_clear()
-
-    def _load_history_snapshot(self, file_name: str) -> Optional[Dict[str, Any]]:
-        """历史模式下读取归档根目录的快照文件。"""
-        if self.archive_root is None:
-            return None
-        file_path = self.archive_root / file_name
-        if not file_path.exists():
-            return None
-        try:
-            return DataLoader._load_json_file(str(file_path))
-        except Exception as e:
-            logger.warning(f"读取历史快照失败 {file_path.name}: {e}")
-            return None
-
-    @staticmethod
-    def _clean_code_like_value(value: Any) -> Optional[str]:
-        """清洗代码/ISIN类字段，统一空值。"""
-        if pd.isna(value):
-            return None
-        text = str(value).strip()
-        if text in {"", "nan", "None", "<NA>"}:
-            return None
-        return text
+        if df is None:
+            raise FileNotFoundError(
+                f"DB 中不存在 archive_date={self.archive_date_str} 的 "
+                f"{table_name}，请先运行 scripts/daily_archive.py。"
+            )
+        return _copy_dataframe(df)
 
     def _attach_display_code(self, df: pd.DataFrame) -> pd.DataFrame:
-        """为展示数据补充 ISIN 优先、资产代码兜底的代码列。"""
-        if '资产代码' not in df.columns and '证券代码' in df.columns:
-            df = df.copy()
-            df['资产代码'] = df['证券代码']
+        """对外仍保留：少数调用点（如自定义 loader 子类）会复用此方法。"""
+        return attach_display_code(df)
 
-        if '资产代码' not in df.columns:
-            return df
-
-        result = df.copy()
-        result['资产代码'] = result['资产代码'].apply(self._clean_code_like_value)
-        if 'ISIN码' in result.columns:
-            result['ISIN码'] = result['ISIN码'].apply(self._clean_code_like_value)
-
-        if 'ISIN码' in result.columns:
-            result['代码'] = result['ISIN码'].combine_first(result['资产代码'])
-        else:
-            result['代码'] = result['资产代码']
-
-        return result
-    
     # ==================== Stage1 数据加载 ====================
-    
     def load_stage1_credit_1_1(self) -> pd.DataFrame:
-        """加载阶段1-债券持仓明细表_信用债1_1"""
-        file_path = self.stage1_output_dir / "限额明细_债券持仓明细表_信用债1_1.xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        df = DataLoader._load_excel_with_date(str(file_path))
-        return self._attach_display_code(df)
-    
+        """阶段1 - 债券持仓明细表_信用债 1_1（DB: stage1_credit_1_1）。"""
+        return self._load_table("stage1_credit_1_1", attach_code=True)
+
     def load_stage1_credit_1_2(self) -> pd.DataFrame:
-        """加载阶段1-债券持仓明细表_信用债1_2"""
-        file_path = self.stage1_output_dir / "限额明细_债券持仓明细表_信用债1_2.xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        df = DataLoader._load_excel_with_date(str(file_path))
-        return self._attach_display_code(df)
+        """阶段1 - 债券持仓明细表_信用债 1_2（DB: stage1_credit_1_2）。"""
+        return self._load_table("stage1_credit_1_2", attach_code=True)
 
     def load_stage1_single_bond(self) -> pd.DataFrame:
-        """加载阶段1-单一债券明细"""
-        file_path = self.stage1_output_dir / "限额明细_单一债券.xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        df = DataLoader._load_excel_with_date(str(file_path))
-        return self._attach_display_code(df)
+        """
+        阶段1 - 单一债券明细。
+
+        §4.3"不入库的两张表"明确指出 ``限额明细_单一债券.xlsx`` 当前无可视化
+        调用方，不纳入本期 DB 化范围。保留方法签名以兼容潜在外部引用，调用
+        时直接抛错。
+        """
+        raise NotImplementedError(
+            "load_stage1_single_bond() 在 DB 化方案中不入库（§4.3）；"
+            "该表当前无可视化调用方，如需恢复请补充 stage1_single_bond 表。"
+        )
 
     def load_stage1_full_regulatory_concentration(self) -> pd.DataFrame:
-        """加载阶段1-全量债券监管集中度明细"""
-        file_path = self.stage1_output_dir / "限额明细_全量债券监管集中度.xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        df = DataLoader._load_excel_with_date(str(file_path))
-        return self._attach_display_code(df)
-    
+        """阶段1 - 全量债券监管集中度（DB: stage1_full_regulatory）。"""
+        return self._load_table("stage1_full_regulatory", attach_code=True)
+
     def load_stage1_guarantee(self) -> pd.DataFrame:
-        """加载阶段1-单一担保人明细"""
-        file_path = self.stage1_output_dir / "限额明细_单一担保人.xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        return DataLoader._load_excel_with_date(str(file_path))
-    
+        """阶段1 - 单一担保人（DB: stage1_guarantee）。"""
+        return self._load_table("stage1_guarantee")
+
     def load_stage1_merged(self) -> pd.DataFrame:
-        """加载阶段1-债券持仓明细表_信用债_合并风险限额相关"""
-        file_path = self.stage1_output_dir / "债券持仓明细表_信用债_合并风险限额相关.xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        return DataLoader._load_excel_with_date(str(file_path))
-    
+        """
+        阶段1 - 债券持仓明细表_信用债_合并风险限额相关。
+
+        §4.3"不入库的两张表"明确指出该表当前无可视化调用方，不纳入本期。
+        """
+        raise NotImplementedError(
+            "load_stage1_merged() 在 DB 化方案中不入库（§4.3）；"
+            "该表当前无可视化调用方，如需恢复请补充 stage1_merged 表。"
+        )
+
     # ==================== Stage2 数据加载 ====================
-    
     def load_stage2_credit_2(self) -> pd.DataFrame:
-        """加载阶段2-债券持仓明细表_信用债2（核心表）"""
-        file_path = self.stage2_output_dir / "限额明细_债券持仓明细表_信用债2.xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        df = DataLoader._load_excel_with_date(str(file_path))
-        return self._attach_display_code(df)
-    
+        """阶段2 - 债券持仓明细表_信用债 2（DB: stage2_credit_2）。"""
+        return self._load_table("stage2_credit_2", attach_code=True)
+
     def load_stage2_high_risk_industry(self) -> pd.DataFrame:
-        """加载阶段2-高风险行业汇总"""
-        file_path = self.stage2_output_dir / "限额明细_高风险行业.xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        return DataLoader._load_excel_with_date(str(file_path))
-    
+        """阶段2 - 高风险行业汇总（DB: stage2_high_risk_industry）。"""
+        return self._load_table("stage2_high_risk_industry")
+
     def load_stage2_high_risk_province(self) -> pd.DataFrame:
-        """加载阶段2-高风险省份汇总"""
-        file_path = self.stage2_output_dir / "限额明细_高风险省份.xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        return DataLoader._load_excel_with_date(str(file_path))
-    
+        """阶段2 - 高风险省份汇总（DB: stage2_high_risk_province）。"""
+        return self._load_table("stage2_high_risk_province")
+
     def load_stage2_high_risk_province_detail(self) -> pd.DataFrame:
-        """加载阶段2-高风险省份明细（按省份汇总，包含做市业务）"""
-        file_path = self.stage2_output_dir / "高风险省份总持仓_2.xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        return DataLoader._load_excel_with_date(str(file_path))
+        """阶段2 - 高风险省份明细（DB: stage2_high_risk_province_detail）。"""
+        return self._load_table("stage2_high_risk_province_detail")
 
     def load_stage2_high_risk_industry_detail(self) -> pd.DataFrame:
-        """加载阶段2-高风险行业明细（按行业汇总，包含做市业务）"""
-        file_path = self.stage2_output_dir / "高风险行业总持仓_2.xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        return DataLoader._load_excel_with_date(str(file_path))
-    
-    def load_stage2_regional(self) -> pd.DataFrame:
-        """加载阶段2-地域集中度限额(含城投)"""
-        file_path = self.stage2_output_dir / "限额明细_地域集中度限额(含城投).xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        return DataLoader._load_excel_with_date(str(file_path))
-    
-    def load_stage2_high_yield(self) -> pd.DataFrame:
-        """加载阶段2-高收益债券明细"""
-        file_path = self.stage2_output_dir / "限额明细_高收益.xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        df = DataLoader._load_excel_with_date(str(file_path))
-        return self._attach_display_code(df)
-    
-    def load_stage2_high_yield_capital(self) -> pd.DataFrame:
-        """加载阶段2-高收益投资本金规模"""
-        file_path = self.stage2_output_dir / "限额明细_高收益_投资本金规模.xlsx"
-        logger.info(f"加载文件: {file_path.name}")
-        return DataLoader._load_excel_with_date(str(file_path))
+        """阶段2 - 高风险行业明细（DB: stage2_high_risk_industry_detail）。"""
+        return self._load_table("stage2_high_risk_industry_detail")
 
+    def load_stage2_regional(self) -> pd.DataFrame:
+        """阶段2 - 地域集中度限额(含城投)（DB: stage2_regional）。"""
+        return self._load_table("stage2_regional")
+
+    def load_stage2_high_yield(self) -> pd.DataFrame:
+        """阶段2 - 高收益债券明细（DB: stage2_high_yield）。"""
+        return self._load_table("stage2_high_yield", attach_code=True)
+
+    def load_stage2_high_yield_capital(self) -> pd.DataFrame:
+        """阶段2 - 高收益投资本金规模（DB: stage2_high_yield_capital）。"""
+        return self._load_table("stage2_high_yield_capital")
+
+    # ==================== 配置 / 阈值（来源已切 DB） ====================
     def load_high_yield_annual_limit(self) -> int:
         """
-        从「限额监控_阶段0_指标设置.xlsx / 高收益限额」读取年度高收益债券投资本金规模限额（万元）。
-        若文件不可达则返回 100000（10 亿）兜底。
+        年度高收益本金上限（万元）。
+
+        来源切换至 ``archive_meta.high_yield_annual_limit_wan``。该值由
+        ``daily_archive.py`` 在归档当日从 ``限额配置_当前.xlsx`` 读取后固化到
+        元数据里，避免 ``stage2_high_yield_capital`` 当天 0 行时无法再从结果表
+        恢复年度限额。
         """
-        FALLBACK = 100000
-        snapshot = self._load_history_snapshot("high_yield_limit_snapshot.json")
-        if snapshot is not None:
-            try:
-                return int(snapshot.get("annual_limit_wan", FALLBACK))
-            except (TypeError, ValueError):
-                logger.warning("历史高收益限额快照格式异常，改用实时配置兜底")
+        meta = self._get_archive_meta_or_raise()
+        value = meta.get("high_yield_annual_limit_wan")
+        if value is None or pd.isna(value):
+            raise ValueError(
+                f"archive_meta.archive_date={self.archive_date_str} 的 "
+                "high_yield_annual_limit_wan 为空，"
+                "无法确定归档当日年度高收益限额。"
+            )
+        return int(value)
+
+    def load_high_yield_limit_maps(self) -> Dict[str, Dict[str, Optional[float]]]:
+        """
+        高收益页按资产/主体使用的限额映射。
+
+        数据直接来自 ``stage2_high_yield`` 结果表中的配置附加列，保持当前业务
+        口径不变，但把配置读取职责统一收敛到 ``DataLoader``，与其他页面一致由
+        页面/展示层通过 loader 取配置，而不是在 builder 内自行解析结果表。
+        """
+        df = self.load_stage2_high_yield()
+        if df.empty:
+            empty_map = {"__default__": None}
+            return {
+                "bond_limits": empty_map.copy(),
+                "entity_limits": empty_map.copy(),
+            }
+
+        required_columns = ["单一债券限额(万)", "单一主体限额(万)", "按类别限额JSON"]
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            raise KeyError(
+                "stage2_high_yield 缺少高收益限额附加列: "
+                + ", ".join(missing_columns)
+            )
+
+        bond_default = df["单一债券限额(万)"].iloc[0]
+        entity_default = df["单一主体限额(万)"].iloc[0]
+        raw_category_json = df["按类别限额JSON"].iloc[0]
+
+        if pd.isna(bond_default):
+            raise ValueError("stage2_high_yield.单一债券限额(万) 首行为空")
+        if pd.isna(entity_default):
+            raise ValueError("stage2_high_yield.单一主体限额(万) 首行为空")
+        if pd.isna(raw_category_json):
+            raise ValueError("stage2_high_yield.按类别限额JSON 首行为空")
 
         try:
-            config = ConfigLoader()
-            file_path = config.get_data_file_path("限额监控_阶段0_指标设置.xlsx")
-            df = pd.read_excel(str(file_path), sheet_name="高收益限额")
-            row = df[df['指标'].astype(str).str.strip() == '年度高收益债券投资本金规模']
-            if row.empty:
-                logger.warning("高收益限额：未找到「年度高收益债券投资本金规模」行，使用兜底值")
-                return FALLBACK
-            return int(row.iloc[0]['限额(万)'])
-        except Exception as e:
-            logger.warning(f"读取高收益限额配置失败，使用兜底值 {FALLBACK} 万元：{e}")
-            return FALLBACK
+            category_limits = json.loads(raw_category_json)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("stage2_high_yield.按类别限额JSON 不是合法 JSON") from exc
+        if not isinstance(category_limits, dict):
+            raise ValueError("stage2_high_yield.按类别限额JSON 解析结果不是对象")
+
+        bond_limits: Dict[str, Optional[float]] = {"__default__": float(bond_default)}
+        entity_limits: Dict[str, Optional[float]] = {"__default__": float(entity_default)}
+        for key, value in category_limits.items():
+            try:
+                float_value = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"按类别限额JSON 中类别 {key!r} 的限额值非法: {value!r}"
+                ) from exc
+            bond_limits[str(key)] = float_value
+            entity_limits[str(key)] = float_value
+
+        return {
+            "bond_limits": bond_limits,
+            "entity_limits": entity_limits,
+        }
 
     def load_alert_thresholds(self) -> Dict[str, float]:
         """
-        加载页面展示用告警阈值。
-        历史模式优先读取归档快照，避免颜色/文案口径被当前 settings.yaml 污染。
-        """
-        snapshot = self._load_history_snapshot("alert_thresholds_snapshot.json")
-        if snapshot is not None:
-            try:
-                return {
-                    'warning': float(snapshot.get('warning', 0.80)),
-                    'overlimit': float(snapshot.get('overlimit', 1.00)),
-                }
-            except (TypeError, ValueError):
-                logger.warning("历史告警阈值快照格式异常，改用当前配置兜底")
+        看板告警阈值（warning / overlimit）。
 
-        try:
-            config = ConfigLoader()
-            return {
-                'warning': float(config.get("alerts.thresholds.warning", 0.80)),
-                'overlimit': float(config.get("alerts.thresholds.overlimit", 1.00)),
-            }
-        except Exception as e:
-            logger.warning(f"读取告警阈值失败，使用默认阈值：{e}")
-            return {
-                'warning': 0.80,
-                'overlimit': 1.00,
-            }
+        来源切换至 ``archive_meta.alert_warning_threshold`` /
+        ``alert_overlimit_threshold``（§3.2 / §4.5），由 ``daily_archive.py``
+        从 ``settings.yaml`` 拷贝写入。
+        """
+        meta = self._get_archive_meta_or_raise()
+        return {
+            "warning": float(meta["alert_warning_threshold"]),
+            "overlimit": float(meta["alert_overlimit_threshold"]),
+        }
 
     def load_regulatory_concentration_limit(self) -> float:
         """
-        加载监管集中度限额。
-        历史模式优先读取归档根目录快照，找不到时回退到项目默认 JSON 配置。
+        监管集中度限额（标量，例如 0.16）。
+
+        来源切换至 ``stage1_full_regulatory.监管集中度限额指标值``
+        （§3.2 / §4.3.1，由 stage1 计算时随结果一并写入），每行同值，
+        直接取 ``iloc[0]``。
         """
-        FALLBACK = 0.16
-        snapshot = self._load_history_snapshot("regulatory_concentration_limit_snapshot.json")
-        if snapshot is not None:
-            try:
-                return float(snapshot.get("regulatory_concentration_limit", FALLBACK))
-            except (TypeError, ValueError):
-                logger.warning("历史监管集中度限额快照格式异常，改用默认配置兜底")
+        df = self._load_table("stage1_full_regulatory")
+        column = "监管集中度限额指标值"
+        if column not in df.columns:
+            raise KeyError(
+                f"stage1_full_regulatory 缺少列 {column}，"
+                "快照不完整，请检查 stage1 写出与 daily_archive 入库。"
+            )
 
-        file_path = self.project_root / "data" / "regulatory_concentration_limit.json"
-        if file_path.exists():
-            try:
-                config = DataLoader._load_json_file(str(file_path))
-                return float(config.get("regulatory_concentration_limit", FALLBACK))
-            except (TypeError, ValueError, json.JSONDecodeError) as e:
-                logger.warning(f"读取监管集中度限额配置失败，使用默认值 {FALLBACK}: {e}")
-
-        return FALLBACK
+        value = df[column].iloc[0]
+        if pd.isna(value):
+            raise ValueError(
+                f"stage1_full_regulatory.{column} 首行为空，"
+                "无法确定归档当日监管集中度限额。"
+            )
+        return float(value)
 
     # ==================== 辅助方法 ====================
-    
     def get_latest_date(self) -> datetime:
-        """获取最新数据日期"""
-        try:
-            df = self.load_stage1_credit_1_1()
-            return df['日期'].max()
-        except Exception as e:
-            logger.error(f"获取最新日期失败: {e}")
-            return datetime.now()
-    
-    def get_available_accounts(self, page_name: Optional[str] = None) -> List[str]:
-        """根据当前页面数据源获取账户列表（用于筛选器）"""
-        try:
-            if page_name == '单一信用限额':
-                df = self.load_stage1_credit_1_2()
-            elif page_name == '分类信用限额':
-                df = self.load_stage2_credit_2()
-            else:
-                df = self.load_stage1_credit_1_1()
+        """
+        返回看板顶部展示用的"数据日期"（datetime）。
 
-            accounts = sorted(
-                df['内部证券账户名称']
-                .dropna()
-                .astype(str)
-                .unique()
-                .tolist()
+        直接取 ``archive_meta.data_date``（由 ``daily_archive.py`` 写入；
+        对齐 §4.5 / §6.1）。缺失时视为快照不完整，直接报错。
+        """
+        meta = self._get_archive_meta_or_raise()
+        data_date = meta.get("data_date")
+        if not data_date:
+            raise ValueError(
+                f"archive_meta.archive_date={self.archive_date_str} 的 data_date 为空，"
+                "无法展示当前快照的数据日期。"
             )
-            return ['全部'] + accounts
-        except Exception as e:
-            logger.error(f"获取账户列表失败: {e}")
-            return ['全部']
-    
-    def get_available_bond_types(self) -> List[str]:
-        """获取所有债券类型列表（用于筛选器）"""
-        try:
-            df = self.load_stage1_credit_1_1()
-            bond_types = sorted(df['债券分类2'].unique().tolist())
-            return ['全部'] + bond_types
-        except Exception as e:
-            logger.error(f"获取债券类型失败: {e}")
-            return ['全部']
-    
-    def get_summary_metrics(self) -> Dict[str, any]:
-        """获取关键指标汇总"""
-        try:
-            df = self.load_stage2_credit_2()
-            
-            total_position = df['库存数量(万)_PR'].sum()
-            overlimit_count = len(df[df['是否超限'] == '是'])
-            total_count = len(df)
-            
-            return {
-                'total_position': total_position,
-                'total_position_formatted': f"{total_position:,.2f}",
-                'overlimit_count': overlimit_count,
-                'total_count': total_count,
-                'overlimit_ratio': f"{overlimit_count/total_count*100:.1f}%" if total_count > 0 else "0%",
-                'latest_date': self.get_latest_date().strftime("%Y年%m月%d日")
-            }
-        except Exception as e:
-            logger.error(f"获取汇总指标失败: {e}")
-            return {
-                'total_position': 0,
-                'total_position_formatted': "0",
-                'overlimit_count': 0,
-                'total_count': 0,
-                'overlimit_ratio': "0%",
-                'latest_date': datetime.now().strftime("%Y年%m月%d日")
-            }
+        return datetime.strptime(data_date, "%Y-%m-%d")
+
+    def get_available_accounts(
+        self,
+        page_name: Optional[str] = None,
+    ) -> List[str]:
+        """根据当前页面数据源返回账户列表（用于筛选器）。"""
+        df = self._get_filter_source_df(page_name)
+
+        accounts = sorted(
+            df["内部证券账户名称"].dropna().astype(str).unique().tolist()
+        )
+        return ["全部"] + accounts
+
+    def _get_filter_source_df(self, page_name: Optional[str]) -> pd.DataFrame:
+        """顶部筛选器的数据源应与页面主表严格同源。"""
+        if page_name == "单一信用限额":
+            return self.load_stage1_credit_1_2()
+        if page_name == "分类信用限额":
+            return self.load_stage2_credit_2()
+        if page_name == "高收益明细":
+            return self.load_stage2_high_yield()
+        return self.load_stage1_credit_1_1()
+
+    def get_available_bond_types(
+        self,
+        page_name: Optional[str] = None,
+    ) -> List[str]:
+        """根据当前页面数据源返回债券分类列表（用于筛选器）。"""
+        df = self._get_filter_source_df(page_name)
+        bond_types = sorted(df["债券分类2"].dropna().astype(str).unique().tolist())
+        return ["全部"] + bond_types
+
+    def get_filter_options(
+        self,
+        page_name: Optional[str] = None,
+    ) -> Dict[str, List[str]]:
+        """
+        一次性返回顶部筛选器所需的枚举项，避免同一张源表重复读取两次。
+        """
+        df = self._get_filter_source_df(page_name)
+        bond_types = (
+            sorted(df["债券分类2"].dropna().astype(str).unique().tolist())
+            if "债券分类2" in df.columns
+            else []
+        )
+        accounts = (
+            sorted(df["内部证券账户名称"].dropna().astype(str).unique().tolist())
+            if "内部证券账户名称" in df.columns
+            else []
+        )
+        return {
+            "bond_types": ["全部"] + bond_types,
+            "accounts": ["全部"] + accounts,
+        }
+
+    def get_summary_metrics(self) -> Dict[str, Any]:
+        """获取关键指标汇总（看板首屏 KPI 用）。"""
+        df = self.load_stage2_credit_2()
+
+        total_position = df["库存数量(万)_PR"].sum()
+        overlimit_count = len(df[df["是否超限"] == "是"])
+        total_count = len(df)
+
+        return {
+            "total_position": total_position,
+            "total_position_formatted": f"{total_position:,.2f}",
+            "overlimit_count": overlimit_count,
+            "total_count": total_count,
+            "overlimit_ratio": (
+                f"{overlimit_count / total_count * 100:.1f}%"
+                if total_count > 0
+                else "0%"
+            ),
+            "latest_date": self.get_latest_date().strftime("%Y年%m月%d日"),
+        }

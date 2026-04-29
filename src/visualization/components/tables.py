@@ -46,6 +46,77 @@ def format_number(val, is_percentage=False):
     return str(val)
 
 
+INTEGER_COLUMNS = {
+    '内部证券账户覆盖数',
+    '账户覆盖数',
+    '债券数',
+    '超限数',
+}
+
+PERCENTAGE_EXACT_COLUMNS = {
+    '占比',
+    '比例',
+    '使用率',
+    '集中度',
+    '集中度限额',
+    '监管集中度',
+    '监管集中度限额指标值',
+    '单一债券集中度',
+    '单一债券集中度限额指标值',
+    '高风险行业集中度',
+    '高风险省份集中度',
+    '地域集中度',
+    '地域集中度限额',
+    '持仓占净资产比',
+    '城投地域集中度',
+    '城投集中度限额',
+    '指标值_地域集中度限额',
+    '指标值_城投集中度限额',
+}
+
+AMOUNT_KEYWORDS = [
+    '剩余额度',
+    '总额度',
+    '额度(万)',
+    '额度（万）',
+    '上限',
+    '持仓',
+    '规模',
+    '成本',
+    '本金',
+    '余额(亿)',
+    '余额（亿）',
+    '债券余额',
+    '面额',
+]
+
+
+def _is_integer_column(col_name) -> bool:
+    name = str(col_name)
+    return name in INTEGER_COLUMNS or name.endswith('数')
+
+
+def _is_amount_column(col_name) -> bool:
+    name = str(col_name)
+    return any(keyword in name for keyword in AMOUNT_KEYWORDS)
+
+
+def _is_percentage_column(col_name) -> bool:
+    """判断是否为百分比列，优先排除金额/额度字段。"""
+    name = str(col_name)
+    if name in PERCENTAGE_EXACT_COLUMNS:
+        return True
+    if _is_amount_column(name):
+        return False
+    return (
+        '%' in name
+        or '占比' in name
+        or '比例' in name
+        or name.endswith('率')
+        or ('集中度' in name and '是否' not in name)
+    )
+
+
 def render_data_table(
     df: pd.DataFrame,
     title: str = None,
@@ -88,18 +159,6 @@ def render_data_table(
     if '日期' in display_df.columns:
         display_df['日期'] = pd.to_datetime(display_df['日期'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('')
     
-    # 百分比列名关键词（用于识别需要按百分比显示的列）
-    percentage_keywords = ['集中度', '比例', '占比', '率', '%']
-    # 列名包含以下任一则为「金额/剩余额度」列，不按百分比格式化（单位：万元等）
-    quota_exclude_keywords = ['剩余额度(万)', '剩余额度（万）']
-
-    def is_percentage_column(col_name):
-        """判断是否为百分比列（排除「剩余额度(万)」等金额列）"""
-        name = str(col_name)
-        if any(kw in name for kw in quota_exclude_keywords):
-            return False
-        return any(kw in name for kw in percentage_keywords)
-
     # 计算总计值（在修改 display_df 之前，用原始数值）
     total_values = {}
     if add_total_row and total_columns:
@@ -110,7 +169,7 @@ def render_data_table(
     # 保持数值/日期类型以便列头排序正确；仅对「百分比列」做缩放便于用 column_config 显示为 X.XX%
     for col in display_df.columns:
         if pd.api.types.is_numeric_dtype(display_df[col].dtype):
-            if is_percentage_column(col):
+            if _is_percentage_column(col):
                 # 0-1 的小数转为 0-100，便于 column_config 用 "%.2f%%" 显示且排序仍按数值
                 def scale_pct(x):
                     if pd.isna(x):
@@ -127,12 +186,12 @@ def render_data_table(
         if pd.api.types.is_datetime64_any_dtype(display_df[col].dtype):
             column_config[col] = st.column_config.DatetimeColumn(col, format="YYYY-MM-DD")
         elif pd.api.types.is_numeric_dtype(display_df[col].dtype):
-            if col == '内部证券账户覆盖数':
-                column_config[col] = st.column_config.NumberColumn(col, format="%d")
-            elif is_percentage_column(col):
+            if _is_integer_column(col):
+                column_config[col] = st.column_config.NumberColumn(col, format="%,d")
+            elif _is_percentage_column(col):
                 column_config[col] = st.column_config.NumberColumn(col, format="%.2f%%")
             else:
-                column_config[col] = st.column_config.NumberColumn(col, format="%.2f")
+                column_config[col] = st.column_config.NumberColumn(col, format="%,.2f")
         elif col == '代码':
             column_config[col] = st.column_config.TextColumn("ISIN码/资产代码", width="medium")
         elif col in {'资产名称', '证券名称'}:

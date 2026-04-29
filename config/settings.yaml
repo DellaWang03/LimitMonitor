@@ -26,6 +26,7 @@ data_sources:
       file_subpaths:
         金融工具池设置.xlsx: "限额/限额监控"
         限额监控_阶段0_指标设置.xlsx: "限额/限额监控"
+        限额配置_当前.xlsx: "限额/限额监控"
         统计报表底稿1_债券.xlsx: "投资条线/2026/统计报表新"
         统计报表底稿2_债券SPPI.xlsx: "投资条线/2026/统计报表新"
         德勤-主体评级列表.xlsx: "投资条线/2026/统计报表新/数据源"
@@ -33,8 +34,8 @@ data_sources:
         标准日期表.xlsx: "日期表"
         风控部债券池.accdb: "投资条线/债券池列表"
       path_overrides:
-        # macOS 无法读 SMB 上的 .accdb 时，改用本机 local 同源（项目下 限额/ 目录）
-        风控部债券池.accdb: "/Users/dellawang/Desktop/LimitMonitorAutomation/限额/风控部债券池.accdb"
+        # 风控部债券池.accdb：统一走 file_subpaths（公盘 …/投资条线/债券池列表/）。
+        # macOS 上由 AccessDatabaseReader 从公盘 accdb mdb-export 到 data_config_source 再读 CSV，勿再 override 到本机副本。
         净资产.xlsx: "/Volumes/sjz-share/共享数据（财务、部门）_紫琪维护/部门数据/4.净资产/净资产.xlsx"
   
   # Excel 文件路径
@@ -115,8 +116,9 @@ validation:
 alerts:
   enabled: true
   
-  # 告警阈值（两档）
-  thresholds:
+  # 告警阈值默认值（两档）—— 由 daily_archive.py 拷贝到 archive_meta，看板运行时从 DB 读取
+  # 修改此处后，下次 daily_archive.py 写库时生效；历史日期阈值不受影响
+  thresholds_default:
     warning: 0.80   # 使用率 ≥ 80% 时进入警戒区间（黄色）
     overlimit: 1.00  # 使用率 ≥ 100% 时超限（红色）
     

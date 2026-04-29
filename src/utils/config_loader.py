@@ -45,10 +45,15 @@ class ConfigLoader:
         return self._settings
     
     def load_limits(self) -> Dict[str, Any]:
-        """加载限额配置文件"""
+        """
+        加载限额配置文件。
+
+        ``config/limits.yaml`` 已在配置重构后退休；为兼容少量历史脚本，
+        若文件不存在则返回空字典，而不是抛 ``FileNotFoundError``。
+        """
         if self._limits is None:
             limits_file = self.config_dir / "limits.yaml"
-            self._limits = self._load_yaml(limits_file)
+            self._limits = self._load_yaml(limits_file) if limits_file.exists() else {}
         return self._limits
     
     def _load_yaml(self, file_path: Path) -> Dict[str, Any]:
@@ -99,7 +104,9 @@ class ConfigLoader:
     
     def get_limit(self, key_path: str, default: Any = None) -> Any:
         """
-        获取限额配置值
+        获取限额配置值。
+
+        兼容保留接口：当 ``limits.yaml`` 已退休或键不存在时，直接返回 ``default``。
         
         Args:
             key_path: 配置路径，如 "single_bond.scale_limit"
@@ -186,6 +193,9 @@ class ConfigLoader:
         """
         按当前 profile 返回数据源文件的完整路径。
         local：path_profiles.local.data_dir / file_name；migration：按 file_subpaths / path_overrides / data_config_source。
+
+        migration 下 ``风控部债券池.accdb`` 始终按 ``data_dir`` + ``file_subpaths`` 解析（公盘），
+        不应用 ``path_overrides``，以便 macOS 经 mdb-export 读公盘 accdb。
         """
         project_root = self.config_dir.parent
         profile = self.get_active_profile()
@@ -202,7 +212,8 @@ class ConfigLoader:
                 base = p if p.is_absolute() else project_root / p
                 return base / file_name
         overrides = mig.get("path_overrides") or {}
-        if file_name in overrides:
+        accdb_no_override = file_name == "风控部债券池.accdb"
+        if file_name in overrides and not accdb_no_override:
             p = Path(overrides[file_name])
             return p if p.is_absolute() else project_root / p
         data_dir = Path(mig.get("data_dir", "."))
@@ -216,8 +227,9 @@ class ConfigLoader:
 
     def get_data_file_path_without_override(self, file_name: str) -> Path:
         """
-        返回数据源文件路径但不应用 path_overrides（用于从 SMB 等原始位置读取，如 mdb-export 源）。
-        仅用于风控部债券池.accdb 的自动导出场景。
+        返回数据源文件路径但不应用 path_overrides。
+        migration 下与 ``get_data_file_path("风控部债券池.accdb")`` 一致（均走公盘）；
+        仍用于显式表达「mdb-export 源路径」等调用点。
         """
         project_root = self.config_dir.parent
         profile = self.get_active_profile()
@@ -289,10 +301,13 @@ if __name__ == "__main__":
     print(f"\n项目名称: {settings['project']['name']}")
     print(f"版本: {settings['project']['version']}")
     
-    # 测试加载限额配置
+    # 测试加载限额配置（兼容旧接口；若文件已退休则提示）
     limits = config.load_limits()
-    print(f"\n单一担保人限额: {limits['single_guarantor']['scale_limit']} 万元")
-    print(f"地域集中度限额: {limits['regional_concentration']['total_limit_ratio']*100}%")
+    if limits:
+        print(f"\n单一担保人限额: {limits['single_guarantor']['scale_limit']} 万元")
+        print(f"地域集中度限额: {limits['regional_concentration']['total_limit_ratio']*100}%")
+    else:
+        print("\nlimits.yaml 已退休；业务阈值请改由 限额配置_当前.xlsx / archive_meta 提供")
     
     # 测试路径获取
     try:

@@ -6,7 +6,7 @@
   在 T+N 需要补跑 T-1 数据时使用。此时统计报表底稿 Excel 通常尚未更新仍是 T-1
   的数据，但 风控部债券池.accdb 已更新到更新日期。通过指定 --target-date，让
   Stage0 从 accdb 中取该指定日期的记录，而非默认的最新日期。
-  Stage1/Stage2 正常运行后，用 scripts/daily_archive.py --date <date> 归档即可。
+  Stage1/Stage2 正常运行后，用 scripts/daily_archive.py --archive-date <date> 归档即可。
 """
 
 import sys

@@ -51,22 +51,13 @@ if [ $? -ne 0 ]; then
 fi
 echo "✅ Stage2完成"
 
-# 4. 生成展示层快照（非核心，失败不阻断归档）
-echo ""
-echo "[4/5] 生成展示层 CSV 快照..."
-python3 scripts/generate_display_snapshot.py
-if [ $? -ne 0 ]; then
-    echo "⚠️  展示层快照生成失败（不影响归档，继续执行）"
-else
-    echo "✅ 展示层快照生成完成"
-fi
-
 # 4. 检查数据完整性并决定是否归档
 echo ""
-echo "[5/5] 数据归档检查..."
+echo "[4/5] 数据归档检查..."
 
 CURRENT_DIR="$PROJECT_ROOT/data/current"
 WARNING_FILE="$CURRENT_DIR/.INCOMPLETE_DATA_WARNING"
+SNAPSHOT_DIR="$CURRENT_DIR/display_snapshots"
 
 # 检查数据完整性警告文件
 if [ -f "$WARNING_FILE" ]; then
@@ -83,25 +74,30 @@ if [ -f "$WARNING_FILE" ]; then
         exit 1
     else
         echo ""
-        echo "⚠️  【测试模式】数据不完整，跳过归档到 history/"
+        echo "⚠️  【测试模式】数据不完整，跳过 DB 归档与展示层快照生成"
         echo "   数据已保存到 data/current/ 可用于:"
         echo "     - 数据校验 (validation/)"
-        echo "     - 可视化查看 (streamlit)"
         echo "     - 配置调试"
         echo ""
+        echo "💡 当前 Streamlit / display_snapshots 已切 DB 单源，若未归档成功，将继续显示上一次成功归档的数据"
         echo "💡 如需保留此次测试结果，请手动备份 data/current/ 文件夹"
         echo ""
         ARCHIVED=false
+        if [ -d "$SNAPSHOT_DIR" ]; then
+            rm -rf "$SNAPSHOT_DIR"
+            echo "🧹 已清理旧的 display_snapshots，避免误用历史快照"
+        fi
     fi
 else
-    # 数据完整，调用 Python 归档脚本（含 data_date.txt，与看板历史日期展示一致）
-    echo "✅ 数据完整性检查通过，开始归档..."
+    # 数据完整，先写 DB，再基于 current 快照生成展示层快照
+    echo "✅ 数据完整性检查通过，开始归档到 DB..."
     
     if [ -d "$CURRENT_DIR/stage0_output" ] && [ -d "$CURRENT_DIR/stage1_output" ] && [ -d "$CURRENT_DIR/stage2_output" ]; then
         python3 scripts/daily_archive.py
         if [ $? -eq 0 ]; then
             ARCHIVED=true
-            echo "✅ 数据已备份到: $PROJECT_ROOT/data/history/$TODAY"
+            echo "✅ 数据已写入 DB current 快照"
+            echo "   archive_date: $TODAY"
         else
             echo "❌ 归档失败"
             ARCHIVED=false
@@ -110,6 +106,18 @@ else
     else
         echo "⚠️  数据目录不完整，跳过归档"
         ARCHIVED=false
+    fi
+fi
+
+# 5. 基于 DB current 快照生成展示层快照
+if [ "$ARCHIVED" = true ]; then
+    echo ""
+    echo "[5/5] 生成展示层 CSV 快照..."
+    python3 scripts/generate_display_snapshot.py
+    if [ $? -ne 0 ]; then
+        echo "⚠️  展示层快照生成失败（DB 已归档成功，请单独检查 generate_display_snapshot.py）"
+    else
+        echo "✅ 展示层快照生成完成"
     fi
 fi
 
@@ -122,9 +130,10 @@ echo ""
 echo "📁 数据位置:"
 echo "  - 最新数据: data/current/"
 if [ "$ARCHIVED" = true ]; then
-    echo "  - 历史备份: data/history/$TODAY/"
+    echo "  - 当前快照: DB archive_meta.is_current=1"
+    echo "  - 展示快照: data/current/display_snapshots/"
 else
-    echo "  - 历史备份: 未归档（数据不完整）"
+    echo "  - 当前快照: 未更新（数据不完整，仍沿用上一次成功归档结果）"
 fi
 echo ""
 echo "🚀 启动Web界面: bash start_web.sh"

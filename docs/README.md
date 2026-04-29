@@ -39,8 +39,11 @@
 - **Cursor规则**: `../.cursorrules` - AI交互规范
 
 ### 配置文件
-- **限额配置**: `../config/limits.yaml` - 各维度限额值配置
-- **系统设置**: `../config/settings.yaml` - 系统参数配置
+- **系统设置**: `../config/settings.yaml` - 数据源 profile、路径映射、告警阈值默认值
+- **限额配置**: `限额配置_当前.xlsx` - 当前限额配置主文件，路径由 `config/settings.yaml` 的 `path_profiles` 解析
+- **DB迁移说明**: `db_migration_plan.md` - current/history 快照切 DB 后的归档、读取和校验口径
+
+> `../config/limits.yaml` 已退休；运行时限额来自 `限额配置_当前.xlsx`、Stage 输出表和 `archive_meta`。
 
 ### 代码文档
 - **数据加载器**: `../src/visualization/data_loader.py` - 包含详细注释
@@ -56,4 +59,4 @@
 
 ---
 
-**最后更新**: 2026-01-24
+**最后更新**: 2026-04-29

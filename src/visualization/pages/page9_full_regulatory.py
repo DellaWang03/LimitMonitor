@@ -4,6 +4,7 @@
 import streamlit as st
 import pandas as pd
 from src.visualization.components.tables import render_data_table
+from src.visualization.display_builders import project_page9_full_regulatory_main_table
 
 
 def _render_kpi_cards(df: pd.DataFrame):
@@ -136,14 +137,7 @@ def render(filters: dict, data_loader):
     _render_kpi_cards(filtered_df)
     st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
-    display_columns = [
-        '日期', '代码', '资产名称', '债务主体', '债券分类2',
-        '单债总持仓_PR', '债券余额(亿)',
-        '监管集中度限额指标值', '监管集中度', '监管集中度剩余额度(万)',
-        '监管集中度是否超限', '是否可计算', '内部证券账户覆盖数'
-    ]
-    display_columns = [col for col in display_columns if col in filtered_df.columns]
-    display_df = filtered_df[display_columns]
+    display_df = project_page9_full_regulatory_main_table(filtered_df)
 
     render_data_table(
         display_df,

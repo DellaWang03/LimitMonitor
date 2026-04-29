@@ -3,6 +3,7 @@
 """
 import streamlit as st
 import plotly.express as px
+from src.visualization.components.tables import render_data_table
 from src.visualization.display_builders import build_page5_high_risk_views
 
 
@@ -68,7 +69,14 @@ def render(filters: dict, data_loader):
             col_left, col_right = st.columns([1, 1])
             with col_left:
                 st.markdown("### 📋 省份明细")
-                st.dataframe(province_summary, width='stretch', height=450, hide_index=True)
+                render_data_table(
+                    province_summary,
+                    highlight_column='是否超限',
+                    height=450,
+                    show_summary=True,
+                    enable_export=True,
+                    export_key="export_page5_province_summary",
+                )
             with col_right:
                 st.markdown("### 📊 持仓分布")
                 fig = px.pie(
@@ -80,7 +88,9 @@ def render(filters: dict, data_loader):
                 )
                 fig.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig, width='stretch')
-    
+        else:
+            st.info("📭 暂无省份集中度明细。请确认 Stage2 高风险省份相关数据已生成。")
+
     # ==================== Tab2: 高风险行业 ====================
     with tab2:
         kpi = views["kpis"].get("tab2_industry", {})
@@ -123,7 +133,14 @@ def render(filters: dict, data_loader):
             col_left, col_right = st.columns([1, 1])
             with col_left:
                 st.markdown("### 📋 行业明细")
-                st.dataframe(industry_summary, width='stretch', height=450, hide_index=True)
+                render_data_table(
+                    industry_summary,
+                    highlight_column='是否超限',
+                    height=450,
+                    show_summary=True,
+                    enable_export=True,
+                    export_key="export_page5_industry_summary",
+                )
             with col_right:
                 st.markdown("### 📊 持仓分布")
                 fig = px.bar(
@@ -137,3 +154,5 @@ def render(filters: dict, data_loader):
                 )
                 fig.update_layout(xaxis_tickangle=-45)
                 st.plotly_chart(fig, width='stretch')
+        else:
+            st.info("📭 暂无行业集中度明细。请确认 Stage2 高风险行业相关数据已生成。")

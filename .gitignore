@@ -33,6 +33,16 @@ sample data/
 *.accdb
 *.mdb
 
+# 汇报交付物与演示提纲（按需单独归档，不随代码提交）
+汇报/
+docs/*ppt*.md
+docs/*PPT*.md
+docs/*汇报*.md
+docs/*周报*.md
+docs/*report*.md
+docs/*outline*.md
+diagrams/
+
 # IDE
 .vscode/
 .idea/

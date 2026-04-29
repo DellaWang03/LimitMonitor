@@ -138,7 +138,8 @@ section[data-testid="stSidebar"] .stDateInput svg {
 }
 
 /* ====== 按钮样式 ====== */
-.stButton > button {
+.stButton > button,
+.stFormSubmitButton > button {
     background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
     color: white;
     border: none;
@@ -150,12 +151,14 @@ section[data-testid="stSidebar"] .stDateInput svg {
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-.stButton > button:hover {
+.stButton > button:hover,
+.stFormSubmitButton > button:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
 }
 
-.stButton > button:active {
+.stButton > button:active,
+.stFormSubmitButton > button:active {
     transform: translateY(0);
 }
 
@@ -373,11 +376,87 @@ h3 {
     transition: all 0.2s ease;
 }
 
+.stTextInput > div > div > input,
+.stSelectbox [data-baseweb="select"] > div,
+.stMultiSelect [data-baseweb="select"] > div,
+.stDateInput > div > div > input {
+    background: #ffffff;
+    min-height: 42px;
+}
+
 .stTextInput > div > div > input:focus,
 .stSelectbox > div > div:focus-within,
 .stMultiSelect > div > div:focus-within {
     border-color: #3b82f6;
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.stMultiSelect [data-baseweb="select"] {
+    border-radius: 8px;
+}
+
+.stMultiSelect [data-baseweb="select"] input {
+    color: #1e293b !important;
+    font-size: 0.875rem;
+}
+
+.stMultiSelect [data-baseweb="select"] input::placeholder {
+    color: #94a3b8;
+}
+
+.stMultiSelect [data-baseweb="tag"] {
+    background: #eff6ff !important;
+    border: 1px solid #bfdbfe !important;
+    border-radius: 6px !important;
+    color: #1d4ed8 !important;
+    min-height: 24px !important;
+    margin: 2px 4px 2px 0 !important;
+}
+
+.stMultiSelect [data-baseweb="tag"] span {
+    color: #1d4ed8 !important;
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    line-height: 1.2 !important;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.stMultiSelect [data-baseweb="tag"] svg {
+    fill: #2563eb !important;
+    width: 14px;
+    height: 14px;
+}
+
+.stMultiSelect [data-baseweb="tag"]:hover {
+    background: #dbeafe !important;
+    border-color: #93c5fd !important;
+}
+
+div[data-baseweb="popover"] [role="listbox"],
+div[data-baseweb="popover"] ul {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+    padding: 6px;
+}
+
+div[data-baseweb="popover"] [role="option"] {
+    border-radius: 6px;
+    color: #334155;
+    font-size: 0.875rem;
+}
+
+div[data-baseweb="popover"] [role="option"]:hover {
+    background: #f1f5f9;
+}
+
+div[data-baseweb="popover"] [aria-selected="true"] {
+    background: #eff6ff !important;
+    color: #1d4ed8 !important;
+    font-weight: 600;
 }
 
 /* ====== 加载动画 ====== */

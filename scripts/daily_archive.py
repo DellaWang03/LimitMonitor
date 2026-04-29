@@ -1,275 +1,310 @@
 """
-每日归档脚本 - 将current/的数据完整备份到history/
-用于每天运行完Stage0/1/2后，保存当天的完整数据快照
-归档时写入 data_date.txt 记录输出表中的实际数据日期，供看板下拉展示「归档日 (数据日期: xxx)」
+每日归档脚本 —— 单点 DB 写库者（详见 docs/db_migration_plan.md §5 阶段三）。
+
+职责：
+    扫描 ``data/current/`` 下的 16 张产物 Excel（4 张 Stage0 必需中间表
+    + 12 张 Stage1/Stage2 业务结果表），加上从 ``settings.yaml`` 拷贝的
+    展示阈值 / 高收益年度限额，先完成 schema 预同步，再在 **单个数据事务**
+    内写入 MySQL 的 16 张业务表 + ``archive_meta`` 并切换 ``is_current=1``。
+
+非职责（已从旧版本移除）：
+    - 不再 ``shutil.copytree`` 业务文件到 ``data/history/``；
+    - 不再写 ``data_date.txt``（由 ``archive_meta.data_date`` 替代）；
+    - 不再拷贝 ``config_snapshot/限额配置_*.xlsx``（业务配置不进 DB）；
+    - 不再调用 ``write_display_snapshots``（展示快照走独立入口）；
+    - 不再做 ``required_dirs`` 等本地目录完整性检查（任一文件缺失直接
+      ``FileNotFoundError`` 中断，事务自动回滚）。
+
+异常处理（对齐 §6.3）：
+    - 任一文件缺失 → ``FileNotFoundError``；
+    - 任一写库失败 → ``write_batch`` 内数据事务整体回滚 → 不留半成品业务快照。
+      （若失败发生在 schema 预同步阶段，可能仅留下建表 / 补列结果。）
 """
-from pathlib import Path
-import shutil
-from datetime import datetime
-import json
+
+from __future__ import annotations
+
+import argparse
 import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
 
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
+import pandas as pd
+import yaml
 
-# 展示层快照生成逻辑已迁移至独立模块
-_SCRIPT_DIR = Path(__file__).parent
-if str(_SCRIPT_DIR.parent) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR.parent))
-from scripts.generate_display_snapshot import write_display_snapshots
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
+from src.utils.archive_db import ArchiveDB  # noqa: E402
+from src.utils.config_loader import ConfigLoader  # noqa: E402
+from src.utils.limit_config_loader import load_limit_config  # noqa: E402
 
-def _ensure_project_import_path(project_root: Path):
-    """确保脚本模式下可以导入项目内模块。"""
-    project_root_str = str(project_root)
-    if project_root_str not in sys.path:
-        sys.path.insert(0, project_root_str)
+# ---------------------------------------------------------------------------
+# 路径常量（相对项目根）
+# ---------------------------------------------------------------------------
+CURRENT_DIR = _PROJECT_ROOT / "data" / "current"
+SETTINGS_PATH = _PROJECT_ROOT / "config" / "settings.yaml"
 
+# 4 张 Stage0 必需中间表（被 Stage1/2 直接消费，详见 §4.4）
+REQUIRED_STAGE0_FILES: dict[str, Path] = {
+    "stage0_bond_pool": CURRENT_DIR / "stage0_output" / "风控部债券池.xlsx",
+    "stage0_adjusted_controller": CURRENT_DIR / "stage0_output" / "调整实控人名单.xlsx",
+    "stage0_issuer_pool": CURRENT_DIR / "stage0_output" / "风控部债券池_主体.xlsx",
+    "stage0_net_assets_daily": CURRENT_DIR / "stage0_output" / "公司净资产_手工_每日.xlsx",
+}
 
-def _write_high_yield_limit_snapshot(project_root: Path, history_target: Path):
-    """写入高收益年度限额历史快照，避免历史页面回看时使用当前配置源。"""
-    snapshot_file = history_target / "high_yield_limit_snapshot.json"
-    payload = {
-        "snapshot_type": "high_yield_limit",
-        "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "annual_limit_wan": 100000,
-        "source": "fallback",
-    }
+# 12 张业务结果表（详见 §4.3 完整表映射）
+BUSINESS_RESULT_FILES: dict[str, Path] = {
+    "stage1_credit_1_1": CURRENT_DIR / "stage1_output" / "限额明细_债券持仓明细表_信用债1_1.xlsx",
+    "stage1_credit_1_2": CURRENT_DIR / "stage1_output" / "限额明细_债券持仓明细表_信用债1_2.xlsx",
+    "stage1_full_regulatory": CURRENT_DIR / "stage1_output" / "限额明细_全量债券监管集中度.xlsx",
+    "stage1_guarantee": CURRENT_DIR / "stage1_output" / "限额明细_单一担保人.xlsx",
+    "stage2_credit_2": CURRENT_DIR / "stage2_output" / "限额明细_债券持仓明细表_信用债2.xlsx",
+    "stage2_high_risk_industry": CURRENT_DIR / "stage2_output" / "限额明细_高风险行业.xlsx",
+    "stage2_high_risk_province": CURRENT_DIR / "stage2_output" / "限额明细_高风险省份.xlsx",
+    "stage2_high_risk_province_detail": CURRENT_DIR / "stage2_output" / "高风险省份总持仓_2.xlsx",
+    "stage2_high_risk_industry_detail": CURRENT_DIR / "stage2_output" / "高风险行业总持仓_2.xlsx",
+    "stage2_regional": CURRENT_DIR / "stage2_output" / "限额明细_地域集中度限额(含城投).xlsx",
+    "stage2_high_yield": CURRENT_DIR / "stage2_output" / "限额明细_高收益.xlsx",
+    "stage2_high_yield_capital": CURRENT_DIR / "stage2_output" / "限额明细_高收益_投资本金规模.xlsx",
+}
 
-    try:
-        _ensure_project_import_path(project_root)
-        from src.utils.config_loader import ConfigLoader
-
-        config = ConfigLoader(str(project_root / "config"))
-        source_file = config.get_data_file_path("限额监控_阶段0_指标设置.xlsx")
-        payload["source_file"] = str(source_file)
-
-        if pd is None:
-            payload["source"] = "fallback_no_pandas"
-            payload["error"] = "pandas_not_available"
-        else:
-            df = pd.read_excel(str(source_file), sheet_name="高收益限额")
-            row = df[df["指标"].astype(str).str.strip() == "年度高收益债券投资本金规模"]
-            if row.empty:
-                payload["source"] = "fallback_missing_row"
-                payload["error"] = "annual_limit_row_not_found"
-            else:
-                payload["annual_limit_wan"] = int(row.iloc[0]["限额(万)"])
-                payload["source"] = "snapshot"
-    except Exception as e:
-        payload["source"] = "fallback_exception"
-        payload["error"] = str(e)
-
-    snapshot_file.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
-    print(f"📋 高收益限额快照已写入: {snapshot_file.name}")
-
-
-def _write_alert_thresholds_snapshot(project_root: Path, history_target: Path):
-    """写入展示用告警阈值历史快照，保证历史页面颜色和文案口径可回放。"""
-    snapshot_file = history_target / "alert_thresholds_snapshot.json"
-    payload = {
-        "snapshot_type": "alert_thresholds",
-        "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "warning": 0.80,
-        "overlimit": 1.00,
-        "source": "fallback",
-    }
-
-    try:
-        _ensure_project_import_path(project_root)
-        from src.utils.config_loader import ConfigLoader
-
-        config = ConfigLoader(str(project_root / "config"))
-        payload["warning"] = float(config.get("alerts.thresholds.warning", 0.80))
-        payload["overlimit"] = float(config.get("alerts.thresholds.overlimit", 1.00))
-        payload["source"] = "snapshot"
-    except Exception as e:
-        payload["source"] = "fallback_exception"
-        payload["error"] = str(e)
-
-    snapshot_file.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
-    print(f"📋 告警阈值快照已写入: {snapshot_file.name}")
-
-def _write_regulatory_concentration_limit_snapshot(project_root: Path, history_target: Path):
-    """写入监管集中度限额历史快照，保证历史页面回放时使用归档当日的限额配置。"""
-    snapshot_file = history_target / "regulatory_concentration_limit_snapshot.json"
-    FALLBACK = 0.16
-    payload = {
-        "snapshot_type": "regulatory_concentration_limit",
-        "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "regulatory_concentration_limit": FALLBACK,
-        "source": "fallback",
-    }
-
-    try:
-        config_file = project_root / "data" / "regulatory_concentration_limit.json"
-        if config_file.exists():
-            with open(config_file, "r", encoding="utf-8") as f:
-                config = json.load(f)
-            value = float(config.get("regulatory_concentration_limit", FALLBACK))
-            payload["regulatory_concentration_limit"] = value
-            payload["source"] = "snapshot"
-        else:
-            payload["source"] = "fallback_file_missing"
-    except Exception as e:
-        payload["source"] = "fallback_exception"
-        payload["error"] = str(e)
-
-    snapshot_file.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
-    print(f"📋 监管集中度限额快照已写入: {snapshot_file.name} (值: {payload['regulatory_concentration_limit']})")
-
-
-def archive_current_to_history(target_date: str = None):
+# ---------------------------------------------------------------------------
+# 工具函数
+# ---------------------------------------------------------------------------
+def _read_alert_thresholds() -> tuple[float, float]:
     """
-    将current/目录的数据归档到history/
-    
-    Args:
-        target_date: 归档日期（格式：YYYY-MM-DD），默认为今天
+    从 ``settings.yaml`` 读取展示阈值。
+
+    优先读 ``alerts.thresholds_default``（§3.2 / §3.3 推荐字段，专门给
+    ``daily_archive.py`` 拷贝到 ``archive_meta`` 用）；若该段不存在，可
+    暂时兼容旧的 ``alerts.thresholds`` 段并打印警告。任一键缺失都直接失败，
+    避免把配置问题静默写成默认阈值。
     """
-    project_root = Path(__file__).parent.parent
-    
-    # 确定归档日期
-    if target_date is None:
-        target_date = datetime.now().strftime('%Y-%m-%d')
-    
-    current_dir = project_root / "data" / "current"
-    history_target = project_root / "data" / "history" / target_date
-    
-    print(f"📦 开始每日归档...")
-    print(f"📅 归档日期: {target_date}")
-    print(f"=" * 70)
-    
-    # 验证current目录存在
-    if not current_dir.exists():
-        print(f"❌ 错误: current目录不存在: {current_dir}")
-        return 1
-    
-    # 检查current目录的完整性
-    required_dirs = ['stage0_output', 'stage1_output', 'stage2_output']
-    missing_dirs = []
-    for dir_name in required_dirs:
-        if not (current_dir / dir_name).exists():
-            missing_dirs.append(dir_name)
-    
-    if missing_dirs:
-        print(f"⚠️  警告: current目录不完整，缺少: {', '.join(missing_dirs)}")
-        print(f"   建议先运行完整的Stage0/1/2处理流程")
-        response = input("是否继续归档？(y/n): ")
-        if response.lower() != 'y':
-            print("取消归档")
-            return 1
-    
-    # 创建history目标目录
-    history_target.mkdir(parents=True, exist_ok=True)
-    
-    # 归档各个stage
-    archived_files = {}
-    for stage_name in required_dirs:
-        source_dir = current_dir / stage_name
-        target_dir = history_target / stage_name
-        
-        if source_dir.exists():
-            # 如果目标已存在，先删除
-            if target_dir.exists():
-                print(f"📁 {stage_name}: 目标已存在，覆盖中...")
-                shutil.rmtree(target_dir)
-            
-            # 复制目录
-            shutil.copytree(source_dir, target_dir)
-            
-            # 统计文件数
-            file_count = len(list(target_dir.glob('*.xlsx'))) + len(list(target_dir.glob('*.csv')))
-            archived_files[stage_name] = file_count
-            
-            print(f"✅ {stage_name}: {file_count} 个文件已归档")
+    if not SETTINGS_PATH.exists():
+        raise FileNotFoundError(
+            f"settings.yaml 不存在: {SETTINGS_PATH}；无法读取告警阈值并归档到 DB。"
+        )
+
+    with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    alerts = cfg.get("alerts", {}) or {}
+    section_name = "alerts.thresholds_default"
+    section = alerts.get("thresholds_default")
+    if section is None:
+        legacy = alerts.get("thresholds")
+        if legacy is not None:
+            print(
+                "⚠️  settings.yaml 仍在使用旧字段 alerts.thresholds，"
+                "请尽快迁移到 alerts.thresholds_default（详见 docs/db_migration_plan.md §3.3）"
+            )
+            section = legacy
+            section_name = "alerts.thresholds"
         else:
-            print(f"⏭️  {stage_name}: 跳过（不存在）")
-            archived_files[stage_name] = 0
-    
-    # 写入数据日期 meta（从 Stage1 输出表读取「日期」列最大值，供看板展示）
-    data_date_str = None
-    if pd is not None and (history_target / "stage1_output").exists():
-        ref_file = history_target / "stage1_output" / "限额明细_债券持仓明细表_信用债1_2.xlsx"
-        if ref_file.exists():
-            try:
-                df = pd.read_excel(ref_file)
-                if "日期" in df.columns:
-                    df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
-                    max_date = df["日期"].max()
-                    if pd.notna(max_date):
-                        data_date_str = max_date.strftime("%Y-%m-%d")
-                        (history_target / "data_date.txt").write_text(
-                            data_date_str, encoding="utf-8"
-                        )
-                        print(f"📋 数据日期已写入: {data_date_str}")
-            except Exception as e:
-                print(f"⚠️  读取数据日期失败（不影响归档）: {e}")
-    if not data_date_str:
-        print(f"📋 未写入 data_date.txt（无 pandas 或表中无日期列）")
+            raise KeyError(
+                "settings.yaml 缺少 alerts.thresholds_default；"
+                "兼容旧字段 alerts.thresholds 也不存在，无法归档告警阈值。"
+            )
 
-    # 写入历史展示快照，避免历史页面回看时重新读取当前配置
-    _write_high_yield_limit_snapshot(project_root, history_target)
-    _write_alert_thresholds_snapshot(project_root, history_target)
-    _write_regulatory_concentration_limit_snapshot(project_root, history_target)
+    missing_keys = [
+        key for key in ("warning", "overlimit")
+        if key not in section or section.get(key) is None
+    ]
+    if missing_keys:
+        raise KeyError(
+            f"{section_name} 缺少必需键: {', '.join(missing_keys)}"
+        )
 
-    # 生成展示层 CSV 快照（同时写入 current/display_snapshots/ 和 history/<date>/display_snapshots/）
-    print(f"\n[5/5] 生成展示层 CSV 快照...")
-    write_display_snapshots(project_root, history_target, current_dir)
-    
-    print(f"\n" + "=" * 70)
-    print(f"✅ 归档完成！")
-    print(f"\n📊 归档统计:")
-    print(f"   Stage0 配置文件: {archived_files.get('stage0_output', 0)} 个")
-    print(f"   Stage1 业务文件: {archived_files.get('stage1_output', 0)} 个")
-    print(f"   Stage2 业务文件: {archived_files.get('stage2_output', 0)} 个")
-    print(f"\n📂 归档位置: data/history/{target_date}/")
-    print(f"   ├── stage0_output/       （stage0输出）")
-    print(f"   ├── stage1_output/       （stage1输出）")
-    print(f"   ├── stage2_output/       （stage2输出）")
-    print(f"   ├── display_snapshots/   （展示层CSV快照）")
-    print(f"   └── data_date.txt        （数据业务日期）")
-    
-    # 列出所有历史归档
-    history_dir = project_root / "data" / "history"
-    if history_dir.exists():
-        archive_dates = sorted([d.name for d in history_dir.iterdir() if d.is_dir()], reverse=True)
-        print(f"\n📚 历史归档列表 (共{len(archive_dates)}个):")
-        for i, date in enumerate(archive_dates[:10], 1):
-            print(f"   {i}. {date}")
-        if len(archive_dates) > 10:
-            print(f"   ... 还有 {len(archive_dates) - 10} 个更早的归档")
-    
+    try:
+        warning = float(section["warning"])
+        overlimit = float(section["overlimit"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{section_name} 中 warning/overlimit 必须为可转 float 的数值"
+        ) from exc
+
+    return warning, overlimit
+
+
+def _read_data_date(stage_tables: dict[str, pd.DataFrame]) -> Optional[str]:
+    """
+    从 ``stage1_credit_1_2`` 的"日期"列取 ``max`` 作为 ``data_date``
+    （对齐 §4.2 / §4.5：用于看板"归档日 (数据日期: xxx)"展示）。
+    """
+    df = stage_tables.get("stage1_credit_1_2")
+    if df is None or "日期" not in df.columns:
+        return None
+    series = pd.to_datetime(df["日期"], errors="coerce")
+    max_date = series.max()
+    if pd.isna(max_date):
+        return None
+    return max_date.strftime("%Y-%m-%d")
+
+
+def _read_high_yield_annual_limit() -> float:
+    """
+    从当前生效的 ``限额配置_当前.xlsx`` 读取"年度高收益债券投资本金规模"。
+
+    该值需要写入 ``archive_meta``，保证高收益页面在"当日 0 行结果"场景下
+    仍能从 DB 单源拿到年度限额。
+    """
+    cfg = load_limit_config(
+        sheet_name="高收益限额",
+        config=ConfigLoader(),
+        inject_date=False,
+    )
+    required_columns = {"指标", "限额(万)"}
+    missing_columns = required_columns - set(cfg.columns)
+    if missing_columns:
+        raise KeyError(
+            "高收益限额 sheet 缺少必需列: " + ", ".join(sorted(missing_columns))
+        )
+
+    indicator_series = cfg["指标"].astype(str).str.strip()
+    matches = cfg.loc[indicator_series == "年度高收益债券投资本金规模", "限额(万)"]
+    if matches.empty:
+        raise KeyError("高收益限额 sheet 缺少指标：年度高收益债券投资本金规模")
+
+    value = pd.to_numeric(matches, errors="coerce").iloc[0]
+    if pd.isna(value):
+        raise ValueError("高收益限额 sheet 中 年度高收益债券投资本金规模 为空或非法")
+    return float(value)
+
+
+def _require_data_date(data_date: Optional[str]) -> str:
+    """
+    ``data_date`` 是 DB 快照的必需元数据；为空时拒绝写库。
+    """
+    if data_date:
+        return data_date
+    raise ValueError(
+        "无法从 stage1_credit_1_2.日期 解析 data_date；"
+        "当前快照元数据不完整，已拒绝写入 DB。"
+    )
+
+
+def _load_stage_tables() -> dict[str, pd.DataFrame]:
+    """
+    一次性扫描 16 张 Excel 产物为 ``{table_name: dataframe}``。
+
+    任一文件缺失立即抛 ``FileNotFoundError`` —— 由 ``main`` 兜住，
+    不进入 ``write_batch``，DB 上不会出现半成品快照。
+    """
+    stage_tables: dict[str, pd.DataFrame] = {}
+    files = {**REQUIRED_STAGE0_FILES, **BUSINESS_RESULT_FILES}
+    total = len(files)
+    for idx, (table_name, path) in enumerate(files.items(), start=1):
+        if not path.exists():
+            raise FileNotFoundError(
+                f"缺失产物（无法归档）: {path}（对应表 {table_name}）"
+            )
+        df = pd.read_excel(path)
+        stage_tables[table_name] = df
+        print(f"  [{idx:>2}/{total}] {table_name:<36s} ← {path.name}  ({len(df)} 行)")
+    return stage_tables
+
+
+# ---------------------------------------------------------------------------
+# 主流程
+# ---------------------------------------------------------------------------
+def archive_to_db(archive_date: str) -> int:
+    """
+    执行单点归档写库。
+
+    流程严格对齐 §5 阶段三"新流程"：
+
+        1. 解析 / 校验 ``archive_date``；
+        2. 扫描 16 张产物 dataframe（任一缺失抛 ``FileNotFoundError``）；
+        3. 从 ``stage1_credit_1_2`` 解析 ``data_date``；
+        4. 从配置文件读取展示阈值 / 高收益年度限额；
+        5. ``ArchiveDB.prepare_stage_tables_schema()`` 预同步 schema；
+        6. ``ArchiveDB.write_batch()`` 单事务写入 16 张表 + ``archive_meta``。
+
+    任一步失败：异常向上抛；若失败发生在第 6 步，数据事务整体回滚。
+    """
+    print("📦 开始每日归档（DB 单点写入）...")
+    print(f"📅 archive_date: {archive_date}")
+    print("=" * 70)
+
+    if not CURRENT_DIR.exists():
+        raise FileNotFoundError(f"data/current 目录不存在: {CURRENT_DIR}")
+
+    print("\n[1/5] 扫描 data/current/ 下 16 张产物 Excel...")
+    stage_tables = _load_stage_tables()
+
+    print("\n[2/5] 解析 data_date（取 stage1_credit_1_2.日期 的 max）...")
+    data_date = _require_data_date(_read_data_date(stage_tables))
+    print(f"  data_date = {data_date}")
+
+    print("\n[3/5] 读取展示阈值与高收益年度限额...")
+    warning, overlimit = _read_alert_thresholds()
+    high_yield_annual_limit_wan = _read_high_yield_annual_limit()
+    print(f"  warning   = {warning}")
+    print(f"  overlimit = {overlimit}")
+    print(f"  high_yield_annual_limit_wan = {high_yield_annual_limit_wan}")
+
+    print("\n[4/5] 预同步 DB schema（archive_meta + 16 张 stage 表）...")
+    db = ArchiveDB.from_env()
+    db.prepare_stage_tables_schema(
+        archive_date=archive_date,
+        stage_tables=stage_tables,
+    )
+
+    print("\n[5/5] 单事务写入 DB（16 张 stage 表 + archive_meta，切 is_current=1）...")
+    db.write_batch(
+        archive_date=archive_date,
+        stage_tables=stage_tables,
+        data_date=data_date,
+        alert_warning_threshold=warning,
+        alert_overlimit_threshold=overlimit,
+        high_yield_annual_limit_wan=high_yield_annual_limit_wan,
+    )
+
+    print("\n" + "=" * 70)
+    print("✅ 归档完成（已切 is_current=1）")
+    print(f"   archive_date : {archive_date}")
+    print(f"   data_date    : {data_date}")
+    print(f"   tables       : {len(stage_tables)} 张（4 stage0 + 12 业务）")
+    print(f"   thresholds   : warning={warning}, overlimit={overlimit}")
+    print(f"   hy_limit_wan : {high_yield_annual_limit_wan}")
     return 0
 
 
-def main():
-    """主函数"""
-    import argparse
-
-    parser = argparse.ArgumentParser(description="每日归档脚本")
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="每日归档脚本（DB 单点写库者）"
+    )
     parser.add_argument(
-        "--date",
+        "--archive-date",
         type=str,
-        help="归档日期（YYYY-MM-DD格式），默认为今天",
+        default=None,
+        help="归档日期（YYYY-MM-DD），默认为今天；T-1 补跑请显式传入",
     )
     args = parser.parse_args()
 
+    archive_date = args.archive_date or datetime.now().strftime("%Y-%m-%d")
+
     try:
-        return archive_current_to_history(args.date)
+        datetime.strptime(archive_date, "%Y-%m-%d")
+    except ValueError:
+        print(f"❌ archive_date 必须为 'YYYY-MM-DD' 格式，收到: {archive_date!r}")
+        return 1
+
+    try:
+        return archive_to_db(archive_date)
+    except FileNotFoundError as e:
+        print(f"\n❌ 归档失败（产物缺失）: {e}")
+        return 1
     except Exception as e:
-        print(f"\n❌ 归档失败: {e}")
+        print(
+            "\n❌ 归档失败：数据快照未提交。"
+            "若失败发生在 schema 预同步阶段，可能仅留下建表/补列结果。"
+        )
+        print(f"   详细错误: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 

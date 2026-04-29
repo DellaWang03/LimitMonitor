@@ -3,6 +3,7 @@
 负责处理高风险监控、地域集中度、城投集中度、高收益债券等
 """
 
+import json
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -10,6 +11,33 @@ from loguru import logger
 from typing import Dict, Optional, Any
 import zipfile
 import xml.etree.ElementTree as ET
+from ..common.security_code_normalizer import normalize_security_code_series
+from ..utils.limit_config_loader import load_limit_config
+
+
+_EMPTY_TEXT_VALUES = {'', 'nan', 'none', 'nat', '<na>', 'null'}
+
+
+def _clean_text_value(value: Any) -> str:
+    if pd.isna(value):
+        return ''
+    text = str(value).strip()
+    return '' if text.lower() in _EMPTY_TEXT_VALUES else text
+
+
+def _first_non_empty(series: pd.Series) -> str:
+    for value in series:
+        text = _clean_text_value(value)
+        if text:
+            return text
+    return ''
+
+
+def _lookup_high_yield_limit(name: Any, default_limit: float, category_limits: Dict[str, float]) -> float:
+    key = _clean_text_value(name)
+    if key and key in category_limits:
+        return float(category_limits[key])
+    return float(default_limit)
 
 
 class Stage2Processor:
@@ -56,15 +84,28 @@ class Stage2Processor:
             查询结果字典
         """
         results = {}
-        
+
         logger.info("\n" + "=" * 80)
         logger.info("开始处理阶段2")
         logger.info("=" * 80)
-        
+
+        # 从 Stage1 输出推断业务日期
+        ref_file = self.stage1_output_dir / "限额明细_债券持仓明细表_信用债1_2.xlsx"
+        if not ref_file.exists():
+            raise FileNotFoundError(f"未找到Stage1输出，无法推断 business_date: {ref_file}")
+
+        df_ref = pd.read_excel(ref_file, usecols=['日期'])
+        business_date_series = pd.to_datetime(df_ref['日期'], errors='coerce')
+        business_date = business_date_series.max()
+        if pd.isna(business_date):
+            raise ValueError(f"Stage1输出中的 '日期' 列无法解析出有效 business_date: {ref_file}")
+        self._business_date = pd.Timestamp(business_date)
+        logger.info(f"业务日期（来自Stage1输出）: {self._business_date.date()}")
+
         # === 第1层：加载配置和阶段1数据 ===
         logger.info("\n【第1层】加载配置和基础数据")
         logger.info("=" * 80)
-        
+
         # 1.1 加载高风险配置
         logger.info("\n执行查询: 高风险行业")
         df_high_risk_industry = self.query_high_risk_industry()
@@ -252,79 +293,94 @@ class Stage2Processor:
     def query_high_risk_industry(self) -> pd.DataFrame:
         """
         查询: 高风险行业表
-        数据源: 限额监控_阶段0_指标设置.xlsx
+        数据源: 限额配置_当前.xlsx
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        df = pd.read_excel(file_path, sheet_name="高风险行业表")
-        
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="高风险行业表",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         # 数据清洗
-        df['日期'] = pd.to_datetime(df['日期'])
         df['行业名称'] = df['行业名称'].astype(str).str.strip()
         df['行业类别'] = df['行业类别'].astype(str).str.strip()
-        
+
         # 去重（按日期和行业名称）
         df = df.drop_duplicates(subset=['日期', '行业名称'], keep='first')
-        
+
         logger.info(f"  高风险行业表: {len(df)} 行, {df['行业名称'].nunique()} 个唯一行业")
         return df
-    
+
     def query_high_risk_province(self) -> pd.DataFrame:
         """
         查询: 高风险省份表
-        数据源: 限额监控_阶段0_指标设置.xlsx
+        数据源: 限额配置_当前.xlsx
         """
-        from ..common import ProvinceNormalizer  # 导入省份标准化工具
-        
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        df = pd.read_excel(file_path, sheet_name="高风险省份表")
-        
+        from ..common import ProvinceNormalizer
+
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="高风险省份表",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         # 数据清洗
-        df['日期'] = pd.to_datetime(df['日期'])
         df['省份名称'] = df['省份名称'].astype(str).str.strip()
         df['省份类别'] = df['省份类别'].astype(str).str.strip()
-        
+
         # 应用省份标准化（直接覆盖原字段）
         df = ProvinceNormalizer.add_normalized_column(
             df,
             source_column='省份名称',
             target_column='省份名称'
         )
-        
+
         # 去重（按日期和省份名称）
         df = df.drop_duplicates(subset=['日期', '省份名称'], keep='first')
-        
+
         logger.info(f"  高风险省份表: {len(df)} 行, {df['省份名称'].nunique()} 个唯一省份")
         return df
-    
+
     def query_high_risk_concentration_limit(self) -> pd.DataFrame:
         """
         查询: 高风险集中度限额
-        数据源: 限额监控_阶段0_指标设置.xlsx
+        数据源: 限额配置_当前.xlsx
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        df = pd.read_excel(file_path, sheet_name="高风险集中度限额")
-        
-        # 数据清洗
-        df['日期'] = pd.to_datetime(df['日期'])
-        
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="高风险集中度限额",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         logger.info(f"  高风险集中度限额: {len(df)} 行")
         return df
-    
+
     def query_region_concentration_limit(self) -> pd.DataFrame:
         """
         查询: 地域集中度限额(含城投)
-        数据源: 限额监控_阶段0_指标设置.xlsx -> 单一省份限额
+        数据源: 限额配置_当前.xlsx -> 单一省份限额
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        df = pd.read_excel(file_path, sheet_name="单一省份限额")
-        
+        from ..common import ProvinceNormalizer
+
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="单一省份限额",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         # 数据清洗
-        df['日期'] = pd.to_datetime(df['日期'])
         df['指标名称'] = df['指标名称'].astype(str).str.strip()
 
         # 标准化省份名称，与持仓数据（上海市/北京市…）保持一致
         # 直辖市在配置表中以短格式存储（上海/北京/天津/重庆），必须转为长格式才能正确 join
-        from ..common import ProvinceNormalizer
         df = ProvinceNormalizer.add_normalized_column(
             df,
             source_column='指标名称',
@@ -532,11 +588,15 @@ class Stage2Processor:
     def query_penetrate_high_yield(self) -> pd.DataFrame:
         """
         查询: 穿透高收益债券表
-        数据源: 限额监控_阶段0_指标设置.xlsx
+        数据源: 限额配置_当前.xlsx
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        df = pd.read_excel(file_path, sheet_name="穿透高收益债券")
-        
+        df = load_limit_config(
+            sheet_name="穿透高收益债券",
+            business_date=None,
+            config=self.config,
+            inject_date=False,
+        )
+
         logger.info(f"  穿透高收益债券表: {len(df)} 行")
         return df
     
@@ -1363,6 +1423,9 @@ class Stage2Processor:
         # 计算单一地域总持仓上限和剩余额度
         df['单一地域总持仓上限'] = df['公司净资产(万)'] * 1.2 * df['指标值_地域集中度限额']
         df['单一地域总持仓剩余额度'] = df['单一地域总持仓上限'] - df['单一地域总持仓_PR']
+        df['地域集中度是否超限'] = df['单一地域总持仓剩余额度'].apply(
+            lambda x: '是' if pd.notna(x) and x < 0 else '否'
+        )
         
         # 关联单一地域城投总持仓（保留日期.1字段）
         if df_citybond_pos is not None:
@@ -1387,6 +1450,9 @@ class Stage2Processor:
         # 计算单一地域城投总持仓上限和剩余额度
         df['单一地域城投总持仓上限'] = df['公司净资产(万)'] * df['指标值_城投集中度限额']
         df['单一地域城投持仓剩余额度'] = df['单一地域城投总持仓上限'] - df['单一地域城投总持仓_PR']
+        df['城投集中度是否超限'] = df['单一地域城投持仓剩余额度'].apply(
+            lambda x: '是' if pd.notna(x) and x < 0 else '否'
+        )
         
         # 删除临时业务日期列
         df = df.drop(columns=['业务日期'], errors='ignore')
@@ -1394,10 +1460,10 @@ class Stage2Processor:
         # 重新排列列顺序（包含日期.1字段）
         output_cols = [
             '指标名称', '指标值_地域集中度限额', '日期', '单一地域总持仓_PR', '地域集中度',
-            '单一地域总持仓上限', '单一地域总持仓剩余额度',
+            '单一地域总持仓上限', '单一地域总持仓剩余额度', '地域集中度是否超限',
             '指标值_城投集中度限额', '日期.1', '公司净资产(万)', 
             '单一地域城投总持仓_PR', '城投地域集中度',
-            '单一地域城投总持仓上限', '单一地域城投持仓剩余额度'
+            '单一地域城投总持仓上限', '单一地域城投持仓剩余额度', '城投集中度是否超限'
         ]
         existing_cols = [col for col in output_cols if col in df.columns]
         df = df[existing_cols]
@@ -1523,11 +1589,109 @@ class Stage2Processor:
             sample_names = df['资产名称'].head(10).tolist()
             logger.info(f"    前10个高收益债券: {sample_names}")
         
+        # 单债口径统一按主证券代码归并，缺失时兜底 ISIN，再兜底资产代码。
+        if '主证券代码_标准' not in df.columns:
+            if '主证券代码' in df.columns:
+                df['主证券代码_标准'] = normalize_security_code_series(df['主证券代码'])
+            else:
+                df['主证券代码_标准'] = pd.NA
+        if 'ISIN码' not in df.columns:
+            df['ISIN码'] = pd.NA
+        if '主证券代码' not in df.columns:
+            df['主证券代码'] = pd.NA
+
+        def build_high_yield_entity(row):
+            main_code = _clean_text_value(row.get('主证券代码_标准'))
+            if main_code:
+                return pd.Series([main_code.upper(), '主证券代码'])
+            isin = _clean_text_value(row.get('ISIN码'))
+            if isin:
+                return pd.Series([isin.upper(), 'ISIN'])
+            asset_code = _clean_text_value(row.get('资产代码'))
+            return pd.Series([asset_code, '资产代码' if asset_code else '缺失'])
+
+        if df.empty:
+            df['高收益单债归并键'] = pd.Series(dtype='object')
+            df['高收益单债归并键来源'] = pd.Series(dtype='object')
+        else:
+            entity_keys = df.apply(build_high_yield_entity, axis=1)
+            df['高收益单债归并键'] = entity_keys[0]
+            df['高收益单债归并键来源'] = entity_keys[1]
+
         # 选择输出列
-        output_cols = ['日期', '内部证券账户名称', '资产代码', '资产名称', '库存数量(万)_PR', '债务主体']
+        output_cols = [
+            '日期', '内部证券账户名称', '资产代码', '资产名称',
+            '主证券代码', '主证券代码_标准', 'ISIN码',
+            '库存数量(万)_PR', '债务主体',
+            '高收益单债归并键', '高收益单债归并键来源',
+        ]
         existing_cols = [col for col in output_cols if col in df.columns]
         df = df[existing_cols]
-        
+
+        # 附加高收益限额配置阈值列（参照高风险行业写法，从配置 sheet 直接赋值）
+        _hy_cfg = load_limit_config(sheet_name="高收益限额", config=self.config, inject_date=False)
+        _cfg_map = dict(zip(_hy_cfg['指标'], _hy_cfg['限额(万)']))
+        _SCALAR_KEYS = {'年度高收益债券投资本金规模', '单一债券票面规模', '单一主体票面规模'}
+        _single_bond_limit = float(_cfg_map['单一债券票面规模'])
+        _single_entity_limit = float(_cfg_map['单一主体票面规模'])
+        df['单一债券限额(万)'] = _single_bond_limit
+        df['单一主体限额(万)'] = _single_entity_limit
+        _category_limits = {k: float(v) for k, v in _cfg_map.items() if k not in _SCALAR_KEYS}
+        df['按类别限额JSON'] = json.dumps(_category_limits, ensure_ascii=False)
+
+        # 显式沉淀高收益单债 / 主体剩余额度，供 page7/page8 与审计归档复用。
+        if not df.empty:
+            if '库存数量(万)_PR' not in df.columns:
+                df['库存数量(万)_PR'] = 0.0
+            if '资产名称' not in df.columns:
+                df['资产名称'] = ''
+            if '债务主体' not in df.columns:
+                df['债务主体'] = ''
+            df['_高收益库存数值'] = pd.to_numeric(df.get('库存数量(万)_PR'), errors='coerce').fillna(0)
+
+            bond_group_keys = [c for c in ['日期', '高收益单债归并键'] if c in df.columns]
+            if bond_group_keys:
+                df['高收益单债总持仓(万)'] = (
+                    df.groupby(bond_group_keys, dropna=False)['_高收益库存数值'].transform('sum')
+                )
+                df['_高收益单债限额名称'] = (
+                    df.groupby(bond_group_keys, dropna=False)['资产名称'].transform(_first_non_empty)
+                )
+            else:
+                df['高收益单债总持仓(万)'] = df['_高收益库存数值'].sum()
+                df['_高收益单债限额名称'] = _first_non_empty(df.get('资产名称', pd.Series(dtype='object')))
+
+            df['高收益单债限额(万)'] = df['_高收益单债限额名称'].apply(
+                lambda x: _lookup_high_yield_limit(x, _single_bond_limit, _category_limits)
+            )
+            df['高收益单债剩余额度(万)'] = df['高收益单债限额(万)'] - df['高收益单债总持仓(万)']
+            df['高收益单债是否超限'] = df['高收益单债剩余额度(万)'].apply(
+                lambda x: '是' if pd.notna(x) and x < 0 else '否'
+            )
+
+            issuer_group_keys = [c for c in ['日期', '债务主体'] if c in df.columns]
+            if issuer_group_keys:
+                df['高收益主体总持仓(万)'] = (
+                    df.groupby(issuer_group_keys, dropna=False)['_高收益库存数值'].transform('sum')
+                )
+            else:
+                df['高收益主体总持仓(万)'] = df['_高收益库存数值'].sum()
+
+            df['高收益主体限额(万)'] = df.get('债务主体', pd.Series(dtype='object')).apply(
+                lambda x: _lookup_high_yield_limit(x, _single_entity_limit, _category_limits)
+            )
+            df['高收益主体剩余额度(万)'] = df['高收益主体限额(万)'] - df['高收益主体总持仓(万)']
+            df['高收益主体是否超限'] = df['高收益主体剩余额度(万)'].apply(
+                lambda x: '是' if pd.notna(x) and x < 0 else '否'
+            )
+            df = df.drop(columns=['_高收益库存数值', '_高收益单债限额名称'], errors='ignore')
+        else:
+            for col in [
+                '高收益单债总持仓(万)', '高收益单债限额(万)', '高收益单债剩余额度(万)', '高收益单债是否超限',
+                '高收益主体总持仓(万)', '高收益主体限额(万)', '高收益主体剩余额度(万)', '高收益主体是否超限',
+            ]:
+                df[col] = pd.Series(dtype='float64' if col.endswith('(万)') else 'object')
+
         logger.info(f"  限额明细_高收益: {len(df)} 行")
         return df
     
@@ -1595,6 +1759,33 @@ class Stage2Processor:
         
         if '代码' in df.columns:
             df['代码'] = df['代码'].astype(str).str.split('.').str[0]
-        
+
+        # 附加高收益年度限额配置阈值列
+        _hy_cfg = load_limit_config(sheet_name="高收益限额", config=self.config, inject_date=False)
+        _cfg_map = dict(zip(_hy_cfg['指标'], _hy_cfg['限额(万)']))
+        _annual_limit = float(_cfg_map['年度高收益债券投资本金规模'])
+        df['年度限额(万)'] = _annual_limit
+
+        # 显式沉淀年度高收益限额结果，避免 page7/page8 展示层重复计算。
+        if not df.empty:
+            if '全价成本(元)' not in df.columns:
+                df['全价成本(元)'] = 0.0
+            df['_高收益全价成本数值'] = pd.to_numeric(df['全价成本(元)'], errors='coerce').fillna(0)
+            if '日期' in df.columns:
+                df['高收益年度总投资本金(万)'] = (
+                    df.groupby(['日期'], dropna=False)['_高收益全价成本数值'].transform('sum') / 10000
+                )
+            else:
+                df['高收益年度总投资本金(万)'] = df['_高收益全价成本数值'].sum() / 10000
+            df['高收益年度限额剩余额度(万)'] = df['年度限额(万)'] - df['高收益年度总投资本金(万)']
+            df['高收益年度限额是否超限'] = df['高收益年度限额剩余额度(万)'].apply(
+                lambda x: '是' if pd.notna(x) and x < 0 else '否'
+            )
+            df = df.drop(columns=['_高收益全价成本数值'], errors='ignore')
+        else:
+            df['高收益年度总投资本金(万)'] = pd.Series(dtype='float64')
+            df['高收益年度限额剩余额度(万)'] = pd.Series(dtype='float64')
+            df['高收益年度限额是否超限'] = pd.Series(dtype='object')
+
         logger.info(f"  限额明细_高收益_投资本金规模: {len(df)} 行（核算系统 {len(part_accounting)} + 穿透 {len(part_penetrate)}）")
         return df

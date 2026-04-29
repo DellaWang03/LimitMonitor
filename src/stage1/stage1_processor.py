@@ -10,6 +10,7 @@ from loguru import logger
 from typing import Dict
 from .stage1_limit_detail import LimitDetailCalculator
 from ..common import normalize_security_code_series
+from ..utils.limit_config_loader import load_limit_config
 
 
 class Stage1Processor:
@@ -86,6 +87,16 @@ class Stage1Processor:
     @staticmethod
     def _clean_code_like_value(value):
         """清洗代码/ISIN 类字段，统一空值。"""
+        if pd.isna(value):
+            return None
+        text = str(value).strip()
+        if text in {"", "nan", "None", "<NA>"}:
+            return None
+        return text
+
+    @staticmethod
+    def _clean_text_preserve_na(value):
+        """清洗文本但保留空值，避免将 NaN 误转成字符串 'nan'。"""
         if pd.isna(value):
             return None
         text = str(value).strip()
@@ -178,12 +189,6 @@ class Stage1Processor:
         self.cache['穿透高收益债券'] = df_high_yield
         logger.info(f"✓ {len(df_high_yield)} 行")
         
-        logger.info("\n执行查询: 中债隐含评级AAA&AAA+")
-        df_rating = self.query_bond_rating_aaa()
-        results['中债隐含评级AAA&AAA+'] = df_rating
-        self.cache['中债隐含评级AAA&AAA+'] = df_rating
-        logger.info(f"✓ {len(df_rating)} 行")
-        
         # === 第2层：信用债查询 ===
         logger.info("\n【第2层】信用债查询")
         logger.info("=" * 80)
@@ -209,7 +214,26 @@ class Stage1Processor:
         # === 第3层：限额配置查询 ===
         logger.info("\n【第3层】限额配置查询")
         logger.info("=" * 80)
-        
+
+        # 从已缓存的信用债持仓中推断业务日期
+        _df_credit_ref = self.cache.get('债券持仓明细表_信用债')
+        if _df_credit_ref is None:
+            raise ValueError("未找到信用债持仓缓存，无法推断 business_date")
+        if '日期' not in _df_credit_ref.columns:
+            raise KeyError("信用债持仓缓存缺少 '日期' 列，无法推断 business_date")
+        _business_date_series = pd.to_datetime(_df_credit_ref['日期'], errors='coerce')
+        _business_date = _business_date_series.max()
+        if pd.isna(_business_date):
+            raise ValueError("信用债持仓缓存的 '日期' 列无法解析出有效 business_date")
+        self._business_date = pd.Timestamp(_business_date)
+        logger.info(f"  业务日期: {self._business_date.date()}")
+
+        logger.info("\n执行查询: 中债隐含评级AAA&AAA+")
+        df_rating = self.query_bond_rating_aaa()
+        results['中债隐含评级AAA&AAA+'] = df_rating
+        self.cache['中债隐含评级AAA&AAA+'] = df_rating
+        logger.info(f"✓ {len(df_rating)} 行")
+
         # 读取各类限额配置
         limit_queries = [
             ('单一债券规模限额', self.query_single_bond_scale_limit),
@@ -393,13 +417,13 @@ class Stage1Processor:
         
         # 清洗字符串列
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col]):
                 df[col] = df[col].astype(str).str.strip()
-        
+
         # 转换日期列
         if '日期' in df.columns:
             df['日期'] = pd.to_datetime(df['日期'])
-        
+
         # 根据M代码选择需要的列
         selected_cols = ['日期', '金融资产会计属性', '部门', '内部证券账户名称', '资产代码', '资产名称',
                         '库存数量(万)', '库存数量(万)_空头为负', '债券分类2', '主证券代码', '主证券名称', 
@@ -443,14 +467,14 @@ class Stage1Processor:
         # 实控人相关列需要保留 NaN 以便后续 combine_first 正确工作
         # wind 代码列保持原样，不做格式转换（避免影响 merge 结果和持仓总计）
         controller_cols = ['实际控制人名称', '实际控制人名称_修正']
-        
+
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col]):
                 if col in controller_cols:
                     # 仅清洗非空值，保留 NaN；返回清洗后的值或 None
                     df[col] = df[col].apply(lambda x: str(x).strip() if pd.notna(x) and str(x).strip() not in ['', 'nan', 'None'] else None)
                 else:
-                    # 其他列：正常清洗（去除首尾空格）
+                    # 其他列：正常清洗（去除首尾空格，含 \xa0 等非标准空白）
                     df[col] = df[col].astype(str).str.strip()
         
         # 转换日期列
@@ -522,7 +546,7 @@ class Stage1Processor:
 
         controller_cols = ['实际控制人名称', '实际控制人名称_修正']
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col]):
                 if col in controller_cols:
                     df[col] = df[col].apply(
                         lambda x: str(x).strip() if pd.notna(x) and str(x).strip() not in ['', 'nan', 'None'] else None
@@ -573,16 +597,16 @@ class Stage1Processor:
         file_path = self.stage0_output_dir / "风控部债券池.xlsx"
         
         df = pd.read_excel(file_path)
-        
-        # 清洗字符串列
+
+        # 清洗字符串列（保留空值，避免主体池 NaN 变成字符串 "nan"）
         for col in df.columns:
-            if df[col].dtype == 'object':
-                df[col] = df[col].astype(str).str.strip()
-        
+            if df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col]):
+                df[col] = df[col].apply(self._clean_text_preserve_na)
+
         logger.info(f"  风控部债券池: {len(df)} 行")
-        
+
         return df
-    
+
     def query_wind_issuer_pool(self) -> pd.DataFrame:
         """
         查询: 风控部主体池
@@ -590,21 +614,21 @@ class Stage1Processor:
         M代码逻辑: 重命名"发行人wind代码"为"主体wind代码"
         """
         file_path = self.stage0_output_dir / "风控部债券池_主体.xlsx"
-        
+
         df = pd.read_excel(file_path)
-        
-        # 清洗字符串列
+
+        # 清洗字符串列（保留空值，避免主体池 NaN 变成字符串 "nan"）
         for col in df.columns:
-            if df[col].dtype == 'object':
-                df[col] = df[col].astype(str).str.strip()
-        
+            if df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col]):
+                df[col] = df[col].apply(self._clean_text_preserve_na)
+
         # 重命名列
         df = df.rename(columns={'发行人wind代码': '主体wind代码'})
-        
+
         logger.info(f"  风控部主体池: {len(df)} 行")
-        
+
         return df
-    
+
     def query_adjusted_controller(self) -> pd.DataFrame:
         """
         查询: 调整实控人名单
@@ -612,38 +636,38 @@ class Stage1Processor:
         M代码逻辑: 筛选 主体wind代码 <> "0"
         """
         file_path = self.stage0_output_dir / "调整实控人名单.xlsx"
-        
+
         df = pd.read_excel(file_path)
-        
+
         # 清洗字符串列
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col]):
                 df[col] = df[col].astype(str).str.strip()
-        
+
         # 去重
         df = df.drop_duplicates()
-        
+
         # 筛选: 主体wind代码 <> "0"
         df = df[df['主体wind代码'] != '0']
-        
+
         logger.info(f"  调整实控人名单: {len(df)} 行")
-        
+
         return df
-    
+
     def query_issuer_type_adjustment(self) -> pd.DataFrame:
         """
         查询: 发行人类型调整表
         数据源: 发行人类型调整表.xlsx（用户提供，替代Base64解码）
         """
         file_path = self._data_file_path("发行人类型调整表.xlsx")
-        
+
         df = pd.read_excel(file_path)
-        
+
         # 清洗字符串列
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col]):
                 df[col] = df[col].astype(str).str.strip()
-        
+
         logger.info(f"  发行人类型调整表: {len(df)} 行")
         
         return df
@@ -651,79 +675,95 @@ class Stage1Processor:
     def query_high_yield_penetration(self) -> pd.DataFrame:
         """
         查询: 穿透高收益债券
-        数据源: 限额监控_阶段0_指标设置.xlsx / 穿透高收益债券
+        数据源: 限额配置_当前.xlsx / 穿透高收益债券
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        
-        df = pd.read_excel(file_path, sheet_name="穿透高收益债券")
-        
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="穿透高收益债券",
+            business_date=business_date,
+            config=self.config,
+            inject_date=False,
+        )
+
         # 清洗字符串列
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col]):
                 df[col] = df[col].astype(str).str.strip()
-        
+
         logger.info(f"  穿透高收益债券: {len(df)} 行")
-        
+
         return df
     
     def query_bond_rating_aaa(self) -> pd.DataFrame:
         """
         查询: 中债隐含评级AAA&AAA+
-        数据源: 限额监控_阶段0_指标设置.xlsx / 中债隐含评级表
+        数据源: 限额配置_当前.xlsx / 中债隐含评级表
         M代码逻辑: 筛选 评级 = "AAA" or "AAA+"
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        
-        df = pd.read_excel(file_path, sheet_name="中债隐含评级表")
-        
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="中债隐含评级表",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         # 清洗字符串列
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if col != '日期' and (df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col])):
                 df[col] = df[col].astype(str).str.strip()
-        
+
         # 筛选AAA和AAA+
         if '中债隐含评级' in df.columns:
             df = df[df['中债隐含评级'].isin(['AAA', 'AAA+'])]
-        
+
         logger.info(f"  中债隐含评级AAA&AAA+: {len(df)} 行")
-        
+
         return df
     
     def query_high_risk_industry(self) -> pd.DataFrame:
         """
         查询: 高风险行业表
-        数据源: 限额监控_阶段0_指标设置.xlsx
+        数据源: 限额配置_当前.xlsx
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        df = pd.read_excel(file_path, sheet_name="高风险行业表")
-        
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="高风险行业表",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         # 数据清洗
-        df['日期'] = pd.to_datetime(df['日期'])
         df['行业名称'] = df['行业名称'].astype(str).str.strip()
         df['行业类别'] = df['行业类别'].astype(str).str.strip()
-        
+
         # 去重（按日期和行业名称）
         df = df.drop_duplicates(subset=['日期', '行业名称'], keep='first')
-        
+
         logger.info(f"  高风险行业表: {len(df)} 行")
         return df
-    
+
     def query_high_risk_province(self) -> pd.DataFrame:
         """
         查询: 高风险省份表
-        数据源: 限额监控_阶段0_指标设置.xlsx
+        数据源: 限额配置_当前.xlsx
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        df = pd.read_excel(file_path, sheet_name="高风险省份表")
-        
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="高风险省份表",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         # 数据清洗
-        df['日期'] = pd.to_datetime(df['日期'])
         df['省份名称'] = df['省份名称'].astype(str).str.strip()
         df['省份类别'] = df['省份类别'].astype(str).str.strip()
-        
+
         # 去重（按日期和省份名称）
         df = df.drop_duplicates(subset=['日期', '省份名称'], keep='first')
-        
+
         logger.info(f"  高风险省份表: {len(df)} 行")
         return df
     
@@ -1084,172 +1124,172 @@ class Stage1Processor:
     def query_single_bond_concentration_limit(self) -> pd.DataFrame:
         """
         查询: 单一债券集中度限额
-        数据源: 限额监控_阶段0_指标设置.xlsx / 单一债券集中度限额
+        数据源: 限额配置_当前.xlsx / 单一债券集中度限额
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        
-        df = pd.read_excel(file_path, sheet_name="单一债券集中度限额")
-        
-        # 清洗和转换类型
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="单一债券集中度限额",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if col != '日期' and (df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col])):
                 df[col] = df[col].astype(str).str.strip()
-        
-        if '日期' in df.columns:
-            df['日期'] = pd.to_datetime(df['日期'])
-        
+
         logger.info(f"  单一债券集中度限额: {len(df)} 行")
-        
+
         return df
-    
+
     def query_single_bond_scale_limit(self) -> pd.DataFrame:
         """
         查询: 单一债券规模限额
-        数据源: 限额监控_阶段0_指标设置.xlsx / 单一债券规模限额
+        数据源: 限额配置_当前.xlsx / 单一债券规模限额
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        
-        df = pd.read_excel(file_path, sheet_name="单一债券规模限额")
-        
-        # 清洗和转换类型
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="单一债券规模限额",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if col != '日期' and (df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col])):
                 df[col] = df[col].astype(str).str.strip()
-        
-        if '日期' in df.columns:
-            df['日期'] = pd.to_datetime(df['日期'])
-        
+
         logger.info(f"  单一债券规模限额: {len(df)} 行")
-        
+
         return df
-    
+
     def query_special_single_bond_limit(self) -> pd.DataFrame:
         """
         查询: 特批单一债券限额
-        数据源: 限额监控_阶段0_指标设置.xlsx / 特批单一债券限额
+        数据源: 限额配置_当前.xlsx / 特批单一债券限额
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        
-        df = pd.read_excel(file_path, sheet_name="特批单一债券限额")
-        
-        # 清洗和转换类型
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="特批单一债券限额",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if col != '日期' and (df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col])):
                 df[col] = df[col].astype(str).str.strip()
-        
-        if '日期' in df.columns:
-            df['日期'] = pd.to_datetime(df['日期'])
 
         if '主证券代码' in df.columns:
             df['主证券代码_标准'] = normalize_security_code_series(df['主证券代码'])
-        
+
         logger.info(f"  特批单一债券限额: {len(df)} 行")
-        
+
         return df
-    
+
     def query_single_issuer_scale_limit(self) -> pd.DataFrame:
         """
         查询: 单一主体规模限额
-        数据源: 限额监控_阶段0_指标设置.xlsx / 单一主体规模限额
+        数据源: 限额配置_当前.xlsx / 单一主体规模限额
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        
-        df = pd.read_excel(file_path, sheet_name="单一主体规模限额")
-        
-        # 清洗和转换类型
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="单一主体规模限额",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if col != '日期' and (df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col])):
                 df[col] = df[col].astype(str).str.strip()
-        
-        if '日期' in df.columns:
-            df['日期'] = pd.to_datetime(df['日期'])
-        
+
         logger.info(f"  单一主体规模限额: {len(df)} 行")
-        
+
         return df
-    
+
     def query_single_controller_scale_limit(self) -> pd.DataFrame:
         """
         查询: 单一实控人规模限额
-        数据源: 限额监控_阶段0_指标设置.xlsx / 单一实控人规模限额
+        数据源: 限额配置_当前.xlsx / 单一实控人规模限额
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        
-        df = pd.read_excel(file_path, sheet_name="单一实控人规模限额")
-        
-        # 清洗和转换类型
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="单一实控人规模限额",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if col != '日期' and (df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col])):
                 df[col] = df[col].astype(str).str.strip()
-        
-        if '日期' in df.columns:
-            df['日期'] = pd.to_datetime(df['日期'])
-        
+
         logger.info(f"  单一实控人规模限额: {len(df)} 行")
-        
+
         return df
-    
+
     def query_specific_issuer_limit(self) -> pd.DataFrame:
         """
         查询: 特定主体限额
-        数据源: 限额监控_阶段0_指标设置.xlsx / 特定主体限额
+        数据源: 限额配置_当前.xlsx / 特定主体限额
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        
-        df = pd.read_excel(file_path, sheet_name="特定主体限额")
-        
-        # 清洗和转换类型
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="特定主体限额",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if col != '日期' and (df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col])):
                 df[col] = df[col].astype(str).str.strip()
-        
-        if '日期' in df.columns:
-            df['日期'] = pd.to_datetime(df['日期'])
-        
+
         logger.info(f"  特定主体限额: {len(df)} 行")
-        
+
         return df
-    
+
     def query_specific_controller_limit(self) -> pd.DataFrame:
         """
         查询: 特定实控人限额
-        数据源: 限额监控_阶段0_指标设置.xlsx / 特定实控人限额
+        数据源: 限额配置_当前.xlsx / 特定实控人限额
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        
-        df = pd.read_excel(file_path, sheet_name="特定实控人限额")
-        
-        # 清洗和转换类型
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="特定实控人限额",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if col != '日期' and (df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col])):
                 df[col] = df[col].astype(str).str.strip()
-        
-        if '日期' in df.columns:
-            df['日期'] = pd.to_datetime(df['日期'])
-        
+
         logger.info(f"  特定实控人限额: {len(df)} 行")
-        
+
         return df
-    
+
     def query_single_guarantee_company_limit(self) -> pd.DataFrame:
         """
         查询: 单一担保公司规模限额
-        数据源: 限额监控_阶段0_指标设置.xlsx / 单一担保公司规模限额
+        数据源: 限额配置_当前.xlsx / 单一担保公司规模限额
         """
-        file_path = self._data_file_path("限额监控_阶段0_指标设置.xlsx")
-        
-        df = pd.read_excel(file_path, sheet_name="单一担保公司规模限额")
-        
-        # 清洗和转换类型
+        business_date = getattr(self, '_business_date', None)
+        df = load_limit_config(
+            sheet_name="单一担保公司规模限额",
+            business_date=business_date,
+            config=self.config,
+            inject_date=True,
+        )
+
         for col in df.columns:
-            if df[col].dtype == 'object':
+            if col != '日期' and (df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col])):
                 df[col] = df[col].astype(str).str.strip()
-        
-        if '日期' in df.columns:
-            df['日期'] = pd.to_datetime(df['日期'])
-        
+
         logger.info(f"  单一担保公司规模限额: {len(df)} 行")
-        
+
         return df
     
     def query_single_bond_total_position(self) -> pd.DataFrame:

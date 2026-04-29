@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List
+
 import pandas as pd
 
 from src.visualization.bond_quota_query import query_bond_remaining_quota
@@ -19,6 +20,19 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _normalize_account_filter(account_filter: Any) -> list[str]:
+    """Return selected account names; empty list means all accounts."""
+    if not account_filter or account_filter == "全部":
+        return []
+    if isinstance(account_filter, (list, tuple, set)):
+        return [
+            str(item)
+            for item in account_filter
+            if item and item != "全部"
+        ]
+    return [str(account_filter)]
+
+
 def _apply_filters(df: pd.DataFrame, filters: dict | None) -> pd.DataFrame:
     """无 Streamlit 依赖版本的筛选逻辑（与 filters.apply_filters 一致）。"""
     filtered_df = df.copy()
@@ -27,8 +41,11 @@ def _apply_filters(df: pd.DataFrame, filters: dict | None) -> pd.DataFrame:
 
     if filters.get("bond_type") and filters["bond_type"] != "全部" and "债券分类2" in filtered_df.columns:
         filtered_df = filtered_df[filtered_df["债券分类2"] == filters["bond_type"]]
-    if filters.get("account") and filters["account"] != "全部" and "内部证券账户名称" in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df["内部证券账户名称"] == filters["account"]]
+    selected_accounts = _normalize_account_filter(filters.get("account"))
+    if selected_accounts and "内部证券账户名称" in filtered_df.columns:
+        filtered_df = filtered_df[
+            filtered_df["内部证券账户名称"].astype(str).isin(selected_accounts)
+        ]
 
     if filters.get("search_keyword"):
         keyword = str(filters["search_keyword"]).lower()
@@ -96,45 +113,42 @@ def _aggregate_by_asset_and_account(df: pd.DataFrame) -> tuple[pd.DataFrame, int
     return pd.concat(parts, ignore_index=True), len(unresolved)
 
 
-def _load_high_yield_limits_from_loader(data_loader) -> tuple[dict, dict]:
-    """从配置读取高收益限额：返回(债券限额映射, 主体限额映射)。"""
-    bond_limits = {"__default__": 5000.0}
-    entity_limits = {"__default__": 7000.0}
-
-    try:
-        from src.utils.config_loader import ConfigLoader
-
-        config = ConfigLoader(str(data_loader.project_root / "config"))
-        source_file = config.get_data_file_path("限额监控_阶段0_指标设置.xlsx")
-        df = pd.read_excel(str(source_file), sheet_name="高收益限额")
-        if "指标" not in df.columns or "限额(万)" not in df.columns:
-            return bond_limits, entity_limits
-
-        for _, row in df.iterrows():
-            indicator = str(row["指标"]).strip()
-            limit_val = row["限额(万)"]
-            if pd.isna(limit_val):
-                continue
-            limit_val = float(limit_val)
-            if indicator == "单一债券票面规模":
-                bond_limits["__default__"] = limit_val
-            elif indicator == "单一主体票面规模":
-                entity_limits["__default__"] = limit_val
-            elif indicator not in ("年度高收益债券投资本金规模",):
-                bond_limits[indicator] = limit_val
-                entity_limits[indicator] = limit_val
-    except Exception:
-        pass
-
-    return bond_limits, entity_limits
+def _first_present_value(series: pd.Series) -> Any:
+    for value in series:
+        if pd.notna(value):
+            return value
+    return None
 
 
-def _calc_overlimit_status(remaining: float, limit: float) -> str:
-    if remaining < 0:
-        return "是"
-    if limit > 0 and (limit - remaining) / limit >= 0.5:
-        return "预警"
-    return "否"
+def _latest_date_slice(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "日期" not in df.columns:
+        return df.copy()
+    date_series = pd.to_datetime(df["日期"], errors="coerce")
+    latest_date = date_series.max()
+    if pd.isna(latest_date):
+        return df.copy()
+    return df[date_series == latest_date].copy()
+
+
+def _apply_capital_account_filter(df: pd.DataFrame, filters: dict | None) -> pd.DataFrame:
+    filtered = df.copy()
+    if not filters:
+        return filtered
+
+    selected_accounts = _normalize_account_filter(filters.get("account"))
+    if selected_accounts and "账户" in filtered.columns:
+        filtered = filtered[filtered["账户"].astype(str).isin(selected_accounts)]
+
+    if filters.get("search_keyword"):
+        keyword = str(filters["search_keyword"]).lower()
+        mask = False
+        for col in ["账户", "简称", "代码", "资产名称", "债务主体"]:
+            if col in filtered.columns:
+                mask = mask | filtered[col].astype(str).str.lower().str.contains(keyword, na=False)
+        if not (isinstance(mask, bool) and not mask):
+            filtered = filtered[mask]
+
+    return filtered
 
 
 def _build_common_kpi(df: pd.DataFrame, overlimit_col: str, position_col: str = "PR后规模(万)") -> dict:
@@ -174,6 +188,87 @@ def _ensure_column_order(df: pd.DataFrame, expected_cols: list[str]) -> pd.DataF
         if col not in out.columns:
             out[col] = pd.NA
     return out[expected_cols]
+
+
+def _require_columns(df: pd.DataFrame, required_cols: list[str], source_name: str) -> None:
+    missing = [col for col in required_cols if col not in df.columns]
+    if missing:
+        raise KeyError(f"{source_name} 缺少必需落库字段: {', '.join(missing)}")
+
+
+def _require_first_float(df: pd.DataFrame, column: str, source_name: str) -> float:
+    value = _first_present_value(df[column])
+    if value is None or pd.isna(value):
+        raise ValueError(f"{source_name}.{column} 没有可用值，无法构造展示结果")
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{source_name}.{column} 不是有效数值: {value!r}") from exc
+
+
+def _require_consistent_group_values(
+    df: pd.DataFrame,
+    group_keys: list[str],
+    value_cols: list[str],
+    source_name: str,
+) -> None:
+    if df.empty:
+        return
+    for _, group in df.groupby(group_keys, dropna=False, sort=False):
+        inconsistent = [
+            col for col in value_cols
+            if col in group.columns and group[col].nunique(dropna=False) > 1
+        ]
+        if inconsistent:
+            key_values = {key: group.iloc[0].get(key) for key in group_keys}
+            raise ValueError(
+                f"{source_name} 同一归并键内落库结果不一致: "
+                f"{key_values}, 字段: {', '.join(inconsistent)}"
+            )
+
+
+def _format_ratio_as_pct(value: Any) -> str:
+    if pd.isna(value):
+        return ""
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ""
+        if text.endswith("%"):
+            return text
+        try:
+            value = float(text)
+        except ValueError:
+            return text
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if abs(num) <= 1:
+        num *= 100
+    return f"{num:.2f}%"
+
+
+def project_page9_full_regulatory_main_table(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    page9 主表统一口径（用于页面展示与黄金快照复用）：
+    保持页面已使用字段名不变，仅补充监管集中度总额度和不可计算原因。
+    """
+    display_columns = [
+        "日期", "代码", "资产名称", "债务主体", "债券分类2",
+        "单债总持仓_PR", "债券余额(亿)", "监管集中度限额指标值",
+        "监管集中度", "监管集中度总额度", "监管集中度剩余额度(万)",
+        "监管集中度是否超限", "是否可计算", "不可计算原因",
+        "内部证券账户覆盖数",
+    ]
+    if df.empty:
+        return pd.DataFrame(columns=display_columns)
+
+    source = df.copy()
+    if "代码" not in source.columns and "资产代码" in source.columns:
+        source["代码"] = source["资产代码"]
+    _require_columns(source, display_columns, "stage1_full_regulatory")
+    return source[display_columns].copy()
 
 
 def build_page1_single_credit_views(data_loader, filters: dict | None = None) -> dict:
@@ -241,7 +336,10 @@ def build_page1_single_credit_views(data_loader, filters: dict | None = None) ->
     return {
         "tables": tables,
         "kpis": kpis,
-        "meta": {"unresolved_groups": int(unresolved_groups)},
+        "meta": {
+            "unresolved_groups": int(unresolved_groups),
+            "pre_filter_row_count": int(len(df_1_2)),
+        },
     }
 
 
@@ -280,16 +378,48 @@ def build_page2_specific_credit_views(data_loader, filters: dict | None = None) 
 def build_page3_category_credit_views(data_loader, filters: dict | None = None) -> dict:
     df = _apply_filters(data_loader.load_stage2_credit_2(), filters or {})
     tabs = [
-        ("tab1_industry", "高风险行业是否超限", "wind行业"),
-        ("tab2_province", "高风险省份是否超限", "省份"),
-        ("tab3_regional", "地域集中度是否超限", "省份"),
-        ("tab4_citybond", "城投集中度是否超限", "省份"),
+        (
+            "tab1_industry", "高风险行业是否超限", "wind行业",
+            {
+                "高风险行业之和集中度限额指标值": "集中度限额",
+                "高风险行业总持仓_PR": "维度总持仓(万)",
+                "高风险行业集中度": "集中度",
+                "高风险行业集中度剩余额度(万)": "剩余额度(万)",
+            },
+        ),
+        (
+            "tab2_province", "高风险省份是否超限", "省份",
+            {
+                "高风险省份之和集中度限额指标值": "集中度限额",
+                "高风险省份总持仓_PR": "维度总持仓(万)",
+                "高风险省份集中度": "集中度",
+                "高风险省份集中度剩余额度(万)": "剩余额度(万)",
+            },
+        ),
+        (
+            "tab3_regional", "地域集中度是否超限", "省份",
+            {
+                "指标值_地域集中度限额": "集中度限额",
+                "单一地域总持仓_PR": "维度总持仓(万)",
+                "地域集中度": "集中度",
+                "地域集中度剩余额度(万)": "剩余额度(万)",
+            },
+        ),
+        (
+            "tab4_citybond", "城投集中度是否超限", "省份",
+            {
+                "指标值_城投集中度限额": "集中度限额",
+                "单一地域城投总持仓_PR": "维度总持仓(万)",
+                "城投地域集中度": "集中度",
+                "城投集中度剩余额度(万)": "剩余额度(万)",
+            },
+        ),
     ]
     tables = {}
     kpis = {}
     unresolved_counts: Dict[str, int] = {}
 
-    for tab_name, over_col, dim_col in tabs:
+    for tab_name, over_col, dim_col, metric_cols in tabs:
         if over_col not in df.columns:
             tables[tab_name] = pd.DataFrame()
             kpis[tab_name] = _build_common_kpi(pd.DataFrame(), over_col)
@@ -301,8 +431,9 @@ def build_page3_category_credit_views(data_loader, filters: dict | None = None) 
             "日期", "代码", "资产名称", "内部证券账户名称", "债务主体",
             dim_col, "库存数量(万)_PR", over_col, "是否超限",
         ]
+        cols.extend([col for col in metric_cols.keys() if col in dim_df.columns])
         table = dim_df[[c for c in cols if c in dim_df.columns]].rename(
-            columns={"库存数量(万)_PR": "PR后规模(万)"}
+            columns={"库存数量(万)_PR": "PR后规模(万)", **metric_cols}
         )
         tables[tab_name] = table
         kpis[tab_name] = _build_common_kpi(table, over_col)
@@ -422,6 +553,11 @@ def build_page4_guarantee_views(data_loader, filters: dict | None = None) -> dic
     df = data_loader.load_stage1_guarantee()
     if filters:
         df = _apply_filters(df, filters)
+    display_columns = [
+        "业务分类", "授信担保公司名称", "日期", "单一担保公司规模限额",
+        "单一担保人总持仓_PR", "单一担保公司规模剩余额度(万)", "单一担保人是否超限",
+    ]
+    _require_columns(df, display_columns, "stage1_guarantee")
 
     latest_date = df["日期"].max() if "日期" in df.columns and len(df) > 0 else None
     latest_df = df[df["日期"] == latest_date].copy() if latest_date is not None else df.copy()
@@ -430,8 +566,7 @@ def build_page4_guarantee_views(data_loader, filters: dict | None = None) -> dic
     total_limit = _safe_float(latest_df["单一担保公司规模限额"].sum()) if "单一担保公司规模限额" in latest_df.columns else 0.0
     usage_rate = (total_position / total_limit) if total_limit > 0 else 0.0
 
-    display_columns = ["业务分类", "授信担保公司名称", "日期", "单一担保公司规模限额", "单一担保人总持仓_PR", "单一担保公司规模剩余额度(万)"]
-    table = df[[c for c in display_columns if c in df.columns]].copy()
+    table = df[display_columns].copy()
 
     return {
         "tables": {"main": table},
@@ -455,7 +590,9 @@ def build_page5_high_risk_views(data_loader, filters: dict | None = None) -> dic
     df_detail = data_loader.load_stage2_credit_2()
     filtered_detail = _apply_filters(df_detail, filters or {})
 
-    province_table = df_province_detail.rename(columns={"高风险省份总持仓_PR": "PR后规模(万)"}).copy()
+    province_table = df_province_detail.rename(
+        columns={"省份名称": "省份", "高风险省份总持仓_PR": "PR后规模(万)"}
+    ).copy()
     if "省份类别" in filtered_detail.columns:
         p_stats = (
             filtered_detail[filtered_detail["省份类别"] == "高风险省份"]
@@ -469,11 +606,14 @@ def build_page5_high_risk_views(data_loader, filters: dict | None = None) -> dic
         province_table["占比"] = province_table["PR后规模(万)"] / total if total else 0
     province_table["债券数"] = province_table.get("债券数", 0).fillna(0).astype(int)
     province_table["超限数"] = province_table.get("超限数", 0).fillna(0).astype(int)
+    province_table["是否超限"] = province_table["超限数"].apply(lambda x: "是" if x > 0 else "否")
     province_table["状态"] = province_table["超限数"].apply(lambda x: "⚠️ 超限" if x > 0 else "✅ 正常")
     province_table = province_table.sort_values("PR后规模(万)", ascending=False)
-    province_table = province_table[[c for c in ["省份", "PR后规模(万)", "占比", "债券数", "超限数", "状态"] if c in province_table.columns]]
+    province_table = province_table[[c for c in ["省份", "PR后规模(万)", "占比", "债券数", "超限数", "是否超限", "状态"] if c in province_table.columns]]
 
-    industry_table = df_industry_detail.rename(columns={"wind行业": "行业", "高风险行业总持仓_PR": "PR后规模(万)"}).copy()
+    industry_table = df_industry_detail.rename(
+        columns={"wind行业": "行业", "行业名称": "行业", "高风险行业总持仓_PR": "PR后规模(万)"}
+    ).copy()
     if "行业类别" in filtered_detail.columns:
         i_stats = (
             filtered_detail[filtered_detail["行业类别"] == "高风险行业"]
@@ -487,9 +627,10 @@ def build_page5_high_risk_views(data_loader, filters: dict | None = None) -> dic
         industry_table["占比"] = industry_table["PR后规模(万)"] / total if total else 0
     industry_table["债券数"] = industry_table.get("债券数", 0).fillna(0).astype(int)
     industry_table["超限数"] = industry_table.get("超限数", 0).fillna(0).astype(int)
+    industry_table["是否超限"] = industry_table["超限数"].apply(lambda x: "是" if x > 0 else "否")
     industry_table["状态"] = industry_table["超限数"].apply(lambda x: "⚠️ 超限" if x > 0 else "✅ 正常")
     industry_table = industry_table.sort_values("PR后规模(万)", ascending=False)
-    industry_table = industry_table[[c for c in ["行业", "PR后规模(万)", "占比", "债券数", "超限数", "状态"] if c in industry_table.columns]]
+    industry_table = industry_table[[c for c in ["行业", "PR后规模(万)", "占比", "债券数", "超限数", "是否超限", "状态"] if c in industry_table.columns]]
 
     province_kpi_row = df_province.iloc[0] if len(df_province) > 0 else pd.Series(dtype=object)
     industry_kpi_row = df_industry.iloc[0] if len(df_industry) > 0 else pd.Series(dtype=object)
@@ -520,30 +661,44 @@ def build_page6_regional_views(data_loader, filters: dict | None = None) -> dict
     df = data_loader.load_stage2_regional()
     if "单一地域总持仓_PR" in df.columns:
         df = df[df["单一地域总持仓_PR"] > 0]
+    _require_columns(
+        df,
+        [
+            "地域集中度是否超限", "城投集中度是否超限",
+            "单一地域总持仓上限", "单一地域总持仓剩余额度",
+            "单一地域城投总持仓上限", "单一地域城投持仓剩余额度",
+        ],
+        "stage2_regional",
+    )
 
     tab1_cols = [
         "日期", "指标名称", "指标值_地域集中度限额", "单一地域总持仓_PR", "地域集中度",
-        "单一地域总持仓剩余额度", "公司净资产(万)", "指标值_城投集中度限额",
-        "单一地域城投总持仓_PR", "城投地域集中度", "单一地域城投持仓剩余额度",
+        "单一地域总持仓上限", "单一地域总持仓剩余额度", "地域集中度是否超限",
+        "公司净资产(万)", "指标值_城投集中度限额",
+        "单一地域城投总持仓_PR", "城投地域集中度",
+        "单一地域城投总持仓上限", "单一地域城投持仓剩余额度", "城投集中度是否超限",
     ]
-    tab1 = df[[c for c in tab1_cols if c in df.columns]].rename(
+    tab1 = df[tab1_cols].rename(
         columns={"指标名称": "省份", "指标值_地域集中度限额": "地域集中度限额", "指标值_城投集中度限额": "城投集中度限额"}
     )
 
-    tab2_cols = ["指标名称", "指标值_地域集中度限额", "单一地域总持仓_PR", "地域集中度", "单一地域总持仓剩余额度"]
-    tab2 = df[[c for c in tab2_cols if c in df.columns]].rename(
+    tab2_cols = [
+        "指标名称", "指标值_地域集中度限额", "单一地域总持仓_PR", "地域集中度",
+        "单一地域总持仓上限", "单一地域总持仓剩余额度", "地域集中度是否超限",
+    ]
+    tab2 = df[tab2_cols].rename(
         columns={
             "指标名称": "省份",
             "指标值_地域集中度限额": "地域集中度限额",
             "单一地域总持仓_PR": "PR后规模(万)",
             "地域集中度": "持仓占净资产比",
+            "单一地域总持仓上限": "总持仓上限(万)",
             "单一地域总持仓剩余额度": "剩余额度(万)",
+            "地域集中度是否超限": "是否超限",
         }
     )
     if "地域集中度限额" in tab2.columns:
         tab2 = tab2.sort_values("地域集中度限额", ascending=False)
-    if "剩余额度(万)" in tab2.columns:
-        tab2["是否超限"] = (tab2["剩余额度(万)"] < 0).map({True: "是", False: "否"})
 
     return {"tables": {"tab1_detail": tab1, "tab2_summary": tab2}, "kpis": {}, "meta": {}}
 
@@ -551,51 +706,114 @@ def build_page6_regional_views(data_loader, filters: dict | None = None) -> dict
 def build_page7_high_yield_views(data_loader, filters: dict | None = None) -> dict:
     df_hy = data_loader.load_stage2_high_yield()
     df_capital = data_loader.load_stage2_high_yield_capital()
-    annual_limit_wan = float(data_loader.load_high_yield_annual_limit())
 
-    total_capital_wan = _safe_float(df_capital["全价成本(元)"].sum()) / 10000 if "全价成本(元)" in df_capital.columns else 0.0
-    remaining_wan = annual_limit_wan - total_capital_wan
+    capital_required_cols = [
+        "日期", "账户", "简称", "代码", "持仓面额(元)", "全价成本(元)",
+        "年度限额(万)", "高收益年度总投资本金(万)",
+        "高收益年度限额剩余额度(万)", "高收益年度限额是否超限",
+    ]
+    asset_required_cols = [
+        "日期", "资产代码", "资产名称", "高收益单债归并键",
+        "高收益单债总持仓(万)", "高收益单债限额(万)",
+        "高收益单债剩余额度(万)", "高收益单债是否超限",
+    ]
+    issuer_required_cols = [
+        "日期", "债务主体",
+        "高收益主体总持仓(万)", "高收益主体限额(万)",
+        "高收益主体剩余额度(万)", "高收益主体是否超限",
+    ]
+    _require_columns(df_capital, capital_required_cols, "stage2_high_yield_capital")
+    _require_columns(df_hy, asset_required_cols + [
+        col for col in issuer_required_cols if col not in asset_required_cols
+    ], "stage2_high_yield")
+
+    capital_latest = _latest_date_slice(df_capital)
+    if capital_latest.empty:
+        annual_limit_wan = float(data_loader.load_high_yield_annual_limit())
+        total_capital_wan = 0.0
+        remaining_wan = annual_limit_wan
+        annual_overlimit = "否"
+    else:
+        annual_limit_wan = _require_first_float(capital_latest, "年度限额(万)", "stage2_high_yield_capital")
+        total_capital_wan = _require_first_float(
+            capital_latest,
+            "高收益年度总投资本金(万)",
+            "stage2_high_yield_capital",
+        )
+        remaining_wan = _require_first_float(
+            capital_latest,
+            "高收益年度限额剩余额度(万)",
+            "stage2_high_yield_capital",
+        )
+        annual_overlimit = _first_present_value(capital_latest["高收益年度限额是否超限"])
+        if annual_overlimit is None or pd.isna(annual_overlimit):
+            raise ValueError("stage2_high_yield_capital.高收益年度限额是否超限 没有可用值")
+        annual_overlimit = str(annual_overlimit)
     usage_rate = (total_capital_wan / annual_limit_wan) if annual_limit_wan > 0 else 0.0
 
-    if {"日期", "资产代码", "内部证券账户名称"}.issubset(df_capital.columns):
-        cap_agg, unresolved_groups = _aggregate_by_asset_and_account(df_capital)
-    else:
-        cap_agg, unresolved_groups = df_capital.copy(), 0
-
-    cap_cols = ["日期", "代码", "简称", "账户", "持仓面额(元)", "全价成本(元)"]
-    tab1 = cap_agg[[c for c in cap_cols if c in cap_agg.columns]].copy()
-    if "持仓面额(元)" in tab1.columns:
-        tab1["PR后规模(万)"] = tab1["持仓面额(元)"] / 10000
-    if "全价成本(元)" in tab1.columns:
-        tab1["全价成本(万)"] = tab1["全价成本(元)"] / 10000
+    filtered_capital = df_capital.copy()
+    cap_cols = ["日期", "简称", "账户", "持仓面额(元)", "全价成本(元)"]
+    tab1 = filtered_capital[cap_cols].copy()
+    tab1 = tab1.rename(columns={"简称": "资产名称"})
+    tab1["PR后规模(万)"] = pd.to_numeric(tab1["持仓面额(元)"], errors="coerce") / 10000
+    tab1["全价成本(万)"] = pd.to_numeric(tab1["全价成本(元)"], errors="coerce") / 10000
     tab1 = tab1.drop(columns=["持仓面额(元)", "全价成本(元)"], errors="ignore")
 
-    bond_limits, entity_limits = _load_high_yield_limits_from_loader(data_loader)
-    code_col = "代码" if "代码" in df_hy.columns else "资产代码"
-
-    asset_summary = (
-        df_hy.groupby([c for c in [code_col, "资产名称"] if c in df_hy.columns], as_index=False)["库存数量(万)_PR"].sum()
-        .rename(columns={code_col: "代码", "库存数量(万)_PR": "PR后规模(万)"})
+    filtered_hy = df_hy.copy()
+    hy_latest = _latest_date_slice(filtered_hy)
+    _require_consistent_group_values(
+        hy_latest,
+        ["日期", "高收益单债归并键"],
+        [
+            "资产名称", "债务主体",
+            "高收益单债总持仓(万)", "高收益单债限额(万)",
+            "高收益单债剩余额度(万)", "高收益单债是否超限",
+        ],
+        "stage2_high_yield",
     )
-    default_bond_limit = bond_limits["__default__"]
-    asset_summary["限额(万)"] = asset_summary["资产名称"].apply(lambda x: bond_limits.get(str(x).strip(), default_bond_limit))
-    asset_summary["剩余投资额度(万)"] = asset_summary["限额(万)"] - asset_summary["PR后规模(万)"]
-    asset_summary["是否超限"] = asset_summary.apply(
-        lambda r: _calc_overlimit_status(float(r["剩余投资额度(万)"]), float(r["限额(万)"])),
-        axis=1,
+    _require_consistent_group_values(
+        hy_latest,
+        ["日期", "债务主体"],
+        [
+            "高收益主体总持仓(万)", "高收益主体限额(万)",
+            "高收益主体剩余额度(万)", "高收益主体是否超限",
+        ],
+        "stage2_high_yield",
+    )
+
+    display_code_col = "代码" if "代码" in hy_latest.columns else "资产代码"
+    asset_summary = hy_latest.drop_duplicates(["日期", "高收益单债归并键"]).copy()
+    asset_summary = asset_summary[
+        [
+            display_code_col, "资产名称", "债务主体",
+            "高收益单债总持仓(万)", "高收益单债限额(万)",
+            "高收益单债剩余额度(万)", "高收益单债是否超限",
+        ]
+    ].rename(
+        columns={
+            display_code_col: "代码",
+            "高收益单债总持仓(万)": "PR后规模(万)",
+            "高收益单债限额(万)": "限额(万)",
+            "高收益单债剩余额度(万)": "剩余投资额度(万)",
+            "高收益单债是否超限": "是否超限",
+        }
     )
     asset_summary = asset_summary.sort_values("PR后规模(万)", ascending=False)
 
-    issuer_summary = (
-        df_hy.groupby("债务主体", as_index=False)["库存数量(万)_PR"].sum()
-        .rename(columns={"库存数量(万)_PR": "PR后规模(万)"})
-    )
-    default_entity_limit = entity_limits["__default__"]
-    issuer_summary["限额(万)"] = issuer_summary["债务主体"].apply(lambda x: entity_limits.get(str(x).strip(), default_entity_limit))
-    issuer_summary["剩余投资额度(万)"] = issuer_summary["限额(万)"] - issuer_summary["PR后规模(万)"]
-    issuer_summary["是否超限"] = issuer_summary.apply(
-        lambda r: _calc_overlimit_status(float(r["剩余投资额度(万)"]), float(r["限额(万)"])),
-        axis=1,
+    issuer_summary = hy_latest.drop_duplicates(["日期", "债务主体"]).copy()
+    issuer_summary = issuer_summary[
+        [
+            "债务主体",
+            "高收益主体总持仓(万)", "高收益主体限额(万)",
+            "高收益主体剩余额度(万)", "高收益主体是否超限",
+        ]
+    ].rename(
+        columns={
+            "高收益主体总持仓(万)": "PR后规模(万)",
+            "高收益主体限额(万)": "限额(万)",
+            "高收益主体剩余额度(万)": "剩余投资额度(万)",
+            "高收益主体是否超限": "是否超限",
+        }
     )
     issuer_summary = issuer_summary.sort_values("PR后规模(万)", ascending=False)
 
@@ -611,9 +829,10 @@ def build_page7_high_yield_views(data_loader, filters: dict | None = None) -> di
                 "annual_limit_wan": annual_limit_wan,
                 "remaining_wan": remaining_wan,
                 "usage_rate": usage_rate,
+                "annual_overlimit": annual_overlimit,
             }
         },
-        "meta": {"tab1_unresolved_groups": int(unresolved_groups)},
+        "meta": {},
     }
 
 
@@ -645,15 +864,17 @@ def build_page8_bond_quota_cases(data_loader) -> dict:
 def build_page9_full_regulatory_views(data_loader) -> dict:
     df = data_loader.load_stage1_full_regulatory_concentration()
     display_columns = [
-        "日期", "代码", "资产名称", "债务主体", "债券分类2", "单债总持仓_PR", "债券余额(亿)",
-        "监管集中度限额指标值", "监管集中度", "监管集中度剩余额度(万)", "监管集中度是否超限", "是否可计算",
+        "日期", "代码", "资产代码", "资产名称", "债务主体", "债券分类2", "单债总持仓_PR", "债券余额(亿)",
+        "监管集中度限额指标值", "监管集中度", "监管集中度总额度",
+        "监管集中度剩余额度(万)", "监管集中度是否超限", "是否可计算", "不可计算原因",
         "内部证券账户覆盖数",
     ]
-    table = df[[c for c in display_columns if c in df.columns]].copy()
-    total_count = len(table)
-    calculable_count = int((table["是否可计算"] == "是").sum()) if "是否可计算" in table.columns else 0
-    overlimit_count = int((table["监管集中度是否超限"] == "是").sum()) if "监管集中度是否超限" in table.columns else 0
-    total_position_wan = _safe_float(table["单债总持仓_PR"].sum()) if "单债总持仓_PR" in table.columns else 0.0
+    raw_table = df[[c for c in display_columns if c in df.columns]].copy()
+    table = project_page9_full_regulatory_main_table(raw_table)
+    total_count = len(raw_table)
+    calculable_count = int((raw_table["是否可计算"] == "是").sum()) if "是否可计算" in raw_table.columns else 0
+    overlimit_count = int((raw_table["监管集中度是否超限"] == "是").sum()) if "监管集中度是否超限" in raw_table.columns else 0
+    total_position_wan = _safe_float(raw_table["单债总持仓_PR"].sum()) if "单债总持仓_PR" in raw_table.columns else 0.0
     return {
         "tables": {"main": table},
         "kpis": {

@@ -7,9 +7,9 @@ import pandas as pd
 import numpy as np
 from loguru import logger
 from typing import Dict
-from pathlib import Path
-import json
 from ..common import normalize_security_code_series
+from ..utils.config_loader import ConfigLoader
+from ..utils.limit_config_loader import load_limit_config
 
 
 class LimitDetailCalculator:
@@ -30,20 +30,31 @@ class LimitDetailCalculator:
         self._regulatory_concentration_limit_override = regulatory_concentration_limit
 
     def _load_regulatory_concentration_limit(self) -> float:
-        """读取监管集中度默认限额配置。实例级 override 优先于磁盘配置文件。"""
-        fallback = 0.16
+        """读取监管集中度默认限额配置。实例级 override 优先于 Excel 配置文件。"""
         if self._regulatory_concentration_limit_override is not None:
             return self._regulatory_concentration_limit_override
-        config_file = Path(__file__).resolve().parents[2] / "data" / "regulatory_concentration_limit.json"
-        if not config_file.exists():
-            return fallback
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-            return float(config.get('regulatory_concentration_limit', fallback))
-        except Exception as e:
-            logger.warning(f"读取监管集中度限额配置失败，使用默认值 {fallback}: {e}")
-            return fallback
+        config = ConfigLoader()
+        df = load_limit_config(
+            sheet_name="系统参数",
+            config=config,
+            inject_date=False,
+        )
+        if "参数名" not in df.columns or "值" not in df.columns:
+            raise KeyError("系统参数 sheet 缺少 '参数名' 或 '值' 列")
+
+        row_map = (
+            df.assign(参数名=df["参数名"].astype(str).str.strip())
+            .drop_duplicates(subset=["参数名"], keep="first")
+            .set_index("参数名")["值"]
+            .to_dict()
+        )
+        if "监管集中度限额" not in row_map:
+            raise KeyError("系统参数 sheet 缺少 '监管集中度限额' 参数")
+
+        value = row_map["监管集中度限额"]
+        if pd.isna(value):
+            raise ValueError("系统参数 sheet 中 '监管集中度限额' 为空")
+        return float(value)
 
     @staticmethod
     def _first_non_null(series: pd.Series):
@@ -582,7 +593,7 @@ class LimitDetailCalculator:
         # 替换错误值为null（M代码第750-751行）
         result['单一债券集中度'] = result['单一债券集中度'].replace([float('inf'), -float('inf')], None)
 
-        # 监管集中度：单债整体口径，不区分内部证券账户，限额来自独立 JSON 配置
+        # 监管集中度：单债整体口径，不区分内部证券账户，限额来自系统参数 sheet
         regulatory_limit = self._load_regulatory_concentration_limit()
         result['监管集中度限额指标值'] = regulatory_limit
         result['监管集中度'] = result['单一债券集中度']
@@ -1305,6 +1316,9 @@ class LimitDetailCalculator:
                 df_grouped['单一担保公司规模剩余额度(万)'] = (
                     df_grouped['指标值'] - df_grouped['单一担保人总持仓_PR']
                 )
+                df_grouped['单一担保人是否超限'] = df_grouped['单一担保公司规模剩余额度(万)'].apply(
+                    lambda x: '是' if pd.notna(x) and x < 0 else '否'
+                )
                 
                 # 删除旧的单一担保公司规模限额列，用指标值替代
                 df_grouped = df_grouped.drop(columns=['单一担保公司规模限额'], errors='ignore')
@@ -1315,7 +1329,7 @@ class LimitDetailCalculator:
         
         # 重排序列（按照M-code的输出顺序）
         result_cols = ['日期', '业务分类', '授信担保公司名称', '单一担保公司规模限额', 
-                      '单一担保人总持仓_PR', '单一担保公司规模剩余额度(万)']
+                      '单一担保人总持仓_PR', '单一担保公司规模剩余额度(万)', '单一担保人是否超限']
         
         # 只保留存在的列
         result_cols = [col for col in result_cols if col in df_grouped.columns]

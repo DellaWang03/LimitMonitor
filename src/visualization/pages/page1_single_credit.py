@@ -3,8 +3,8 @@
 """
 import streamlit as st
 import pandas as pd
-from src.visualization.components.filters import apply_filters
-from src.visualization.components.tables import render_data_table, aggregate_by_asset_and_account
+from src.visualization.components.tables import render_data_table
+from src.visualization.display_builders import build_page1_single_credit_views
 
 if hasattr(st, "fragment"):
     _fragment = st.fragment
@@ -172,10 +172,6 @@ def _apply_six_dimension_display(df: pd.DataFrame) -> pd.DataFrame:
     """单一信用限额页：直接使用1_2表中的5维综合是否超限字段，与Excel版本保持一致。"""
     return df
 
-
-_aggregate_by_asset_and_account = aggregate_by_asset_and_account
-
-
 @_fragment
 def _render_tab1_single_bond_fragment(base_df: pd.DataFrame, unresolved_groups: int):
     filtered_df = _apply_current_dimension_filter(
@@ -187,7 +183,7 @@ def _render_tab1_single_bond_fragment(base_df: pd.DataFrame, unresolved_groups: 
     if unresolved_groups:
         st.warning(f"有 {unresolved_groups} 组记录因关键字段不一致，已保留原明细未合并。")
     
-    _render_kpi_cards(filtered_df, '单一债券是否超限', '库存数量(万)_PR')
+    _render_kpi_cards(filtered_df, '单一债券是否超限', 'PR后规模(万)')
     
     st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
     
@@ -200,9 +196,9 @@ def _render_tab1_single_bond_fragment(base_df: pd.DataFrame, unresolved_groups: 
     ]
     
     display_columns = [col for col in display_columns if col in filtered_df.columns]
-    display_df = filtered_df[display_columns].rename(columns={
-        '库存数量(万)_PR': 'PR后规模(万)'
-    })
+    display_df = filtered_df[display_columns].copy()
+    if '库存数量(万)_PR' in display_df.columns and 'PR后规模(万)' not in display_df.columns:
+        display_df = display_df.rename(columns={'库存数量(万)_PR': 'PR后规模(万)'})
     
     render_data_table(
         display_df,
@@ -231,13 +227,13 @@ def _render_dimension_fragment(
     if unresolved_groups:
         st.warning(f"有 {unresolved_groups} 组记录因关键字段不一致，已保留原明细未合并。")
 
-    _render_kpi_cards(filtered_df, dimension_column, '库存数量(万)_PR')
+    _render_kpi_cards(filtered_df, dimension_column, 'PR后规模(万)')
     st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
     visible_columns = [col for col in display_columns if col in filtered_df.columns]
-    display_df = filtered_df[visible_columns].rename(columns={
-        '库存数量(万)_PR': 'PR后规模(万)'
-    })
+    display_df = filtered_df[visible_columns].copy()
+    if '库存数量(万)_PR' in display_df.columns and 'PR后规模(万)' not in display_df.columns:
+        display_df = display_df.rename(columns={'库存数量(万)_PR': 'PR后规模(万)'})
 
     render_data_table(
         display_df,
@@ -271,12 +267,22 @@ def render(filters: dict, data_loader):
 
     _inject_compact_controls_css()
     
-    # 加载数据
-    df_1_1 = data_loader.load_stage1_credit_1_1()
-    df_1_2 = data_loader.load_stage1_credit_1_2()
-    if df_1_2.empty or '是否超限' not in df_1_2.columns:
+    views = build_page1_single_credit_views(data_loader, filters)
+    tables = views.get("tables", {})
+    meta = views.get("meta", {})
+    unresolved_groups = int(meta.get("unresolved_groups", 0))
+    pre_filter_rows = int(meta.get("pre_filter_row_count", 0))
+
+    tab1_base = tables.get("tab1_single_bond", pd.DataFrame())
+    if "是否超限" not in tab1_base.columns:
         st.error("单一信用限额页数据加载失败或缺少必要字段，请先重新生成 Stage1 数据后再查看。")
         return
+
+    if tab1_base.empty:
+        if pre_filter_rows > 0:
+            st.info("当前筛选条件下暂无数据，可尝试放宽顶部筛选条件。")
+        else:
+            st.warning("暂无单一信用限额数据，请先重新生成 Stage1 数据后再查看。")
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "债券规模",
@@ -288,20 +294,19 @@ def render(filters: dict, data_loader):
 
     # Tab1: 单一债券规模限额
     with tab1:
-        # 应用筛选
-        filtered_df = apply_filters(df_1_2, filters)
-        filtered_df, unresolved_groups = _aggregate_by_asset_and_account(filtered_df)
-        filtered_df = _apply_six_dimension_display(filtered_df)
-        _render_tab1_single_bond_fragment(filtered_df, unresolved_groups)
+        _render_tab1_single_bond_fragment(
+            _apply_six_dimension_display(tab1_base.copy()),
+            unresolved_groups,
+        )
     
     # Tab2: 单一债券集中度（分账户）
     with tab2:
-        filtered_df = apply_filters(df_1_2, filters)
-        filtered_df, unresolved_groups = _aggregate_by_asset_and_account(filtered_df)
-        filtered_df = _apply_six_dimension_display(filtered_df)
+        filtered_df = _apply_six_dimension_display(
+            tables.get("tab2_concentration", pd.DataFrame()).copy()
+        )
         display_columns = [
             '日期', '代码', '资产名称', '内部证券账户名称',
-            '债务主体', '库存数量(万)_PR', '单一债券集中度限额适用类别',
+            '债务主体', 'PR后规模(万)', '单一债券集中度限额适用类别',
             '单一债券集中度限额指标值',
             '单一债券集中度', '单一债券集中度剩余额度(万)',
             '单一债券集中度是否超限', '是否超限'
@@ -317,12 +322,12 @@ def render(filters: dict, data_loader):
     
     # Tab3: 主体规模限额
     with tab3:
-        filtered_df = apply_filters(df_1_2, filters)
-        filtered_df, unresolved_groups = _aggregate_by_asset_and_account(filtered_df)
-        filtered_df = _apply_six_dimension_display(filtered_df)
+        filtered_df = _apply_six_dimension_display(
+            tables.get("tab3_entity", pd.DataFrame()).copy()
+        )
         display_columns = [
             '日期', '代码', '资产名称', '内部证券账户名称',
-            '债务主体', '库存数量(万)_PR', '单一主体限额适用类别',
+            '债务主体', 'PR后规模(万)', '单一主体限额适用类别',
             '单一主体规模限额指标值',
             '单一主体总持仓_PR', '单一主体规模剩余额度(万)',
             '单一主体是否超限', '是否超限'
@@ -338,12 +343,12 @@ def render(filters: dict, data_loader):
     
     # Tab4: 实控人规模限额
     with tab4:
-        filtered_df = apply_filters(df_1_2, filters)
-        filtered_df, unresolved_groups = _aggregate_by_asset_and_account(filtered_df)
-        filtered_df = _apply_six_dimension_display(filtered_df)
+        filtered_df = _apply_six_dimension_display(
+            tables.get("tab4_controller", pd.DataFrame()).copy()
+        )
         display_columns = [
             '日期', '代码', '资产名称', '内部证券账户名称',
-            '债务主体', '实际控制人名称_修正', '库存数量(万)_PR',
+            '债务主体', '实际控制人名称_修正', 'PR后规模(万)',
             '单一实控人限额适用类别',
             '单一实控人规模限额指标值', '单一实控人总持仓_PR',
             '单一实控人规模剩余额度(万)', '单一实控人是否超限', '是否超限'
@@ -359,12 +364,12 @@ def render(filters: dict, data_loader):
     
     # Tab5: 担保人规模限额
     with tab5:
-        filtered_df = apply_filters(df_1_2, filters)
-        filtered_df, unresolved_groups = _aggregate_by_asset_and_account(filtered_df)
-        filtered_df = _apply_six_dimension_display(filtered_df)
+        filtered_df = _apply_six_dimension_display(
+            tables.get("tab5_guarantor", pd.DataFrame()).copy()
+        )
         display_columns = [
             '日期', '代码', '资产名称', '内部证券账户名称',
-            '债务主体', '担保人', '库存数量(万)_PR',
+            '债务主体', '担保人', 'PR后规模(万)',
             '单一担保公司规模限额', '单一担保人总持仓_PR',
             '单一担保公司规模剩余额度(万)', '单一担保人是否超限', '是否超限'
         ]

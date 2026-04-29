@@ -4,7 +4,6 @@
 import streamlit as st
 import sys
 from pathlib import Path
-from datetime import datetime, date
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent
@@ -100,12 +99,9 @@ def main():
         # 获取当前页面（用于sidebar显示统计信息）
         if 'current_page' not in st.session_state:
             st.session_state.current_page = '单一信用限额'
-        
-        # 临时初始化数据加载器（用于sidebar渲染，将在后面重新初始化）
-        temp_loader = DataLoader(target_date=None)
-        
+
         # 渲染左侧导航栏（包含日期选择器），获取选中的页面和日期
-        selected_page, target_date = render_sidebar(temp_loader, st.session_state.current_page)
+        selected_page, target_date = render_sidebar(st.session_state.current_page)
 
         # 切页后清理上一页的瞬时状态，避免页面树差异较大时出现额外状态框闪现
         _cleanup_page_state(st.session_state.current_page, selected_page)
@@ -114,11 +110,13 @@ def main():
         st.session_state.current_page = selected_page
         
         # ========== 根据选中的日期初始化数据加载器 ==========
-        # 无历史日期时直接复用 temp_loader，避免重复实例化（节省 Path.exists 检查与日志开销）
-        if target_date is None:
-            data_loader = temp_loader
-        else:
+        date_mode = st.session_state.get("date_mode", "最新数据")
+        if date_mode == "历史数据":
+            if target_date is None:
+                raise FileNotFoundError("DB 中暂无可用历史快照，请先运行 scripts/daily_archive.py。")
             data_loader = DataLoader(target_date=target_date)
+        else:
+            data_loader = DataLoader(target_date=None)
         
         # 只在需要筛选器的页面显示顶部筛选器
         pages_with_filters = ['单一信用限额', '特定信用限额', '分类信用限额']

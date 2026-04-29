@@ -2,7 +2,7 @@
 左侧导航栏组件 - 现代金融看板风格
 """
 import streamlit as st
-from datetime import datetime, date
+from datetime import date
 from typing import Optional
 
 SIDEBAR_BADGE_BG = "rgba(59, 130, 246, 0.14)"
@@ -10,17 +10,18 @@ SIDEBAR_BADGE_BORDER = "rgba(96, 165, 250, 0.22)"
 SIDEBAR_BADGE_TEXT = "#dbeafe"
 
 
-def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]:
+def render_sidebar(current_page=None) -> tuple[str, Optional[date]]:
     """
     渲染左侧导航栏（包含日期选择器）
     
     Args:
-        data_loader: 数据加载器实例
         current_page: 当前选中的页面名称
     
     Returns:
         tuple: (选中的页面名称, 选中的日期)
     """
+    from src.visualization.data_loader import DataLoader as DL
+
     with st.sidebar:
         # Logo和标题 - 现代简洁风格
         st.markdown("""
@@ -43,6 +44,20 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
         </p>
         """, unsafe_allow_html=True)
         
+        current_archive_date = DL.get_current_archive_date()
+        current_data_date = DL.get_current_data_date()
+        available_date_options = DL.get_available_date_options()
+        available_dates = [archive_date for archive_date, _ in available_date_options]
+        data_dates_by_archive = {
+            archive_date: data_date
+            for archive_date, data_date in available_date_options
+        }
+
+        if "date_mode" not in st.session_state:
+            st.session_state.date_mode = (
+                "最新数据" if current_archive_date is not None else "历史数据"
+            )
+
         # 日期模式选择
         date_mode = st.radio(
             "数据源",
@@ -55,12 +70,8 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
         target_date = None
         
         if date_mode == "历史数据":
-            # 导入 DataLoader 以获取可用日期及数据日期（用于展示「归档日 (数据日期: xxx)」）
-            from src.visualization.data_loader import DataLoader as DL
-            available_dates = DL.get_available_dates()
-
             def _format_archive_option(d):
-                data_date = DL.get_data_date_for_archive(d)
+                data_date = data_dates_by_archive.get(d)
                 if data_date:
                     return f"{d.strftime('%Y年%m月%d日')} (数据日期: {data_date})"
                 return d.strftime('%Y年%m月%d日')
@@ -74,7 +85,7 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
                     label_visibility="collapsed"
                 )
                 # 显示当前选中：归档日 + 数据日期（若有）
-                data_date_str = DL.get_data_date_for_archive(target_date)
+                data_date_str = data_dates_by_archive.get(target_date)
                 date_label = f"归档: {target_date.strftime('%Y-%m-%d')}"
                 if data_date_str:
                     date_label += f" · 数据: {data_date_str}"
@@ -86,13 +97,17 @@ def render_sidebar(data_loader, current_page=None) -> tuple[str, Optional[date]]
             else:
                 st.warning("暂无历史数据")
         else:
-            # 显示最新数据日期
-            latest_date = data_loader.get_latest_date()
-            st.markdown(f"""
-            <div style="background: {SIDEBAR_BADGE_BG}; border: 1px solid {SIDEBAR_BADGE_BORDER}; border-radius: 8px; padding: 8px 12px; margin-top: 8px;">
-                <span style="color: {SIDEBAR_BADGE_TEXT}; font-size: 0.8rem;">📅 {latest_date.strftime('%Y-%m-%d')}</span>
-            </div>
-            """, unsafe_allow_html=True)
+            if current_archive_date is None:
+                st.warning("当前没有 latest 快照，请切换到历史数据或先运行 run_daily.sh")
+            else:
+                date_label = f"归档: {current_archive_date.strftime('%Y-%m-%d')}"
+                if current_data_date:
+                    date_label = f"数据: {current_data_date} · {date_label}"
+                st.markdown(f"""
+                <div style="background: {SIDEBAR_BADGE_BG}; border: 1px solid {SIDEBAR_BADGE_BORDER}; border-radius: 8px; padding: 8px 12px; margin-top: 8px;">
+                    <span style="color: {SIDEBAR_BADGE_TEXT}; font-size: 0.8rem;">📅 {date_label}</span>
+                </div>
+                """, unsafe_allow_html=True)
         
         st.markdown("---")
         
@@ -214,6 +229,6 @@ def _render_page_metrics(data_loader, page_name: str):
             st.caption(f"⚠️ 超限记录: {metrics['overlimit_count']}条")
     
     except Exception as e:
-        # 出错时显示默认信息
-        st.caption(f"📅 数据日期: {data_loader.get_latest_date().strftime('%Y-%m-%d')}")
-        st.caption("ℹ️ 加载统计信息...")
+        # 出错时直接暴露当前快照/统计问题，避免显示伪正常默认值
+        st.caption("⚠️ 统计信息加载失败")
+        st.caption(str(e))

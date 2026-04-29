@@ -1,8 +1,10 @@
 """
 页面4：专业担保明细 - 现代金融看板风格
 """
+import pandas as pd
 import streamlit as st
 from src.visualization.components.tables import render_data_table
+from src.visualization.display_builders import build_page4_guarantee_views
 
 
 def render(filters: dict, data_loader):
@@ -20,29 +22,15 @@ def render(filters: dict, data_loader):
     """, unsafe_allow_html=True)
     
     with st.spinner("加载数据中..."):
-        df = data_loader.load_stage1_guarantee()
+        views = build_page4_guarantee_views(data_loader)
+
+    df = views.get("tables", {}).get("main", pd.DataFrame())
+    kpi = views.get("kpis", {}).get("main", {})
     
-    # KPI卡片区域 - 修正计算逻辑
-    # 公司数量：去重计算（按公司名称）
-    # 总持仓/总限额：使用最新日期所有记录的总和（包含所有业务分类，不去重）
-    if '授信担保公司名称' in df.columns and '日期' in df.columns:
-        # 1. 先筛选最新日期的所有记录（包含所有业务分类）
-        latest_date = df['日期'].max()
-        df_latest_date = df[df['日期'] == latest_date].copy()
-        
-        # 2. 公司数量：按公司名称去重计算
-        total_companies = df_latest_date['授信担保公司名称'].nunique()
-        
-        # 3. 总持仓、总限额：使用最新日期所有记录的总和（不去重，包含所有业务分类）
-        total_position = df_latest_date['单一担保人总持仓_PR'].sum() if '单一担保人总持仓_PR' in df_latest_date.columns else 0
-        total_limit = df_latest_date['单一担保公司规模限额'].sum() if '单一担保公司规模限额' in df_latest_date.columns else 0
-    else:
-        # 如果缺少必要列，使用原始数据（可能不准确）
-        total_companies = df['授信担保公司名称'].nunique() if '授信担保公司名称' in df.columns else len(df)
-        total_position = df['单一担保人总持仓_PR'].sum() if '单一担保人总持仓_PR' in df.columns else 0
-        total_limit = df['单一担保公司规模限额'].sum() if '单一担保公司规模限额' in df.columns else 0
-    
-    usage_rate = (total_position / total_limit * 100) if total_limit > 0 else 0
+    total_companies = int(kpi.get("total_companies", 0))
+    total_position = float(kpi.get("total_position_wan", 0))
+    total_limit = float(kpi.get("total_limit_wan", 0))
+    usage_rate = float(kpi.get("usage_rate", 0)) * 100
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -98,8 +86,9 @@ def render(filters: dict, data_loader):
     
     # 显示列
     display_columns = [
-        '日期', '授信担保公司名称', '单一担保公司规模限额',
-        '单一担保人总持仓_PR', '单一担保公司规模剩余额度(万)'
+        '日期', '业务分类', '授信担保公司名称', '单一担保公司规模限额',
+        '单一担保人总持仓_PR', '单一担保公司规模剩余额度(万)',
+        '单一担保人是否超限'
     ]
     
     display_columns = [col for col in display_columns if col in df.columns]
@@ -116,6 +105,7 @@ def render(filters: dict, data_loader):
     # 渲染表格
     render_data_table(
         display_df,
+        highlight_column='单一担保人是否超限',
         height=500,
         show_summary=True,
         enable_export=True,

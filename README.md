@@ -8,10 +8,10 @@
 
 ### 核心特性
 
-- ✅ **7大维度限额监控**: 单一债券、主体、实控人、担保人、地域、行业、省份
+- ✅ **多维度限额监控**: 单一债券、主体、实控人、担保人、地域、行业、省份、监管集中度、高收益
 - ✅ **自动化数据处理**: 取代手工Excel刷新，一键运行
 - ✅ **实时Web展示**: 现代化可视化看板，交互式数据浏览
-- ✅ **历史数据管理**: 支持按日期查询历史快照
+- ✅ **DB历史快照**: current / history 均从归档库读取，支持按归档日期回放
 - ✅ **高精度匹配**: 严格对照Excel M代码逻辑，数据准确一致
 
 ---
@@ -34,17 +34,30 @@ pip install -r requirements.txt
 
 数据源路径通过 `config/settings.yaml` 的 `data_sources.active_profile` 统一配置：
 - **生产/补跑**：使用 `migration` profile，从网络共享盘读取
-- **黄金测试**：使用 `local` profile，从 `data_source_0123/` 读取
+- **本地固定样本调试**：使用 `local` profile，从 `data_source_0123/` 读取
 
 主要数据源文件（由配置文件管理，无需手动放置）：
 - `风控部债券池.accdb`（债券池数据库）
 - `统计报表底稿1_债券.xlsx` / `统计报表底稿2_债券SPPI.xlsx`
-- `限额监控_阶段0_指标设置.xlsx`（限额指标配置）
+- `限额配置_当前.xlsx`（限额配置主文件）
 - `净资产.xlsx` / `标准日期表.xlsx`
 
 修改路径请编辑 `config/settings.yaml` 中的 `path_profiles` 配置。
 
-### 4. 运行数据处理
+### 4. 配置归档库连接
+
+每日归档与 Web 展示已切到 DB 单源。运行 `run_daily.sh`、生成展示快照或启动看板前，
+需先注入以下环境变量：
+
+```bash
+export DB_HOST=<host>
+export DB_PORT=<port>
+export DB_USER=<user>
+export DB_PASSWORD=<password>
+export DB_NAME=<database>
+```
+
+### 5. 运行数据处理
 
 **方式一：每日完整运行（推荐）**
 ```bash
@@ -78,39 +91,29 @@ python run_stage0.py --target-date 2026-04-07
 python run_stage1.py
 python run_stage2.py
 
-# 3. 归档到对应日期（自动同时生成 current/ 和 history/ 两端的展示层快照）
-python scripts/daily_archive.py --date 2026-04-07
+# 3. 归档到对应日期（写入 DB）
+python scripts/daily_archive.py --archive-date 2026-04-07
 
-# 4.（可选）校验展示层快照
+# 4. 从该归档日快照生成展示层 CSV
+python scripts/generate_display_snapshot.py --archive-date 2026-04-07
+
+# 5.（可选）校验展示层快照
 python validation/validate_dashboard_display.py \
     --ref-dir <对应日期的参考目录>
 ```
 
-> **说明**：步骤3归档完成后 `display_snapshots/` 已自动写入两端，无需单独执行 `generate_display_snapshot.py`。
+> **说明**：当前历史回放与 current 口径统一走 DB；`generate_display_snapshot.py` 只会把 CSV 写到 `data/current/display_snapshots/`。
 
 ---
 
-### 代码修改后验证（黄金集成测试）
+### 测试与验证（后续补充）
 
-**场景**：修改了处理逻辑后，用固定的样本数据集验证代码正确性。
-
-```bash
-bash tests/run_golden_test.sh
-```
-
-- 数据源：`data_source_0123/`（2026-01-23 冻结快照）
-- 参考基准：`data_for_testing_0123/`（固定 9 张展示表 CSV）
-- 覆盖：Stage0 → Stage1 → Stage2 → 展示层全链路，任意阶段代码改动均可验证
-- 无需网络盘连接，测试输出写入 `data/current/`
-
-**黄金基准更新时机**：
-- `data_source_0123/` 的原始数据需要换新版本时（重命名目录 + 更新 `settings.yaml`）
-- 限额配置发生业务变更（`限额监控_阶段0_指标设置.xlsx` 改动）后重新导出参考CSV
-- 纯代码逻辑修改不更新基准，用基准来验证代码
+测试入口与基准校验脚本会随测试补充单独提交。当前代码提交重点覆盖运行链路与展示链路：
+Stage0/1/2 → DB 归档 → DB 读取 → 展示快照。
 
 ---
 
-### 5. 启动Web界面
+### 6. 启动Web界面
 
 ```bash
 # macOS/Linux
@@ -159,6 +162,8 @@ Stage 2: 汇总分析
 5. **高风险类明细** - 高风险行业与省份集中度
 6. **地域类明细** - 地域与城投集中度限额
 7. **高收益明细** - 年度高收益债券投资本金监控
+8. **全量债券监管集中度** - 全量债券监管集中度明细
+9. **单券可购额度查询** - 按债券代码、主证券代码、ISIN 或名称查询可购额度
 
 ---
 
@@ -174,7 +179,6 @@ LimitMonitorAutomation/
 │   ├── common/              # 公共工具
 │   ├── extractors/          # 数据提取器
 │   ├── transformers/        # 数据转换器
-│   ├── calculators/         # 限额计算器
 │   ├── aggregators/         # 数据聚合器
 │   ├── outputs/             # 输出格式化
 │   ├── utils/               # 通用工具（配置加载、日志等）
@@ -185,10 +189,8 @@ LimitMonitorAutomation/
 │   ├── 统计报表底稿1_债券.xlsx
 │   └── ...                  # 其他数据源文件
 ├── data/                    # 输出数据
-│   ├── current/            # 最新数据（3个stage输出）
-│   └── history/            # 历史数据快照
+│   └── current/            # 最新数据与展示层快照
 ├── config/                  # 配置文件 ⭐
-│   ├── limits.yaml         # 限额配置
 │   └── settings.yaml       # 系统设置（含数据源路径）
 ├── docs/                    # 文档
 │   ├── CONFIG_MANAGEMENT.md  # 配置管理说明 ⭐
@@ -196,11 +198,11 @@ LimitMonitorAutomation/
 ├── scripts/                 # 运维与工具脚本
 │   ├── __init__.py         # 使 scripts 成为 Python 包（供 daily_archive.py 导入）
 │   ├── daily_archive.py    # 每日归档
-│   └── generate_display_snapshot.py  # 展示层 9 张 CSV 快照生成
-├── tests/                   # 测试与验证
-│   └── run_golden_test.sh  # 黄金集成测试入口 ⭐
-├── data_source_0123/        # 黄金测试数据源（Jan 23 冻结快照）⭐
-├── data_for_testing_0123/   # 黄金测试参考基准（Jan 23 展示层CSV）⭐
+│   └── generate_display_snapshot.py  # 展示层核心对象 CSV 快照生成（含 page9 主表）
+├── tests/                   # 测试与验证（后续补充）
+├── data_for_testing/        # 当前默认人工目标基准目录 ⭐
+├── data_source_0123/        # 固定样本数据源（Jan 23 冻结快照）⭐
+├── data_for_testing_0123/   # 固定参考基准（Jan 23 展示层CSV）⭐
 ├── validation/              # 验证脚本
 ├── app.py                   # Web应用入口
 ├── run_stage0.py           # 运行阶段0
@@ -216,22 +218,29 @@ LimitMonitorAutomation/
 
 ### settings.yaml - 系统配置 ⭐
 
-**数据源路径配置**（v2.1新增）：
+**数据源路径配置**：
 ```yaml
 data_sources:
-  # 数据源根目录（相对于项目根目录）
-  data_dir: "限额"
+  active_profile: "local"
+  path_profiles:
+    local:
+      data_dir: "data_source_0123"
+    migration:
+      data_dir: "/Volumes/sjz-share/共享数据（财务、部门）_紫琪维护"
+      file_subpaths:
+        限额配置_当前.xlsx: "限额/限额监控"
+
+alerts:
+  thresholds_default:
+    warning: 0.80
+    overlimit: 1.00
 ```
 
-- 所有主程序（`run_stage0/1/2.py`）从此配置读取数据源路径
-- 修改此配置即可切换整个系统的数据源目录
-- 无需在多个文件中修改硬编码路径
+- `active_profile` 或环境变量 `LIMIT_MONITOR_PROFILE` 用于切换数据源 profile
+- `限额配置_当前.xlsx` 是当前限额配置主文件；旧 `config/limits.yaml` 已退休
+- `alerts.thresholds_default` 由 `daily_archive.py` 拷贝到 `archive_meta`，看板按归档日读取
 
 **详细说明**：查看 [`docs/CONFIG_MANAGEMENT.md`](docs/CONFIG_MANAGEMENT.md)
-
-### limits.yaml - 限额配置
-
-定义各维度的限额值、准入标准、风险分类等。
 
 ### settings.yaml - 系统设置
 
@@ -241,26 +250,20 @@ data_sources:
 
 ## 📈 历史数据管理
 
-系统支持历史数据快照功能：
+系统当前通过 DB 管理 current / history 快照：
 
 ```bash
-# 每日运行会自动归档到 data/history/YYYY-MM-DD/
+# 每日运行会把当批产物写入 DB，并切换 archive_meta.is_current=1
 bash run_daily.sh
 
-# Web界面可选择查看历史日期
-# 左侧边栏 → 选择日期 → 选择历史快照
+# Web界面可选择查看历史 archive_date
+# 左侧边栏 → 选择日期 → 选择历史数据
 ```
 
-历史数据结构：
-```
-data/history/
-└── 2026-04-10/              # 日期文件夹
-    ├── stage0_output/       # 阶段0完整快照
-    ├── stage1_output/       # 阶段1完整快照
-    ├── stage2_output/       # 阶段2完整快照
-    ├── display_snapshots/   # 展示层 9 张 CSV 快照
-    └── data_date.txt        # 数据业务日期
-```
+- 当前数据：`archive_meta.is_current = 1`
+- 历史数据：按 `archive_date` 从 DB 读取
+- 展示层 CSV 快照仅写到 `data/current/display_snapshots/`
+- `data/history/` 已退出运行主链路，不再作为历史回放来源
 
 ---
 
@@ -268,13 +271,7 @@ data/history/
 
 ### 运行测试
 
-**黄金集成测试（代码改动后首选）**
-
-```bash
-bash tests/run_golden_test.sh
-```
-
-一键运行全链路（Stage0→Stage1→Stage2→展示层），对比 `data_for_testing_0123/` 中的参考基准。无需网络盘，无需历史归档。
+测试入口与 DB 集成基准校验脚本会在后续测试提交中补齐。当前可先做环境、Stage 与展示层的人工/脚本验证：
 
 ```bash
 # 环境检查
@@ -290,25 +287,29 @@ python validation/validate_stage2.py
 python validation/validate_all.py
 ```
 
-### 展示层快照校验（单模式 9 CSV 严格校验）
+### 展示层快照校验（通用工具）
 
 将 Python Pipeline 生成的看板数据与 Excel 手动导出的参考 CSV 逐字段对比：
 
 ```bash
-# 使用默认参考目录（data_for_testing_0410/）
+# 使用默认参考目录（data_for_testing/）
 python validation/validate_dashboard_display.py
 
-# 指定参考目录或历史快照目录
-python validation/validate_dashboard_display.py --ref-dir data_for_testing_0407
-python validation/validate_dashboard_display.py --snapshot-dir data/history/2026-04-10/display_snapshots
+# 指定参考目录
+python validation/validate_dashboard_display.py --ref-dir data_for_testing
 
-# 只校验某张表（固定 9 张清单内）
+# 只校验某张表（默认清单已包含 page9）
 python validation/validate_dashboard_display.py --table 单一信用限额
+
+# 默认即校验主体系全部 CSV（含 page9 主表）
+python validation/validate_dashboard_display.py
 ```
 
-> 校验前须确保 `data/current/display_snapshots/` 已生成（`run_daily.sh` 步骤 [4/5] 自动生成；
+> 校验前须确保 `data/current/display_snapshots/` 已生成（`run_daily.sh` 步骤 [5/5] 自动生成；
 > 补数后可手动执行 `python scripts/generate_display_snapshot.py` 刷新）。
-> 当前黄金测试只覆盖 9 张展示表 CSV，不覆盖 KPI、page8 查询样例、page9 页面级对象。
+> 后续全流程集成测试应覆盖：9 张既有展示表 CSV + page9 主表 CSV（`全量债券监管集中度.csv`）。
+> KPI 仍不纳入展示快照/基准校验范围（包括 page9 KPI）。
+> page8 为查询型页面（单债额度查询样例），本轮仍不纳入当前展示快照范围。
 
 ### 数据对比
 
@@ -364,18 +365,18 @@ python validation/validate_dashboard_display.py --table 单一信用限额
 
 ### Q3: 如何添加新的限额维度？
 
-1. 在 `config/limits.yaml` 添加配置
+1. 在 `限额配置_当前.xlsx` 中补充对应配置
 2. 在 `src/stage1/` 或 `src/stage2/` 添加计算逻辑
 3. 在 `src/visualization/pages/` 添加展示页面
 4. 验证数据准确性
 
 ### Q4: 历史数据占用空间大？
 
-历史数据会随时间累积，建议定期清理旧数据：
+历史快照已切到 DB，保留策略请按数据库侧运维规则执行。
 
 ```bash
-# 保留最近30天的历史数据
-find data/history/ -type d -mtime +30 -exec rm -rf {} +
+# 示例：由 DBA 或运维按 archive_date 制定保留策略
+# 具体清理方式请结合实际数据库环境执行
 ```
 
 ---
@@ -392,13 +393,13 @@ find data/history/ -type d -mtime +30 -exec rm -rf {} +
 ## 📜 更新日志
 
 ### v2.4 (2026-04-14)
-- ✅ **引入黄金集成测试**（`tests/run_golden_test.sh`）
-  - 数据源：`data_source_0123/`（2026-01-23 冻结快照）
-  - 参考基准：`data_for_testing_0123/`（9个展示层CSV）
-  - 替代原「历史数据重跑」方案，覆盖 Stage0/1/2 + 展示层全链路
+- ✅ **切换至 DB 归档与展示快照链路**
+  - 以前置 `run_daily` 为准，写入 DB current / history 并生成展示层快照
+  - 参考基准默认目录后续随测试提交补齐
+  - 用于上线前期每日全链路核对
 - ✅ `config/settings.yaml` local profile 配置 `data_dir: "data_source_0123"`
 - ✅ `run_daily.sh` / `run_daily.bat` 步骤编号统一为 5 步制
-- ✅ 展示层快照生成独立为 `scripts/generate_display_snapshot.py`（单模式 9 CSV）
+- ✅ 展示层快照生成独立为 `scripts/generate_display_snapshot.py`（单模式，现可包含 page9 主表）
 - ✅ 新增 `scripts/__init__.py`，使 scripts 成为显式 Python 包
 
 ### v2.3 (2026-01-29)
@@ -449,4 +450,4 @@ find data/history/ -type d -mtime +30 -exec rm -rf {} +
 
 ---
 
-**最后更新**: 2026-04-14
+**最后更新**: 2026-04-29

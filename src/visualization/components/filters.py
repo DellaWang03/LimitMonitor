@@ -5,6 +5,19 @@ import streamlit as st
 from typing import Dict, Any
 
 
+def _normalize_account_filter(account_filter) -> list[str]:
+    """将账户筛选统一为账户名称列表；空列表表示全部账户。"""
+    if not account_filter or account_filter == '全部':
+        return []
+    if isinstance(account_filter, (list, tuple, set)):
+        return [
+            str(item)
+            for item in account_filter
+            if item and item != '全部'
+        ]
+    return [str(account_filter)]
+
+
 def render_top_filters(data_loader, page_name: str) -> Dict[str, Any]:
     """
     渲染顶部筛选器
@@ -16,12 +29,42 @@ def render_top_filters(data_loader, page_name: str) -> Dict[str, Any]:
     # 计算 .copy() + unique() + sorted()。刷新按钮会清除这些缓存键（见 sidebar.py）。
     _lists_key = f"_filter_lists_{data_loader.data_source}_{page_name}"
     if _lists_key not in st.session_state:
-        st.session_state[_lists_key] = {
-            'bond_types': data_loader.get_available_bond_types(),
-            'accounts': data_loader.get_available_accounts(page_name=page_name),
-        }
+        if hasattr(data_loader, "get_filter_options"):
+            st.session_state[_lists_key] = data_loader.get_filter_options(
+                page_name=page_name
+            )
+        else:
+            st.session_state[_lists_key] = {
+                'bond_types': data_loader.get_available_bond_types(page_name=page_name),
+                'accounts': data_loader.get_available_accounts(page_name=page_name),
+            }
     bond_types = st.session_state[_lists_key]['bond_types']
     accounts = st.session_state[_lists_key]['accounts']
+
+    if page_name == "高收益明细":
+        col1, col2 = st.columns([1.4, 2.6])
+        with col1:
+            account_options = [account for account in accounts if account != '全部']
+            selected_account = st.multiselect(
+                "内部证券账户",
+                account_options,
+                default=[],
+                placeholder="全部账户",
+                key=f"{page_name}_account_multiselect",
+            )
+        with col2:
+            search_code = st.text_input(
+                "关键词搜索",
+                placeholder="输入账户、代码、简称、资产名称或债务主体",
+                key=f"{page_name}_search_keyword",
+            )
+        return {
+            'bond_type': '全部',
+            'account': selected_account,
+            'search_keyword': search_code,
+            'quality': '全部',
+            'quality_field': '是否超限'
+        }
 
     col1, col2, col3, col4 = st.columns(4)
     
@@ -33,10 +76,13 @@ def render_top_filters(data_loader, page_name: str) -> Dict[str, Any]:
         )
     
     with col2:
-        selected_account = st.selectbox(
+        account_options = [account for account in accounts if account != '全部']
+        selected_account = st.multiselect(
             "内部证券账户",
-            accounts,
-            index=0
+            account_options,
+            default=[],
+            placeholder="全部账户",
+            key=f"{page_name}_account_multiselect",
         )
     
     with col3:
@@ -84,8 +130,11 @@ def apply_filters(df, filters: Dict[str, Any]):
         filtered_df = filtered_df[filtered_df['债券分类2'] == filters['bond_type']]
     
     # 账户筛选
-    if filters.get('account') and filters['account'] != '全部' and '内部证券账户名称' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['内部证券账户名称'] == filters['account']]
+    selected_accounts = _normalize_account_filter(filters.get('account'))
+    if selected_accounts and '内部证券账户名称' in filtered_df.columns:
+        filtered_df = filtered_df[
+            filtered_df['内部证券账户名称'].astype(str).isin(selected_accounts)
+        ]
     
     # 搜索关键词筛选
     if filters.get('search_keyword'):

@@ -6,25 +6,42 @@
 ## 🎯 目标
 实现数据源路径的统一配置管理，避免在多个文件中硬编码路径，提高系统的可维护性和灵活性。
 
+> 当前状态（2026-04-29）：本文原始内容记录 v2.1 路径配置改造。最新实现已进一步升级为
+> `data_sources.active_profile` + `path_profiles` 多环境配置，并将业务限额主文件迁移到
+> `限额配置_当前.xlsx`；旧 `config/limits.yaml` 已退休。DB current/history 读取口径详见
+> `docs/db_migration_plan.md`。
+
 ---
 
 ## ✅ 已完成的修改
 
 ### 1. **配置文件更新** (`config/settings.yaml`)
 
-#### 新增配置项
+#### 当前核心配置项
 ```yaml
 data_sources:
-  # 数据源根目录（相对于项目根目录）
-  data_dir: "限额"
+  active_profile: "local"
+  path_profiles:
+    local:
+      data_dir: "data_source_0123"
+    migration:
+      data_dir: "/Volumes/sjz-share/共享数据（财务、部门）_紫琪维护"
+      file_subpaths:
+        限额配置_当前.xlsx: "限额/限额监控"
+
+alerts:
+  thresholds_default:
+    warning: 0.80
+    overlimit: 1.00
 ```
 
 #### 更新所有路径
-所有数据源文件路径从 `sample data` 更新为 `限额`：
+生产 / 补跑环境下，主要数据源通过 `path_profiles.migration.file_subpaths` 解析：
 - `bond_holdings`: "限额/债券持仓表.xlsx"
 - `net_assets`: "限额/净资产.xlsx"
 - `instrument_pool`: "限额/金融工具池设置.xlsx"
-- `bond_pool_db`: "限额/风控部债券池.accdb"
+- `限额配置_当前.xlsx`: "限额/限额监控"
+- `风控部债券池.accdb`: "投资条线/债券池列表"
 - 等等...
 
 ---
@@ -273,7 +290,7 @@ data_sources:
 - [x] 创建测试脚本 `tests/test_config_loader.py`
 - [x] 创建本文档说明实施过程
 - [ ] 运行完整测试验证功能正常
-- [ ] 更新 README.md 提及配置管理改进
+- [x] 更新 README.md 提及配置管理改进
 
 ---
 
