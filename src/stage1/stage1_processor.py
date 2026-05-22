@@ -13,6 +13,9 @@ from ..common import normalize_security_code_series
 from ..utils.limit_config_loader import load_limit_config
 
 
+SOURCE_ROW_ID_COL = '_源行号'
+
+
 class Stage1Processor:
     """阶段1处理器"""
     
@@ -51,6 +54,83 @@ class Stage1Processor:
         for col in columns:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
+        return df
+
+    def _ensure_source_row_id(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+        """为信用债源持仓生成运行内唯一行号，用于保护真实重复持仓。"""
+        if SOURCE_ROW_ID_COL not in df.columns:
+            df = df.reset_index(drop=True).copy()
+            df[SOURCE_ROW_ID_COL] = np.arange(1, len(df) + 1, dtype='int64')
+            logger.info(f"  {table_name}: 已生成 {SOURCE_ROW_ID_COL}")
+
+        self._validate_source_row_id(df, table_name)
+        return df
+
+    def _validate_source_row_id(self, df: pd.DataFrame, table_name: str) -> None:
+        """校验信用债源行号存在且唯一。"""
+        if SOURCE_ROW_ID_COL not in df.columns:
+            raise KeyError(f"{table_name} 缺少 {SOURCE_ROW_ID_COL}，无法安全保留真实重复持仓")
+        if df[SOURCE_ROW_ID_COL].isna().any():
+            raise ValueError(f"{table_name} 的 {SOURCE_ROW_ID_COL} 存在空值")
+        duplicated = df[df[SOURCE_ROW_ID_COL].duplicated(keep=False)]
+        if not duplicated.empty:
+            sample_ids = duplicated[SOURCE_ROW_ID_COL].drop_duplicates().head(5).tolist()
+            raise ValueError(f"{table_name} 的 {SOURCE_ROW_ID_COL} 不唯一，示例: {sample_ids}")
+
+    def _collapse_credit_merged_to_source_rows(self, df: pd.DataFrame) -> pd.DataFrame:
+        """把 merge 展开的同一源持仓收敛回一行，遇到非空字段冲突时中止。"""
+        if SOURCE_ROW_ID_COL not in df.columns:
+            raise KeyError(f"债券持仓明细表_信用债_合并风险限额相关 缺少 {SOURCE_ROW_ID_COL}")
+        if df[SOURCE_ROW_ID_COL].isna().any():
+            raise ValueError(f"债券持仓明细表_信用债_合并风险限额相关 的 {SOURCE_ROW_ID_COL} 存在空值")
+
+        duplicated = df[df[SOURCE_ROW_ID_COL].duplicated(keep=False)]
+        if duplicated.empty:
+            return df
+
+        conflicts = []
+        check_cols = [col for col in df.columns if col != SOURCE_ROW_ID_COL]
+        for source_id, group in duplicated.groupby(SOURCE_ROW_ID_COL, sort=False):
+            for col in check_cols:
+                values = group[col].dropna()
+                if values.empty:
+                    continue
+                if values.dtype == object or pd.api.types.is_string_dtype(values):
+                    values = values.astype(str).str.strip()
+                    values = values[~values.isin(['', 'nan', 'None', '<NA>'])]
+                    if values.empty:
+                        continue
+                if values.drop_duplicates().shape[0] > 1:
+                    conflicts.append(f"{SOURCE_ROW_ID_COL}={source_id}, 字段={col}")
+                    break
+            if len(conflicts) >= 10:
+                break
+
+        if conflicts:
+            raise ValueError(
+                "合并风险限额相关出现同一源持仓的冲突展开，已中止以避免静默取错值；"
+                f"示例: {conflicts}"
+            )
+
+        rows_before = len(df)
+        priority_cols = [col for col in df.columns if col != SOURCE_ROW_ID_COL]
+        df['_非空字段数'] = df[priority_cols].notna().sum(axis=1)
+        if '实际控制人名称_修正' in df.columns:
+            df['_实控人非空'] = df['实际控制人名称_修正'].notna()
+            df = df.sort_values(
+                by=[SOURCE_ROW_ID_COL, '_非空字段数', '_实控人非空'],
+                ascending=[True, False, False]
+            )
+            df = df.drop(columns=['_非空字段数', '_实控人非空'])
+        else:
+            df = df.sort_values(
+                by=[SOURCE_ROW_ID_COL, '_非空字段数'],
+                ascending=[True, False]
+            )
+            df = df.drop(columns=['_非空字段数'])
+
+        df = df.drop_duplicates(subset=[SOURCE_ROW_ID_COL], keep='first')
+        logger.info(f"    ✓ 按{SOURCE_ROW_ID_COL}收敛merge展开: {rows_before} -> {len(df)} 行")
         return df
 
     def _load_isin_mapping(self) -> pd.DataFrame:
@@ -527,6 +607,8 @@ class Stage1Processor:
             )
             df['省份'] = df['省份_标准']
             df = df.drop(columns=['省份_标准'], errors='ignore')
+
+        df = self._ensure_source_row_id(df, '债券持仓明细表_信用债')
         
         return df
 
@@ -779,6 +861,12 @@ class Stage1Processor:
             df = self.query_bond_position_credit()
         
         df = df.copy()
+        df = self._ensure_source_row_id(df, '债券持仓明细表_信用债')
+        source_row_count = len(df)
+        source_inventory_sum = pd.to_numeric(
+            df.get('库存数量(万)_PR', pd.Series(dtype=float)),
+            errors='coerce'
+        ).sum()
         
         logger.info(f"  开始合并风险限额字段...")
         
@@ -1016,20 +1104,10 @@ class Stage1Processor:
                                       df['资产名称'].astype(str) + '/' + \
                                       df['债务主体'].astype(str)
         
-        # 13. 按业务key去重，保留第一条（与Excel逻辑一致）
-        # 说明：merge操作可能产生笛卡尔积导致业务key相同但辅助字段不同的重复记录
-        # 按业务逻辑，同一日期、资产、账户、数量应视为同一笔交易，保留第一条
-        # 关键修复：去重前按实控人非空排序，确保优先保留有实控人的记录
-        key_cols = ['日期', '资产代码', '内部证券账户名称', '库存数量(万)_PR']
-        
-        # 先按 key + 实控人是否非空排序（非空的排在前面）
-        if '实际控制人名称_修正' in df.columns:
-            df['_实控人非空'] = df['实际控制人名称_修正'].notna()
-            df = df.sort_values(by=key_cols + ['_实控人非空'], ascending=[True] * len(key_cols) + [False])
-            df = df.drop(columns=['_实控人非空'])
-        
-        df = df.drop_duplicates(subset=key_cols, keep='first')
-        logger.info(f"    ✓ 按业务key去重: {len(df)} 行")
+        # 13. 按源行号收敛merge展开，保留业务真实重复持仓
+        # 旧逻辑按 日期+资产代码+账户+库存数量 去重，会误删业务上真实存在的重复持仓。
+        df = self._collapse_credit_merged_to_source_rows(df)
+        logger.info(f"    ✓ 按{SOURCE_ROW_ID_COL}保留源持仓: {len(df)} 行")
         
         # 14. 关联高风险行业表（添加"行业类别"字段）
         # 根据阶段2 M-code：通过wind行业字段关联
@@ -1112,6 +1190,22 @@ class Stage1Processor:
                 logger.warning(f"    ⚠️  以下高风险省份部分记录未被标记: {unmatched_high_risk}")
             else:
                 logger.info(f"    ✓ 所有高风险省份记录已正确标记")
+
+        self._validate_source_row_id(df, '债券持仓明细表_信用债_合并风险限额相关')
+        if len(df) != source_row_count:
+            raise ValueError(
+                "合并风险限额相关行数与信用债源持仓不一致: "
+                f"{len(df)} != {source_row_count}"
+            )
+        merged_inventory_sum = pd.to_numeric(
+            df.get('库存数量(万)_PR', pd.Series(dtype=float)),
+            errors='coerce'
+        ).sum()
+        if not np.isclose(float(merged_inventory_sum), float(source_inventory_sum), rtol=0, atol=1e-6):
+            raise ValueError(
+                "合并风险限额相关库存数量合计与信用债源持仓不一致: "
+                f"{merged_inventory_sum} != {source_inventory_sum}"
+            )
         
         logger.info(f"  合并风险限额相关: {len(df)} 行 × {len(df.columns)} 列")
         if '行业类别' in df.columns:

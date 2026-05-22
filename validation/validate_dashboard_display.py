@@ -1,6 +1,7 @@
 """
-展示层黄金校验（单模式）：
-固定 9 张 CSV，逐字段严格比对（数值列允许容差）。
+展示层 CSV 严格校验（单模式）：
+逐字段对比 snapshot 与目标目录中的 CSV（数值列允许容差）。
+默认会校验参考目录下全部 CSV；若目录为空，再退回内置主清单。
 """
 
 from __future__ import annotations
@@ -25,11 +26,29 @@ TABLE_FILES = [
     "高收益明细2.csv",
     "高风险明细1.csv",
     "高风险明细2.csv",
+    "全量债券监管集中度.csv",
 ]
 
 
+def _resolve_table_files(ref_dir: Path) -> list[str]:
+    """优先校验参考目录中的全部 CSV，确保人工目标目录所见即所得。"""
+    ref_files = sorted(path.name for path in ref_dir.glob("*.csv"))
+    return ref_files or TABLE_FILES
+
+
 def _read_csv(path: Path) -> pd.DataFrame:
-    return pd.read_csv(str(path), encoding="utf-8-sig", low_memory=False)
+    df = pd.read_csv(str(path), encoding="utf-8-sig", low_memory=False)
+    # 兼容手工导出时产生的全空 Unnamed 列，避免影响结构性对比。
+    unnamed_cols = [c for c in df.columns if str(c).startswith("Unnamed:")]
+    drop_cols: list[str] = []
+    for col in unnamed_cols:
+        series = df[col]
+        normalized = series.fillna("").astype(str).str.strip()
+        if normalized.eq("").all():
+            drop_cols.append(col)
+    if drop_cols:
+        df = df.drop(columns=drop_cols)
+    return df
 
 
 def _fmt(val: Any) -> str:
@@ -180,8 +199,12 @@ def _print_column_group(title: str, items: list[dict[str, Any]], detail_limit: i
 
 
 def main():
-    parser = argparse.ArgumentParser(description="展示层 9 张 CSV 严格校验")
-    parser.add_argument("--ref-dir", default="data_for_testing_0123", help="参考目录")
+    parser = argparse.ArgumentParser(description="展示层 CSV 严格校验")
+    parser.add_argument(
+        "--ref-dir",
+        default="data_for_testing",
+        help="参考目录（默认：data_for_testing/）",
+    )
     parser.add_argument("--snapshot-dir", default="data/current/display_snapshots", help="快照目录")
     parser.add_argument("--table", default=None, help="只校验单张表，支持带或不带 .csv")
     parser.add_argument("--verbose", action="store_true", help="打印详细差异样本")
@@ -194,11 +217,11 @@ def main():
     ref_dir = Path(args.ref_dir) if Path(args.ref_dir).is_absolute() else root / args.ref_dir
 
     print("=" * 70)
-    print("展示层 9 张 CSV 严格校验")
+    print("展示层 CSV 严格校验")
     print("=" * 70)
     print(f"快照目录: {snap_dir}")
     print(f"参考目录: {ref_dir}")
-    selected_tables = TABLE_FILES
+    selected_tables = _resolve_table_files(ref_dir)
     if args.table:
         name = args.table.strip()
         if not name.endswith(".csv"):
@@ -211,18 +234,6 @@ def main():
 
     results: dict[str, dict[str, Any]] = {}
     for table_name in selected_tables:
-        if table_name not in TABLE_FILES:
-            results[table_name] = {
-                "status": "FAIL",
-                "structural_errors": ["非法表名，不在固定 9 张 CSV 清单中"],
-                "snap_rows": 0,
-                "ref_rows": 0,
-                "numeric_value_diffs": [],
-                "numeric_null_diffs": [],
-                "text_diffs": [],
-            }
-            continue
-
         snap_path = snap_dir / table_name
         ref_path = ref_dir / table_name
         if not snap_path.exists():

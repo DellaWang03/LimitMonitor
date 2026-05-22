@@ -1,12 +1,16 @@
 """
 测试配置加载器 - 验证数据源路径配置
 """
+import os
 import sys
 from pathlib import Path
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+
+# 本地开发环境默认验证 local profile，避免误把 migration 挂载缺失当成代码问题
+os.environ.setdefault("LIMIT_MONITOR_PROFILE", "local")
 
 from src.utils.config_loader import get_config
 
@@ -21,6 +25,7 @@ try:
     # 测试数据源目录
     print("\n1. 测试数据源根目录配置:")
     data_dir = config.get_data_dir()
+    print(f"   当前 profile: {config.get_active_profile()}")
     print(f"   配置路径: {data_dir}")
     print(f"   是否存在: {'✅' if data_dir.exists() else '❌'}")
     
@@ -39,6 +44,7 @@ try:
     print("\n3. 验证关键数据文件:")
     required_files = [
         "标准日期表.xlsx",
+        "限额配置_当前.xlsx",
         "限额监控_阶段0_指标设置.xlsx",
         "统计报表底稿1_债券.xlsx",
         "统计报表底稿2_债券SPPI.xlsx",
@@ -51,9 +57,9 @@ try:
     
     missing_files = []
     for file_name in required_files:
-        file_path = data_dir / file_name
+        file_path = config.get_data_file_path(file_name)
         status = "✅" if file_path.exists() else "❌"
-        print(f"   {status} {file_name}")
+        print(f"   {status} {file_name} -> {file_path}")
         if not file_path.exists():
             missing_files.append(file_name)
     

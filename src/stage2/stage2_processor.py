@@ -15,6 +15,7 @@ from ..common.security_code_normalizer import normalize_security_code_series
 from ..utils.limit_config_loader import load_limit_config
 
 
+SOURCE_ROW_ID_COL = '_源行号'
 _EMPTY_TEXT_VALUES = {'', 'nan', 'none', 'nat', '<na>', 'null'}
 
 
@@ -75,6 +76,19 @@ class Stage2Processor:
         if self.config is not None and hasattr(self.config, "get_data_file_path"):
             return self.config.get_data_file_path(file_name)
         return self.data_dir / file_name
+
+    def _validate_source_row_id(self, df: pd.DataFrame, table_name: str) -> None:
+        """校验 Stage1 中间表带有唯一源行号，避免 Stage2 旧键 join 展开。"""
+        if SOURCE_ROW_ID_COL not in df.columns:
+            raise KeyError(
+                f"{table_name} 缺少 {SOURCE_ROW_ID_COL}，请先重跑 Stage1 后再运行 Stage2"
+            )
+        if df[SOURCE_ROW_ID_COL].isna().any():
+            raise ValueError(f"{table_name} 的 {SOURCE_ROW_ID_COL} 存在空值")
+        duplicated = df[df[SOURCE_ROW_ID_COL].duplicated(keep=False)]
+        if not duplicated.empty:
+            sample_ids = duplicated[SOURCE_ROW_ID_COL].drop_duplicates().head(5).tolist()
+            raise ValueError(f"{table_name} 的 {SOURCE_ROW_ID_COL} 不唯一，示例: {sample_ids}")
     
     def process_all(self) -> Dict[str, pd.DataFrame]:
         """
@@ -610,6 +624,7 @@ class Stage2Processor:
         # 日期转换
         if '日期' in df.columns:
             df['日期'] = pd.to_datetime(df['日期'])
+        self._validate_source_row_id(df, '债券持仓明细表_信用债')
         
         logger.info(f"  债券持仓明细表_信用债: {len(df)} 行")
         return df
@@ -624,6 +639,7 @@ class Stage2Processor:
         # 日期转换
         if '日期' in df.columns:
             df['日期'] = pd.to_datetime(df['日期'])
+        self._validate_source_row_id(df, '债券持仓明细表_信用债_合并风险限额相关')
         
         logger.info(f"  债券持仓明细表_信用债_合并风险限额相关: {len(df)} 行")
         return df
@@ -962,6 +978,7 @@ class Stage2Processor:
         # 确保日期字段
         if '日期' in df.columns:
             df['日期'] = pd.to_datetime(df['日期'])
+        self._validate_source_row_id(df, '债券持仓明细表_信用债')
         
         logger.info(f"    Stage1信用债: {len(df)} 行（保留原始重复记录）")
         
@@ -974,14 +991,19 @@ class Stage2Processor:
         ].copy()
         logger.info(f"    筛选后: {len(df)} 行")
         
-        # 3. 关联Stage1合并风险限额相关的计算字段（通过业务key关联）
+        # 3. 关联Stage1合并风险限额相关的计算字段（通过源行号关联）
         df_stage1_merged = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
+        if df_stage1_merged is None:
+            df_stage1_merged = self.query_bond_position_credit_merged()
         if df_stage1_merged is not None:
-            # 准备关联key
-            merge_cols = ['日期', '资产代码', '内部证券账户名称', '库存数量(万)_PR']
-            
+            self._validate_source_row_id(df_stage1_merged, '债券持仓明细表_信用债_合并风险限额相关')
+            rows_before_calc_merge = len(df)
+
+            # 用原业务字段做血缘一致性校验，实际关联只依赖源行号。
+            lineage_check_cols = ['日期', '资产代码', '内部证券账户名称', '库存数量(万)_PR']
+
             # 选择Stage1合并后的计算字段
-            stage1_calc_cols = merge_cols + [
+            stage1_calc_cols = [SOURCE_ROW_ID_COL] + lineage_check_cols + [
                 '行业类别', '省份类别', '主体池', '债券池', '是否属于高收益',
                 '中债隐含评级', '实际控制人名称_修正', '调整后实际控制人', '担保公司是否准入'
             ]
@@ -989,18 +1011,60 @@ class Stage2Processor:
             
             df = df.merge(
                 df_stage1_merged[existing_stage1_cols],
-                on=merge_cols,
+                on=SOURCE_ROW_ID_COL,
                 how='left',
-                suffixes=('', '_s1calc')
+                suffixes=('', '_s1calc'),
+                validate='many_to_one',
+                indicator='_stage1_calc_merge'
             )
+
+            if len(df) != rows_before_calc_merge:
+                raise ValueError(
+                    "Stage2 关联Stage1计算字段后行数变化: "
+                    f"{rows_before_calc_merge} -> {len(df)}"
+                )
+
+            missing_stage1_calc = (df['_stage1_calc_merge'] == 'left_only').sum()
+            if missing_stage1_calc:
+                raise ValueError(
+                    f"Stage2 有 {missing_stage1_calc} 行信用债未匹配到合并风险限额相关源行"
+                )
+            df = df.drop(columns=['_stage1_calc_merge'])
+
+            mismatches = []
+            for col in lineage_check_cols:
+                calc_col = f'{col}_s1calc'
+                if calc_col not in df.columns:
+                    continue
+                if col == '日期':
+                    left = pd.to_datetime(df[col], errors='coerce')
+                    right = pd.to_datetime(df[calc_col], errors='coerce')
+                    mismatch = ~((left == right) | (left.isna() & right.isna()))
+                elif col == '库存数量(万)_PR':
+                    left = pd.to_numeric(df[col], errors='coerce')
+                    right = pd.to_numeric(df[calc_col], errors='coerce')
+                    close = pd.Series(
+                        np.isclose(left.fillna(0), right.fillna(0), rtol=0, atol=1e-6),
+                        index=df.index
+                    )
+                    mismatch = ~((left.notna() & right.notna() & close) | (left.isna() & right.isna()))
+                else:
+                    left = df[col].astype(str).str.strip().replace({'nan': '', 'None': '', '<NA>': ''})
+                    right = df[calc_col].astype(str).str.strip().replace({'nan': '', 'None': '', '<NA>': ''})
+                    mismatch = left != right
+                if mismatch.any():
+                    mismatches.append(f"{col}: {int(mismatch.sum())} 行")
+                df = df.drop(columns=[calc_col])
+            if mismatches:
+                raise ValueError(f"Stage2 源行号血缘校验失败: {mismatches}")
             
             # 用Stage1的计算字段覆盖原有字段
             for col in stage1_calc_cols:
-                if col not in merge_cols and f'{col}_s1calc' in df.columns:
+                if col not in [SOURCE_ROW_ID_COL] + lineage_check_cols and f'{col}_s1calc' in df.columns:
                     df[col] = df[f'{col}_s1calc']
                     df = df.drop(columns=[f'{col}_s1calc'])
             
-            logger.info(f"    ✓ 关联Stage1计算字段")
+            logger.info(f"    ✓ 按{SOURCE_ROW_ID_COL}关联Stage1计算字段")
         
         # 2. 关联高风险行业配置（获取指标值）
         df_high_industry = self.cache.get('高风险行业')

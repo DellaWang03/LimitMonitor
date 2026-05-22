@@ -12,6 +12,9 @@ from ..utils.config_loader import ConfigLoader
 from ..utils.limit_config_loader import load_limit_config
 
 
+SOURCE_ROW_ID_COL = '_源行号'
+
+
 class LimitDetailCalculator:
     """限额明细计算器"""
     
@@ -526,7 +529,7 @@ class LimitDetailCalculator:
         )
         
         # 13. 删除中间计算列
-        columns_to_drop = ['单一债券规模限额适用类别_base', '调整后实际控制人']
+        columns_to_drop = ['单一债券规模限额适用类别_base', '调整后实际控制人', SOURCE_ROW_ID_COL]
         df = df.drop(columns=columns_to_drop, errors='ignore')
         
         logger.info(f"  限额明细计算完成: {len(df)} 行")
@@ -1437,6 +1440,8 @@ class LimitDetailCalculator:
             rows_after = len(df)
             if rows_before > rows_after:
                 logger.info(f"    合并同一债券的多条记录: {rows_before} -> {rows_after} 行 (合并了 {rows_before - rows_after} 条)")
+
+        df = df.drop(columns=[SOURCE_ROW_ID_COL], errors='ignore')
         
         logger.info(f"  限额明细_债券持仓明细表_信用债1_1: {len(df)} 行")
         

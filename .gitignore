@@ -73,5 +73,9 @@ htmlcov/
 # 快照文件（可选：如果快照文件过大可以忽略）
 # data/snapshots/
 
+# 本地生成产物与第三方依赖缓存
+outputs/
+vendor/
+
 # 终端日志（Cursor IDE）
 .cursor/

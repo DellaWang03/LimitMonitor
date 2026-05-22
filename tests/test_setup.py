@@ -4,28 +4,35 @@
 """
 
 import sys
+import os
 from pathlib import Path
 
 print("=" * 80)
 print("限额监控自动化系统 - 配置测试")
 print("=" * 80)
 
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+os.environ.setdefault("LIMIT_MONITOR_PROFILE", "local")
+
 # 1. 检查 Python 版本
 print(f"\n1. Python 版本: {sys.version}")
 
 # 2. 检查项目结构
 print("\n2. 检查项目结构:")
-project_root = Path(__file__).parent
 
 required_dirs = [
     'src',
     'src/extractors',
     'src/transformers',
-    'src/calculators',
+    'src/stage0',
+    'src/stage1',
+    'src/stage2',
     'src/utils',
     'config',
-    'data',
-    'logs'
+    'src/visualization',
+    'scripts',
+    'tests'
 ]
 
 for dir_name in required_dirs:
@@ -37,7 +44,6 @@ for dir_name in required_dirs:
 print("\n3. 检查配置文件:")
 config_files = [
     'config/settings.yaml',
-    'config/limits.yaml',
     'requirements.txt',
     'README.md'
 ]
@@ -74,12 +80,6 @@ try:
 except Exception as e:
     print(f"  ✗ BondTransformer: {e}")
 
-try:
-    from src.calculators.limit_calculator import LimitCalculator
-    print("  ✓ LimitCalculator")
-except Exception as e:
-    print(f"  ✗ LimitCalculator: {e}")
-
 # 5. 测试配置加载
 print("\n5. 测试配置加载:")
 
@@ -89,9 +89,6 @@ try:
     
     settings = config.load_settings()
     print(f"  ✓ 主配置: {settings['project']['name']}")
-    
-    limits = config.load_limits()
-    print(f"  ✓ 限额配置: 单一担保人限额 {limits['single_guarantor']['scale_limit']} 万元")
     
 except Exception as e:
     print(f"  ✗ 配置加载失败: {e}")
@@ -104,13 +101,13 @@ try:
     config = get_config()
     
     data_sources = [
-        ('bond_pool', '风控部债券池'),
-        ('bond_holdings', '债券持仓表'),
+        ("风控部债券池.accdb", '风控部债券池'),
+        ("债券持仓表.xlsx", '债券持仓表'),
     ]
     
-    for key, name in data_sources:
+    for file_name, name in data_sources:
         try:
-            path = config.get_data_source_path(key)
+            path = config.get_data_file_path(file_name)
             status = "✓" if path.exists() else "✗"
             print(f"  {status} {name}: {path.name}")
         except Exception as e:
@@ -144,5 +141,6 @@ print("=" * 80)
 print("\n提示:")
 print("  - 如有 ✗ 标记，请先解决相关问题")
 print("  - 缺少的依赖请运行: pip install -r requirements.txt")
-print("  - 配置完成后运行: python main.py")
+print("  - 全链路运行: bash run_daily.sh")
+print("  - Web界面入口: streamlit run app.py")
 print()
