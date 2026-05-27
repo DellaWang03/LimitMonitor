@@ -1,5 +1,5 @@
 """
-数据加载器 —— 全面查询 MySQL 归档库（详见 docs/db_migration_plan.md §5 阶段四）。
+数据加载器 —— 全面查询 MySQL 归档库（详见 docs/DB_ARCHIVE_REFERENCE.md）。
 
 口径要点：
 
@@ -8,18 +8,18 @@
 - 历史模式 (``target_date=<date>``) → 读取该 ``archive_date`` 对应的快照；
 - 任一模式都**不再**读取 ``data/current/`` / ``data/history/`` 下的业务
   Excel、配置 Excel 或 ``data_date.txt``；DB 不存在对应快照时直接抛错，
-  不静默降级（对齐 §6.1 / §6.3）。
+  不静默降级。
 
 对外接口（必须保持稳定，外部页面与脚本依赖）：
 
 - ``DataLoader(target_date=None)``；
-- 12 张业务结果表的 ``load_stage*_*()``（§4.3）；
+- 12 张业务结果表的 ``load_stage*_*()``；
 - 4 个配置读取入口 ``load_high_yield_annual_limit`` /
   ``load_alert_thresholds`` / ``load_regulatory_concentration_limit`` 与
-  原有 ``load_*_limit`` 命名保持兼容（§3.2 / §4.5）；
+  原有 ``load_*_limit`` 命名保持兼容；
 - 静态方法 ``get_available_dates`` / ``get_data_date_for_archive``。
 
-§4.3 列出"不入库的两张表"（``load_stage1_single_bond`` /
+不入库的两张表（``load_stage1_single_bond`` /
 ``load_stage1_merged``）当前没有可视化调用方，本文件保留其方法签名但调用时
 直接抛 ``NotImplementedError``，避免外部误用。
 """
@@ -275,12 +275,11 @@ class DataLoader:
         """
         阶段1 - 单一债券明细。
 
-        §4.3"不入库的两张表"明确指出 ``限额明细_单一债券.xlsx`` 当前无可视化
-        调用方，不纳入本期 DB 化范围。保留方法签名以兼容潜在外部引用，调用
-        时直接抛错。
+        ``限额明细_单一债券.xlsx`` 当前无可视化调用方，不纳入 DB
+        归档范围。保留方法签名以兼容潜在外部引用，调用时直接抛错。
         """
         raise NotImplementedError(
-            "load_stage1_single_bond() 在 DB 化方案中不入库（§4.3）；"
+            "load_stage1_single_bond() 在 DB 化方案中不入库；"
             "该表当前无可视化调用方，如需恢复请补充 stage1_single_bond 表。"
         )
 
@@ -296,10 +295,10 @@ class DataLoader:
         """
         阶段1 - 债券持仓明细表_信用债_合并风险限额相关。
 
-        §4.3"不入库的两张表"明确指出该表当前无可视化调用方，不纳入本期。
+        该表当前无可视化调用方，不纳入 DB 归档范围。
         """
         raise NotImplementedError(
-            "load_stage1_merged() 在 DB 化方案中不入库（§4.3）；"
+            "load_stage1_merged() 在 DB 化方案中不入库；"
             "该表当前无可视化调用方，如需恢复请补充 stage1_merged 表。"
         )
 
@@ -420,7 +419,7 @@ class DataLoader:
         看板告警阈值（warning / overlimit）。
 
         来源切换至 ``archive_meta.alert_warning_threshold`` /
-        ``alert_overlimit_threshold``（§3.2 / §4.5），由 ``daily_archive.py``
+        ``alert_overlimit_threshold``，由 ``daily_archive.py``
         从 ``settings.yaml`` 拷贝写入。
         """
         meta = self._get_archive_meta_or_raise()
@@ -434,7 +433,7 @@ class DataLoader:
         监管集中度限额（标量，例如 0.16）。
 
         来源切换至 ``stage1_full_regulatory.监管集中度限额指标值``
-        （§3.2 / §4.3.1，由 stage1 计算时随结果一并写入），每行同值，
+        （由 stage1 计算时随结果一并写入），每行同值，
         直接取 ``iloc[0]``。
         """
         df = self._load_table("stage1_full_regulatory")
@@ -459,7 +458,7 @@ class DataLoader:
         返回看板顶部展示用的"数据日期"（datetime）。
 
         直接取 ``archive_meta.data_date``（由 ``daily_archive.py`` 写入；
-        对齐 §4.5 / §6.1）。缺失时视为快照不完整，直接报错。
+        与 ``DataLoader`` 的 DB 单源读取口径一致）。缺失时视为快照不完整，直接报错。
         """
         meta = self._get_archive_meta_or_raise()
         data_date = meta.get("data_date")

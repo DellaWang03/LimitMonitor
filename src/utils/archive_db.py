@@ -1,7 +1,7 @@
 """
 归档库封装（MySQL）—— 单点写入 + 历史回放读取层。
 
-调用约定（详见 docs/db_migration_plan.md §4 / §5 / §6.3）：
+调用约定（详见 docs/DB_ARCHIVE_REFERENCE.md）：
 
 - ``ArchiveDB.from_env()``：仅从环境变量
   ``DB_HOST`` / ``DB_PORT`` / ``DB_USER`` / ``DB_PASSWORD`` / ``DB_NAME``
@@ -41,7 +41,7 @@ logger = get_logger()
 
 
 # ---------------------------------------------------------------------------
-# DDL：archive_meta（严格按 docs/db_migration_plan.md §4.5）
+# DDL：archive_meta
 # ---------------------------------------------------------------------------
 _ARCHIVE_META_DDL = """
 CREATE TABLE IF NOT EXISTS archive_meta (
@@ -70,7 +70,7 @@ _ARCHIVE_META_REQUIRED_COLUMNS: dict[str, str] = {
 def _resolve_dtype(df: pd.DataFrame) -> dict[str, TypeEngine]:
     """
     根据 dataframe 的 pandas dtype 推断 ``to_sql`` 的字段类型，避免 Excel
-    空值 / 混合类型在首次建表时造成字段类型漂移（详见 §4.1 / §5 阶段一关键点 4）。
+    空值 / 混合类型在首次建表时造成字段类型漂移。
 
     映射规则：
 
@@ -366,7 +366,7 @@ class ArchiveDB:
         """
         在指定连接（已开启事务）上完成"删旧 + 写新"。
 
-        关键约束（§5 阶段一）：
+        关键约束：
 
         - 写入前若 dataframe 已有 ``archive_date`` 列先丢掉，再统一首列插入，
           保证字段顺序与 to_sql 自动建表的列顺序稳定；
@@ -461,7 +461,7 @@ class ArchiveDB:
     def _ensure_archive_date_index(conn: Connection, table_name: str) -> None:
         """
         MySQL 不支持 ``CREATE INDEX IF NOT EXISTS``，这里查 ``information_schema``
-        后按需创建（命名沿用 §4.3 / §4.4 中 ``idx_<table>_date`` 约定）。
+        后按需创建（命名沿用 ``idx_<table>_date`` 约定）。
         """
         index_name = f"idx_{table_name}_date"
         exists = conn.execute(
@@ -491,7 +491,7 @@ class ArchiveDB:
         """
         读取指定 ``archive_date`` 的数据。
 
-        返回值约定（§5 阶段一关键点 3）：
+        返回值约定：
 
         - 表不存在 → 返回 ``None``；
         - 表存在但该日期无数据 → 返回带正确列结构的空 dataframe；

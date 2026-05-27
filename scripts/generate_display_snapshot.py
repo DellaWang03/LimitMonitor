@@ -1,7 +1,7 @@
 """
 展示层快照生成脚本（DB 单源薄包装）。
 
-职责（详见 docs/db_migration_plan.md §5 阶段四 4f / §6.2）：
+职责（详见 docs/DB_ARCHIVE_REFERENCE.md）：
 
 1. 通过 ``DataLoader(target_date=...)`` 从 MySQL 归档库读取展示数据（``--archive-date``
    省略时读 ``archive_meta.is_current=1`` 对应快照）；
@@ -14,7 +14,7 @@
 - 不再内置 ``SnapshotDataLoader`` 直接读 ``data/current/stage*_output/`` 的
   Excel；DB 化后 stage 输出读取统一收敛在 ``DataLoader`` 内部。
 - 不再写入 ``data/history/<date>/display_snapshots/``：历史目录在本期
-  彻底退出运行链路（§2.4 / §6.2）。
+  彻底退出运行链路。
 """
 
 from __future__ import annotations

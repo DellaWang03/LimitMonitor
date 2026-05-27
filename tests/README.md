@@ -33,5 +33,3 @@ PYTHON_BIN=.venv/bin/python bash tests/run_full_integration_test.sh [ARCHIVE_DAT
 - 已先运行 `bash run_daily.sh`，且本次结果已成功写入 DB current
 - 已注入 `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME`
 - `REF_DIR` 指向人工确认的展示层参考 CSV 目录
-
-兼容入口 `tests/run_golden_test.sh` 仍保留，但会转发到 `tests/run_full_integration_test.sh`。

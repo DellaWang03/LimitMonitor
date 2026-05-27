@@ -1,5 +1,5 @@
 """
-每日归档脚本 —— 单点 DB 写库者（详见 docs/db_migration_plan.md §5 阶段三）。
+每日归档脚本 —— 单点 DB 写库者（详见 docs/DB_ARCHIVE_REFERENCE.md）。
 
 职责：
     扫描 ``data/current/`` 下的 16 张产物 Excel（4 张 Stage0 必需中间表
@@ -15,7 +15,7 @@
     - 不再做 ``required_dirs`` 等本地目录完整性检查（任一文件缺失直接
       ``FileNotFoundError`` 中断，事务自动回滚）。
 
-异常处理（对齐 §6.3）：
+异常处理：
     - 任一文件缺失 → ``FileNotFoundError``；
     - 任一写库失败 → ``write_batch`` 内数据事务整体回滚 → 不留半成品业务快照。
       （若失败发生在 schema 预同步阶段，可能仅留下建表 / 补列结果。）
@@ -46,7 +46,7 @@ from src.utils.limit_config_loader import load_limit_config  # noqa: E402
 CURRENT_DIR = _PROJECT_ROOT / "data" / "current"
 SETTINGS_PATH = _PROJECT_ROOT / "config" / "settings.yaml"
 
-# 4 张 Stage0 必需中间表（被 Stage1/2 直接消费，详见 §4.4）
+# 4 张 Stage0 必需中间表（被 Stage1/2 直接消费）
 REQUIRED_STAGE0_FILES: dict[str, Path] = {
     "stage0_bond_pool": CURRENT_DIR / "stage0_output" / "风控部债券池.xlsx",
     "stage0_adjusted_controller": CURRENT_DIR / "stage0_output" / "调整实控人名单.xlsx",
@@ -54,7 +54,7 @@ REQUIRED_STAGE0_FILES: dict[str, Path] = {
     "stage0_net_assets_daily": CURRENT_DIR / "stage0_output" / "公司净资产_手工_每日.xlsx",
 }
 
-# 12 张业务结果表（详见 §4.3 完整表映射）
+# 12 张业务结果表
 BUSINESS_RESULT_FILES: dict[str, Path] = {
     "stage1_credit_1_1": CURRENT_DIR / "stage1_output" / "限额明细_债券持仓明细表_信用债1_1.xlsx",
     "stage1_credit_1_2": CURRENT_DIR / "stage1_output" / "限额明细_债券持仓明细表_信用债1_2.xlsx",
@@ -77,7 +77,7 @@ def _read_alert_thresholds() -> tuple[float, float]:
     """
     从 ``settings.yaml`` 读取展示阈值。
 
-    优先读 ``alerts.thresholds_default``（§3.2 / §3.3 推荐字段，专门给
+    优先读 ``alerts.thresholds_default``（当前推荐字段，专门给
     ``daily_archive.py`` 拷贝到 ``archive_meta`` 用）；若该段不存在，可
     暂时兼容旧的 ``alerts.thresholds`` 段并打印警告。任一键缺失都直接失败，
     避免把配置问题静默写成默认阈值。
@@ -98,7 +98,7 @@ def _read_alert_thresholds() -> tuple[float, float]:
         if legacy is not None:
             print(
                 "⚠️  settings.yaml 仍在使用旧字段 alerts.thresholds，"
-                "请尽快迁移到 alerts.thresholds_default（详见 docs/db_migration_plan.md §3.3）"
+                "请尽快迁移到 alerts.thresholds_default"
             )
             section = legacy
             section_name = "alerts.thresholds"
@@ -131,7 +131,7 @@ def _read_alert_thresholds() -> tuple[float, float]:
 def _read_data_date(stage_tables: dict[str, pd.DataFrame]) -> Optional[str]:
     """
     从 ``stage1_credit_1_2`` 的"日期"列取 ``max`` 作为 ``data_date``
-    （对齐 §4.2 / §4.5：用于看板"归档日 (数据日期: xxx)"展示）。
+    用于看板"归档日 (数据日期: xxx)"展示。
     """
     df = stage_tables.get("stage1_credit_1_2")
     if df is None or "日期" not in df.columns:
@@ -213,7 +213,7 @@ def archive_to_db(archive_date: str) -> int:
     """
     执行单点归档写库。
 
-    流程严格对齐 §5 阶段三"新流程"：
+    流程：
 
         1. 解析 / 校验 ``archive_date``；
         2. 扫描 16 张产物 dataframe（任一缺失抛 ``FileNotFoundError``）；

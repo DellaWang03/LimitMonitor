@@ -93,4 +93,4 @@ bash start_web.sh
 bash tests/run_full_integration_test.sh [ARCHIVE_DATE] [REF_DIR]
 ```
 
-DB current/history 的表结构与归档口径详见 `docs/db_migration_plan.md`。
+DB current/history 的表结构与归档口径详见 `docs/DB_ARCHIVE_REFERENCE.md`。
