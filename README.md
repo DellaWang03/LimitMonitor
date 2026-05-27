@@ -22,13 +22,19 @@
 
 - **Python**: 3.9+
 - **操作系统**: Windows / macOS / Linux
-- **依赖包**: 见 `requirements.txt`
+- **推荐虚拟环境**: `.venv`
+- **依赖包**: 见 `requirements.txt`（已包含数据处理、DB 归档、Web 展示与测试依赖）
 
 ### 2. 安装依赖
 
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
+
+> Windows 可使用 `.venv\Scripts\activate` 激活环境。`WindPy`、`pyodbc` 仍依赖本机 Wind 终端 / Access 驱动等外部组件。
 
 ### 3. 准备数据
 
@@ -106,10 +112,17 @@ python validation/validate_dashboard_display.py \
 
 ---
 
-### 测试与验证（后续补充）
+### 测试与验证
 
-测试入口与基准校验脚本会随测试补充单独提交。当前代码提交重点覆盖运行链路与展示链路：
-Stage0/1/2 → DB 归档 → DB 读取 → 展示快照。
+当前测试入口已收口为两类：
+
+```bash
+# 代码级回归
+python3 -m pytest -q tests
+
+# 上线前全流程集成测试（需先完成 run_daily 并写入 DB current）
+bash tests/run_full_integration_test.sh [ARCHIVE_DATE] [REF_DIR]
+```
 
 ---
 
@@ -179,10 +192,7 @@ LimitMonitorAutomation/
 │   ├── common/              # 公共工具
 │   ├── extractors/          # 数据提取器
 │   ├── transformers/        # 数据转换器
-│   ├── aggregators/         # 数据聚合器
-│   ├── outputs/             # 输出格式化
-│   ├── utils/               # 通用工具（配置加载、日志等）
-│   └── validators/          # 数据验证器
+│   └── utils/               # 通用工具（配置加载、日志、DB归档等）
 ├── 限额/                     # 数据源目录 ⭐
 │   ├── 风控部债券池.accdb    # Access数据库
 │   ├── 标准日期表.xlsx       # 交易日日历
@@ -198,12 +208,14 @@ LimitMonitorAutomation/
 ├── scripts/                 # 运维与工具脚本
 │   ├── __init__.py         # 使 scripts 成为 Python 包（供 daily_archive.py 导入）
 │   ├── daily_archive.py    # 每日归档
-│   └── generate_display_snapshot.py  # 展示层核心对象 CSV 快照生成（含 page9 主表）
-├── tests/                   # 测试与验证（后续补充）
+│   ├── generate_display_snapshot.py  # 展示层核心对象 CSV 快照生成（含 page9 主表）
+│   └── audit_bond_quota_query.py     # page8 单券查询审计工具
+├── tests/                   # 代码级回归与上线前集成测试入口
 ├── data_for_testing/        # 当前默认人工目标基准目录 ⭐
 ├── data_source_0123/        # 固定样本数据源（Jan 23 冻结快照）⭐
 ├── data_for_testing_0123/   # 固定参考基准（Jan 23 展示层CSV）⭐
-├── validation/              # 验证脚本
+├── validation/              # 当前展示层 / DB current 校验脚本
+├── archive/                 # 上线收尾归档（旧测试、旧 validation、一次性脚本）
 ├── app.py                   # Web应用入口
 ├── run_stage0.py           # 运行阶段0
 ├── run_stage1.py           # 运行阶段1
@@ -271,55 +283,55 @@ bash run_daily.sh
 
 ### 运行测试
 
-测试入口与 DB 集成基准校验脚本会在后续测试提交中补齐。当前可先做环境、Stage 与展示层的人工/脚本验证：
+代码级回归测试：
 
 ```bash
-# 环境检查
-python tests/check_environment.py
-
-# Stage1验证
-python tests/validate_stage1.py
-
-# Stage2验证
-python validation/validate_stage2.py
-
-# 完整验证
-python validation/validate_all.py
+python3 -m pytest -q tests
 ```
 
-### 展示层快照校验（通用工具）
+当前保留的测试覆盖：
 
-将 Python Pipeline 生成的看板数据与 Excel 手动导出的参考 CSV 逐字段对比：
+- 单券可购额度查询核心口径
+- 业务日期 / 交易日校验
+- DB 快照读取与 DataLoader 缓存行为
+
+旧的 Stage 级验证、环境检查和一次性脚本式测试已归档到 `archive/launch_cleanup_2026-05-26/`。
+
+### 上线前全流程集成测试
+
+该入口用于发布前或重要逻辑改动后的端到端核对：
 
 ```bash
-# 使用默认参考目录（data_for_testing/）
-python validation/validate_dashboard_display.py
-
-# 指定参考目录
-python validation/validate_dashboard_display.py --ref-dir data_for_testing
-
-# 只校验某张表（默认清单已包含 page9）
-python validation/validate_dashboard_display.py --table 单一信用限额
-
-# 默认即校验主体系全部 CSV（含 page9 主表）
-python validation/validate_dashboard_display.py
+bash tests/run_full_integration_test.sh [ARCHIVE_DATE] [REF_DIR]
 ```
 
-> 校验前须确保 `data/current/display_snapshots/` 已生成（`run_daily.sh` 步骤 [5/5] 自动生成；
-> 补数后可手动执行 `python scripts/generate_display_snapshot.py` 刷新）。
-> 后续全流程集成测试应覆盖：9 张既有展示表 CSV + page9 主表 CSV（`全量债券监管集中度.csv`）。
-> KPI 仍不纳入展示快照/基准校验范围（包括 page9 KPI）。
-> page8 为查询型页面（单债额度查询样例），本轮仍不纳入当前展示快照范围。
+如需显式使用 `.venv`：
+
+```bash
+PYTHON_BIN=.venv/bin/python bash tests/run_full_integration_test.sh [ARCHIVE_DATE] [REF_DIR]
+```
+
+前置条件：
+
+- 已完成 `bash run_daily.sh`，且本次结果已成功写入 DB current
+- 已注入 `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME`
+- `REF_DIR` 指向人工确认的展示层参考 CSV 目录
+
+测试内容：
+
+- 校验 DB current 是否指向待校验归档日
+- 重新生成 `data/current/display_snapshots/`
+- 对比展示层快照与参考 CSV（含 page9 主表）
+
+`tests/run_golden_test.sh` 作为兼容入口保留，会转发到 `tests/run_full_integration_test.sh`。
 
 ### 数据对比
 
-所有输出数据都经过严格验证，与Excel Power BI参考数据对比：
+历史逻辑校验材料仍保留在归档目录，当前上线测试以 DB current 和展示层 CSV 对比为准：
 
-- ✅ 单一担保人总持仓
-- ✅ 特定主体限额明细
-- ✅ 特定实控人限额明细
-- ✅ 高收益债券全价成本
-- ✅ 地域集中度限额
+- `validation/validate_db_dashboard_consistency.py`
+- `validation/validate_dashboard_display.py`
+- `archive/launch_cleanup_2026-05-26/validation/logic_check/`
 
 ---
 
@@ -386,7 +398,7 @@ python validation/validate_dashboard_display.py
 如有问题或建议，请：
 1. 检查 `.cursorrules` 文件中的交互规范
 2. 查看 `docs/` 目录中的详细文档
-3. 运行诊断脚本进行问题排查
+3. 按 `tests/README.md` 运行当前测试入口；历史诊断脚本见 `archive/launch_cleanup_2026-05-26/`
 
 ---
 
@@ -395,7 +407,7 @@ python validation/validate_dashboard_display.py
 ### v2.4 (2026-04-14)
 - ✅ **切换至 DB 归档与展示快照链路**
   - 以前置 `run_daily` 为准，写入 DB current / history 并生成展示层快照
-  - 参考基准默认目录后续随测试提交补齐
+  - 上线前集成测试入口收口为 `tests/run_full_integration_test.sh`
   - 用于上线前期每日全链路核对
 - ✅ `config/settings.yaml` local profile 配置 `data_dir: "data_source_0123"`
 - ✅ `run_daily.sh` / `run_daily.bat` 步骤编号统一为 5 步制

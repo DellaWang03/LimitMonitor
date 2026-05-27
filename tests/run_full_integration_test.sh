@@ -16,6 +16,8 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
 require_env() {
     local var_name="$1"
     if [ -z "${!var_name:-}" ]; then
@@ -42,22 +44,23 @@ echo "前期上线全流程集成测试 - 真实 DB 集成校验"
 echo "校验对象: run_daily 已落库的真实 DB current"
 echo "目标基准目录: $REF_DIR"
 echo "期望 archive_date: $TEST_ARCHIVE_DATE"
+echo "Python: $PYTHON_BIN"
 echo "测试模式: integration test（依赖真实测试 DB）"
 echo "================================================="
 
 echo ""
 echo "[1/3] 校验 DB current / history 看板读取一致..."
-python3 validation/validate_db_dashboard_consistency.py --archive-date "$TEST_ARCHIVE_DATE"
+"$PYTHON_BIN" validation/validate_db_dashboard_consistency.py --archive-date "$TEST_ARCHIVE_DATE"
 echo "✅ current/history 读取一致"
 
 echo ""
 echo "[2/3] 从 DB current 生成展示层快照..."
-python3 scripts/generate_display_snapshot.py
+"$PYTHON_BIN" scripts/generate_display_snapshot.py
 echo "✅ 展示层快照生成完成"
 
 echo ""
 echo "[3/3] 与目标基准目录下全部 CSV 对比..."
-python3 validation/validate_dashboard_display.py \
+"$PYTHON_BIN" validation/validate_dashboard_display.py \
     --snapshot-dir data/current/display_snapshots \
     --ref-dir "$REF_DIR"
 echo "✅ 对比完成"
