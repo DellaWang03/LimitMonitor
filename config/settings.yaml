@@ -22,7 +22,7 @@ data_sources:
     # migration：另一台电脑固定路径，按实际挂载点修改 data_dir / data_config_source / path_overrides
     migration:
       data_dir: "/Volumes/sjz-share/PBI"
-      data_config_source: "/Users/dellawang/Desktop/LimitMonitorAutomation/data_config_source"
+      data_config_source: "data_config_source"
       file_subpaths:
         金融工具池设置.xlsx: "限额/限额监控"
         限额监控_阶段0_指标设置.xlsx: "限额/限额监控"
