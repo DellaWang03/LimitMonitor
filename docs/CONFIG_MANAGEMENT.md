@@ -181,7 +181,7 @@ file_path = data_dir / "某个数据文件.xlsx"
 ### 1. 运行测试脚本
 
 ```bash
-cd /Users/dellawang/Desktop/LimitMonitorAutomation
+cd <repo-root>
 python3 tests/test_config_loader.py
 ```
 

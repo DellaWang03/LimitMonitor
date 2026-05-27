@@ -4,6 +4,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -16,6 +18,8 @@ def test_date_validator():
     
     # 使用全局project_root
     data_dir = project_root / "sample data"
+    if not (data_dir / "标准日期表.xlsx").exists():
+        pytest.skip("本地样本数据未提供，跳过日期验证器样本文件测试")
     
     print("=" * 70)
     print("测试日期验证器")
