@@ -9,7 +9,7 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-# migration 时从 data_config_source 读取的 3 个文件
+# migration 时从 data_config_source 读取的 2 个 Base64 拆出静态口径文件
 CONFIG_SOURCE_FILES = {
     "发行人类型调整表.xlsx",
     "风控部债券池_主体_虚拟添加.xlsx",
@@ -180,7 +180,7 @@ class ConfigLoader:
 
     def get_data_config_source_dir(self) -> Optional[Path]:
         """
-        migration 时返回 3 个配置表所在目录；local 时返回 None（调用方用 data_dir）。
+        migration 时返回 Base64 拆出静态口径表所在目录；local 时返回 None（调用方用 data_dir）。
         """
         mig = self._get_migration_profile()
         if not mig or not mig.get("data_config_source"):

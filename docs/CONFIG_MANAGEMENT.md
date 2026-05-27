@@ -14,11 +14,11 @@ data_sources:
       data_dir: "data_source_0123"
     migration:
       data_dir: "/Volumes/sjz-share/PBI"
-      data_config_source: "data_config_source"
+      data_config_source: "/Volumes/sjz-share/PBI/限额/限额监控"
 ```
 
 - `local`：本地固定样本调试，默认读取项目根目录下的 `data_source_0123/`。
-- `migration`：上线 / 补跑使用，默认读取共享盘路径。
+- `migration`：上线 / 补跑使用，默认读取共享盘路径；Base64 拆出的两张静态口径表也从共享盘读取。
 
 也可以用环境变量临时覆盖：
 
@@ -33,7 +33,7 @@ export LIMIT_MONITOR_PROFILE=migration
 ```yaml
 migration:
   data_dir: "/Volumes/sjz-share/PBI"
-  data_config_source: "data_config_source"
+  data_config_source: "/Volumes/sjz-share/PBI/限额/限额监控"
   file_subpaths:
     金融工具池设置.xlsx: "限额/限额监控"
     限额监控_阶段0_指标设置.xlsx: "限额/限额监控"
@@ -53,7 +53,7 @@ migration:
 - `data_dir` 是共享盘根目录。
 - `file_subpaths` 是各数据文件相对 `data_dir` 的目录。
 - `path_overrides` 用于少数不在 `data_dir` 树下的文件。
-- `data_config_source` 使用相对路径，拉代码后会解析到项目根目录下的 `data_config_source/`。
+- `data_config_source` 是 `发行人类型调整表.xlsx` 与 `风控部债券池_主体_虚拟添加.xlsx` 所在目录；上线使用共享盘绝对路径。
 
 ## DB 连接
 

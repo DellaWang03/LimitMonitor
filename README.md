@@ -39,7 +39,7 @@ data_sources:
       data_dir: "data_source_0123"
     migration:
       data_dir: "/Volumes/sjz-share/PBI"
-      data_config_source: "data_config_source"
+      data_config_source: "/Volumes/sjz-share/PBI/限额/限额监控"
 ```
 
 上线使用共享盘时，重点确认：
@@ -48,7 +48,8 @@ data_sources:
 - `path_profiles.migration.data_dir` 指向共享盘根目录
 - `path_profiles.migration.file_subpaths` 与共享盘实际目录一致
 - `path_profiles.migration.path_overrides.净资产.xlsx` 指向净资产文件实际路径
-- `data_config_source` 使用相对路径即可，仓库拉下后会解析到项目根目录下的 `data_config_source/`
+- `path_profiles.migration.data_config_source` 指向共享盘上的 Base64 拆出表目录，当前为 `/Volumes/sjz-share/PBI/限额/限额监控`
+- `local` profile 仍读取项目根目录下的 `data_source_0123/`，其中包含本地调试用的 Base64 拆出表
 
 也可以用环境变量临时切换 profile：
 
@@ -164,7 +165,6 @@ LimitMonitorAutomation/
 │   └── settings.yaml
 ├── data/
 │   └── .gitkeep
-├── data_config_source/
 ├── requirements.txt
 ├── run_daily.sh / run_daily.bat
 ├── run_stage0.py
