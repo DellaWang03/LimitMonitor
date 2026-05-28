@@ -88,6 +88,8 @@ def test_query_bond_remaining_quota_returns_account_results_for_multiple_account
                 "库存数量(万)_PR": 100.0,
                 "单一债券规模剩余额度(万)": 80.0,
                 "单一债券是否超限": "否",
+                "单一债券集中度剩余额度(万)": 70.0,
+                "单一债券集中度是否超限": "否",
                 "单一主体规模剩余额度(万)": 60.0,
                 "单一主体是否超限": "否",
             },
@@ -101,6 +103,8 @@ def test_query_bond_remaining_quota_returns_account_results_for_multiple_account
                 "库存数量(万)_PR": 200.0,
                 "单一债券规模剩余额度(万)": -5.0,
                 "单一债券是否超限": "是",
+                "单一债券集中度剩余额度(万)": 35.0,
+                "单一债券集中度是否超限": "否",
                 "单一主体规模剩余额度(万)": 30.0,
                 "单一主体是否超限": "否",
             },
@@ -287,6 +291,293 @@ def test_query_bond_remaining_quota_can_find_bond_only_present_in_credit_1_1_or_
     assert result_concentration["bond_info"]["资产名称"] == "集中度债"
     assert dim_map["地域集中度"]["剩余额度(万)"] == 15.0
     assert result_concentration["final_quota_wan"] == 15.0
+
+
+def test_query_bond_remaining_quota_warns_when_matching_credit_source_has_no_constraint_columns():
+    base_date = pd.Timestamp("2026-04-27")
+    df_1_2 = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "MISSLIM",
+                "代码": "MISSLIM",
+                "资产名称": "普通缺限额债",
+                "债务主体": "主体缺限额",
+                "内部证券账户名称": "账户A",
+                "库存数量(万)_PR": 100.0,
+            }
+        ]
+    )
+    df_full_reg = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "MISSLIM",
+                "资产名称": "普通缺限额债",
+                "监管集中度剩余额度(万)": 1000.0,
+                "监管集中度是否超限": "否",
+                "是否可计算": "是",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(df_1_2, pd.DataFrame(), df_full_reg=df_full_reg),
+        "MISSLIM",
+        target_date=date(2026, 4, 27),
+    )
+
+    dim_map = {item["维度名称"]: item for item in result["dimensions"]}
+    assert result["error"] is None
+    assert any("信用债1_2" in item and "不可计算" in item for item in result["data_health"]["warnings"])
+    assert dim_map["单一债券规模"]["是否超限"] == "不可计算"
+    assert dim_map["单一主体规模"]["是否超限"] == "不可计算"
+    assert dim_map["监管集中度"]["剩余额度(万)"] == 1000.0
+    assert result["final_quota_wan"] == 1000.0
+
+
+def test_query_bond_remaining_quota_warns_when_matching_credit_source_has_partial_constraint_columns():
+    base_date = pd.Timestamp("2026-04-27")
+    df_1_2 = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "PARTMISS",
+                "代码": "PARTMISS",
+                "资产名称": "普通部分缺限额债",
+                "债务主体": "主体部分缺限额",
+                "内部证券账户名称": "账户A",
+                "库存数量(万)_PR": 100.0,
+                "单一主体规模剩余额度(万)": 500.0,
+                "单一主体是否超限": "否",
+            }
+        ]
+    )
+    df_full_reg = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "PARTMISS",
+                "资产名称": "普通部分缺限额债",
+                "监管集中度剩余额度(万)": 1000.0,
+                "监管集中度是否超限": "否",
+                "是否可计算": "是",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(df_1_2, pd.DataFrame(), df_full_reg=df_full_reg),
+        "PARTMISS",
+        target_date=date(2026, 4, 27),
+    )
+
+    dim_map = {item["维度名称"]: item for item in result["dimensions"]}
+    assert result["error"] is None
+    assert any("信用债1_2" in item and "单一债券规模" in item and "不可计算" in item for item in result["data_health"]["warnings"])
+    assert dim_map["单一债券规模"]["是否超限"] == "不可计算"
+    assert dim_map["单一债券集中度"]["是否超限"] == "不可计算"
+    assert dim_map["单一主体规模"]["剩余额度(万)"] == 500.0
+    assert dim_map["监管集中度"]["剩余额度(万)"] == 1000.0
+    assert result["final_quota_wan"] == 500.0
+
+
+def test_query_bond_remaining_quota_does_not_warn_when_optional_credit_dimension_is_absent():
+    base_date = pd.Timestamp("2026-04-27")
+    df_1_2 = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "OPTABS",
+                "代码": "OPTABS",
+                "资产名称": "普通可选维度缺失债",
+                "债务主体": "主体可选维度",
+                "内部证券账户名称": "账户A",
+                "库存数量(万)_PR": 100.0,
+                "单一债券规模剩余额度(万)": 100.0,
+                "单一债券是否超限": "否",
+                "单一债券集中度剩余额度(万)": 90.0,
+                "单一债券集中度是否超限": "否",
+                "单一主体规模剩余额度(万)": 80.0,
+                "单一主体是否超限": "否",
+            }
+        ]
+    )
+    df_full_reg = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "OPTABS",
+                "资产名称": "普通可选维度缺失债",
+                "监管集中度剩余额度(万)": 70.0,
+                "监管集中度是否超限": "否",
+                "是否可计算": "是",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(df_1_2, pd.DataFrame(), df_full_reg=df_full_reg),
+        "OPTABS",
+        target_date=date(2026, 4, 27),
+    )
+
+    dim_map = {item["维度名称"]: item for item in result["dimensions"]}
+    assert result["error"] is None
+    assert not any("单一实控人规模" in item or "单一担保公司规模" in item for item in result["data_health"]["warnings"])
+    assert dim_map["单一实控人规模"]["是否超限"] == "不适用"
+    assert dim_map["单一担保公司规模"]["是否超限"] == "不适用"
+    assert result["final_quota_wan"] == 70.0
+
+
+def test_query_bond_remaining_quota_does_not_warn_when_optional_credit2_dimensions_are_absent():
+    base_date = pd.Timestamp("2026-04-27")
+    df_2 = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "OPTREGION",
+                "代码": "OPTREGION",
+                "资产名称": "地域可选维度债",
+                "债务主体": "主体地域",
+                "内部证券账户名称": "账户A",
+                "库存数量(万)_PR": 100.0,
+                "地域集中度剩余额度(万)": 55.0,
+                "地域集中度是否超限": "否",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(pd.DataFrame(), df_2),
+        "OPTREGION",
+        target_date=date(2026, 4, 27),
+    )
+
+    dim_map = {item["维度名称"]: item for item in result["dimensions"]}
+    assert result["error"] is None
+    assert not any("城投集中度" in item or "高风险行业集中度" in item or "高风险省份集中度" in item for item in result["data_health"]["warnings"])
+    assert dim_map["地域集中度"]["剩余额度(万)"] == 55.0
+    assert dim_map["城投集中度"]["是否超限"] == "不适用"
+    assert dim_map["高风险行业集中度"]["是否超限"] == "不适用"
+    assert dim_map["高风险省份集中度"]["是否超限"] == "不适用"
+    assert result["final_quota_wan"] == 55.0
+
+
+def test_query_bond_remaining_quota_warns_when_required_dimension_value_is_blank():
+    base_date = pd.Timestamp("2026-04-27")
+    df_1_2 = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "REQBLANK",
+                "代码": "REQBLANK",
+                "资产名称": "必算维度空值债",
+                "债务主体": "主体必算空值",
+                "内部证券账户名称": "账户A",
+                "库存数量(万)_PR": 100.0,
+                "单一债券规模剩余额度(万)": None,
+                "单一债券是否超限": "",
+                "单一债券集中度剩余额度(万)": 90.0,
+                "单一债券集中度是否超限": "否",
+                "单一主体规模剩余额度(万)": 80.0,
+                "单一主体是否超限": "否",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(df_1_2, pd.DataFrame()),
+        "REQBLANK",
+        target_date=date(2026, 4, 27),
+    )
+
+    dim_map = {item["维度名称"]: item for item in result["dimensions"]}
+    assert result["error"] is None
+    assert any("信用债1_2" in item and "单一债券规模" in item and "不可计算" in item for item in result["data_health"]["warnings"])
+    assert dim_map["单一债券规模"]["是否超限"] == "不可计算"
+    assert dim_map["单一债券集中度"]["剩余额度(万)"] == 90.0
+    assert dim_map["单一主体规模"]["剩余额度(万)"] == 80.0
+    assert result["final_quota_wan"] == 80.0
+
+
+def test_query_bond_remaining_quota_sets_final_quota_zero_when_overlimit_flag_is_yes_without_remaining():
+    base_date = pd.Timestamp("2026-04-27")
+    df_1_2 = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "FLAGYES",
+                "代码": "FLAGYES",
+                "资产名称": "超限余额空值债",
+                "债务主体": "主体超限空值",
+                "内部证券账户名称": "账户A",
+                "库存数量(万)_PR": 100.0,
+                "单一债券规模剩余额度(万)": None,
+                "单一债券是否超限": "是",
+                "单一债券集中度剩余额度(万)": 90.0,
+                "单一债券集中度是否超限": "否",
+                "单一主体规模剩余额度(万)": 80.0,
+                "单一主体是否超限": "否",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(df_1_2, pd.DataFrame()),
+        "FLAGYES",
+        target_date=date(2026, 4, 27),
+    )
+
+    dim_map = {item["维度名称"]: item for item in result["dimensions"]}
+    account_result = result["account_results"][0]
+    assert result["error"] is None
+    assert dim_map["单一债券规模"]["是否超限"] == "是"
+    assert result["final_quota_wan"] == 0.0
+    assert account_result["status"] == "超限"
+    assert "单一债券规模" in account_result["limiting_dimensions"]
+
+
+def test_query_bond_remaining_quota_does_not_warn_when_credit_1_1_optional_columns_are_absent():
+    base_date = pd.Timestamp("2026-04-27")
+    df_1_1 = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "SPCABS",
+                "代码": "SPCABS",
+                "资产名称": "特定限额可选缺失债",
+                "债务主体": "主体特定缺失",
+                "内部证券账户名称": "账户A",
+                "库存数量(万)_PR": 100.0,
+            }
+        ]
+    )
+    df_full_reg = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "SPCABS",
+                "资产名称": "特定限额可选缺失债",
+                "监管集中度剩余额度(万)": 75.0,
+                "监管集中度是否超限": "否",
+                "是否可计算": "是",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(pd.DataFrame(), pd.DataFrame(), df_1_1=df_1_1, df_full_reg=df_full_reg),
+        "SPCABS",
+        target_date=date(2026, 4, 27),
+    )
+
+    dim_map = {item["维度名称"]: item for item in result["dimensions"]}
+    assert result["error"] is None
+    assert not any("特定主体限额" in item or "特定实控人限额" in item for item in result["data_health"]["warnings"])
+    assert dim_map["特定主体限额"]["是否超限"] == "不适用"
+    assert dim_map["特定实控人限额"]["是否超限"] == "不适用"
+    assert result["final_quota_wan"] == 75.0
 
 
 def test_query_bond_remaining_quota_supports_full_regulatory_only_bond():
@@ -575,6 +866,486 @@ def test_query_bond_remaining_quota_prefers_persisted_high_yield_results():
     assert result["final_quota_wan"] == 25.0
 
 
+def test_query_bond_remaining_quota_ignores_regular_credit_limits_for_high_yield_bonds():
+    base_date = pd.Timestamp("2026-04-27")
+    df_1_2 = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "HY004",
+                "代码": "HY004",
+                "资产名称": "高收益债D",
+                "债务主体": "主体高收D",
+                "内部证券账户名称": "高收益账户",
+                "库存数量(万)_PR": 100.0,
+                "是否属于高收益": "是",
+                "单一债券规模剩余额度(万)": 10.0,
+                "单一债券是否超限": "否",
+                "单一主体规模剩余额度(万)": 20.0,
+                "单一主体是否超限": "否",
+            }
+        ]
+    )
+    df_hy = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "HY004",
+                "代码": "HY004",
+                "资产名称": "高收益债D",
+                "债务主体": "主体高收D",
+                "内部证券账户名称": "高收益账户",
+                "库存数量(万)_PR": 100.0,
+                "高收益单债剩余额度(万)": 80.0,
+                "高收益单债是否超限": "否",
+                "高收益主体剩余额度(万)": 90.0,
+                "高收益主体是否超限": "否",
+            }
+        ]
+    )
+    df_hy_capital = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "高收益年度限额剩余额度(万)": 70.0,
+                "高收益年度限额是否超限": "否",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(df_1_2, pd.DataFrame(), df_hy=df_hy, df_hy_capital=df_hy_capital),
+        "HY004",
+        target_date=date(2026, 4, 27),
+    )
+
+    dim_map = {item["维度名称"]: item for item in result["dimensions"]}
+    assert dim_map["单一债券规模"]["是否超限"] == "不适用"
+    assert dim_map["单一主体规模"]["是否超限"] == "不适用"
+    assert result["final_quota_wan"] == 70.0
+
+
+def test_query_bond_remaining_quota_keeps_regular_credit_limits_for_same_bond_non_high_yield_rows():
+    base_date = pd.Timestamp("2026-04-27")
+    df_1_2 = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "HY004",
+                "代码": "HY004",
+                "资产名称": "高收益债D",
+                "债务主体": "主体高收D",
+                "内部证券账户名称": "普通账户",
+                "库存数量(万)_PR": 100.0,
+                "是否属于高收益": "否",
+                "单一债券规模剩余额度(万)": 10.0,
+                "单一债券是否超限": "否",
+            }
+        ]
+    )
+    df_hy = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "HY004",
+                "代码": "HY004",
+                "资产名称": "高收益债D",
+                "债务主体": "主体高收D",
+                "内部证券账户名称": "高收益账户",
+                "库存数量(万)_PR": 100.0,
+                "高收益单债剩余额度(万)": 80.0,
+                "高收益单债是否超限": "否",
+                "高收益主体剩余额度(万)": 90.0,
+                "高收益主体是否超限": "否",
+            }
+        ]
+    )
+    df_hy_capital = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "高收益年度限额剩余额度(万)": 70.0,
+                "高收益年度限额是否超限": "否",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(df_1_2, pd.DataFrame(), df_hy=df_hy, df_hy_capital=df_hy_capital),
+        "HY004",
+        target_date=date(2026, 4, 27),
+    )
+
+    dim_map = {item["维度名称"]: item for item in result["dimensions"]}
+    assert dim_map["单一债券规模"]["剩余额度(万)"] == 10.0
+    assert result["final_quota_wan"] == 10.0
+
+
+def test_query_bond_remaining_quota_keeps_regional_limits_for_high_yield_bonds():
+    base_date = pd.Timestamp("2026-04-27")
+    df_2 = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "HY005",
+                "代码": "HY005",
+                "资产名称": "高收益债E",
+                "债务主体": "主体高收E",
+                "内部证券账户名称": "高收益账户",
+                "库存数量(万)_PR": 100.0,
+                "是否属于高收益": "是",
+                "地域集中度剩余额度(万)": 30.0,
+                "地域集中度是否超限": "否",
+            }
+        ]
+    )
+    df_hy = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "HY005",
+                "代码": "HY005",
+                "资产名称": "高收益债E",
+                "债务主体": "主体高收E",
+                "内部证券账户名称": "高收益账户",
+                "库存数量(万)_PR": 100.0,
+                "高收益单债剩余额度(万)": 80.0,
+                "高收益单债是否超限": "否",
+                "高收益主体剩余额度(万)": 90.0,
+                "高收益主体是否超限": "否",
+            }
+        ]
+    )
+    df_hy_capital = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "高收益年度限额剩余额度(万)": 70.0,
+                "高收益年度限额是否超限": "否",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(pd.DataFrame(), df_2, df_hy=df_hy, df_hy_capital=df_hy_capital),
+        "HY005",
+        target_date=date(2026, 4, 27),
+    )
+
+    dim_map = {item["维度名称"]: item for item in result["dimensions"]}
+    assert dim_map["地域集中度"]["剩余额度(万)"] == 30.0
+    assert result["final_quota_wan"] == 30.0
+
+
+def test_query_bond_remaining_quota_errors_when_high_yield_detail_missing_for_high_yield_bond():
+    base_date = pd.Timestamp("2026-04-27")
+    df_1_2 = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "HYMISS",
+                "代码": "HYMISS",
+                "资产名称": "高收益缺明细",
+                "债务主体": "主体高收缺明细",
+                "内部证券账户名称": "高收益账户",
+                "库存数量(万)_PR": 100.0,
+                "是否属于高收益": "是",
+                "单一债券规模剩余额度(万)": 10.0,
+                "单一债券是否超限": "否",
+            }
+        ]
+    )
+    df_full_reg = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "HYMISS",
+                "资产名称": "高收益缺明细",
+                "监管集中度剩余额度(万)": 1000.0,
+                "监管集中度是否超限": "否",
+                "是否可计算": "是",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(df_1_2, pd.DataFrame(), df_full_reg=df_full_reg, df_hy=pd.DataFrame()),
+        "HYMISS",
+        target_date=date(2026, 4, 27),
+    )
+
+    assert "高收益" in result["error"]
+    assert any("高收益明细缺失" in item for item in result["data_health"]["errors"])
+    assert result["final_quota_wan"] == 0.0
+
+
+def test_query_bond_remaining_quota_errors_when_high_yield_capital_missing_for_high_yield_bond():
+    base_date = pd.Timestamp("2026-04-27")
+    df_hy = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "HYEMPTYCAP",
+                "代码": "HYEMPTYCAP",
+                "资产名称": "高收益空本金",
+                "债务主体": "主体高收空本金",
+                "内部证券账户名称": "高收益账户",
+                "库存数量(万)_PR": 100.0,
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(
+            pd.DataFrame(),
+            pd.DataFrame(),
+            df_hy=df_hy,
+            df_hy_capital=pd.DataFrame(),
+            high_yield_annual_limit_wan=500.0,
+            high_yield_limit_maps={
+                "bond_limits": {"__default__": 1000.0},
+                "entity_limits": {"__default__": 1000.0},
+            },
+        ),
+        "HYEMPTYCAP",
+        target_date=date(2026, 4, 27),
+    )
+
+    assert "高收益" in result["error"]
+    assert any("高收益投资本金规模缺失" in item for item in result["data_health"]["errors"])
+    assert result["final_quota_wan"] == 0.0
+
+
+def test_query_bond_remaining_quota_errors_when_high_yield_fallback_position_missing():
+    base_date = pd.Timestamp("2026-04-27")
+    df_hy = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "HYNOPOS",
+                "代码": "HYNOPOS",
+                "资产名称": "高收益缺持仓",
+                "债务主体": "主体高收缺持仓",
+                "内部证券账户名称": "高收益账户",
+            }
+        ]
+    )
+    df_hy_capital = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "高收益年度限额剩余额度(万)": 80.0,
+                "高收益年度限额是否超限": "否",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(
+            pd.DataFrame(),
+            pd.DataFrame(),
+            df_hy=df_hy,
+            df_hy_capital=df_hy_capital,
+            high_yield_limit_maps={
+                "bond_limits": {"__default__": 1000.0},
+                "entity_limits": {"__default__": 1000.0},
+            },
+        ),
+        "HYNOPOS",
+        target_date=date(2026, 4, 27),
+    )
+
+    assert "高收益" in result["error"]
+    assert any("库存数量(万)_PR" in item for item in result["data_health"]["errors"])
+    assert result["final_quota_wan"] == 0.0
+
+
+def test_query_bond_remaining_quota_falls_back_when_persisted_high_yield_detail_values_blank():
+    base_date = pd.Timestamp("2026-04-27")
+    df_hy = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "HYBLANK",
+                "代码": "HYBLANK",
+                "资产名称": "高收益空值",
+                "债务主体": "主体高收空值",
+                "内部证券账户名称": "高收益账户",
+                "库存数量(万)_PR": 120.0,
+                "高收益单债剩余额度(万)": None,
+                "高收益单债是否超限": "",
+                "高收益主体剩余额度(万)": None,
+                "高收益主体是否超限": "",
+            }
+        ]
+    )
+    df_hy_capital = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "高收益年度限额剩余额度(万)": 500.0,
+                "高收益年度限额是否超限": "否",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(
+            pd.DataFrame(),
+            pd.DataFrame(),
+            df_hy=df_hy,
+            df_hy_capital=df_hy_capital,
+            high_yield_limit_maps={
+                "bond_limits": {"__default__": 1000.0, "高收益空值": 350.0},
+                "entity_limits": {"__default__": 1200.0, "主体高收空值": 400.0},
+            },
+        ),
+        "HYBLANK",
+        target_date=date(2026, 4, 27),
+    )
+
+    dim_map = {item["维度名称"]: item for item in result["dimensions"]}
+    assert result["error"] is None
+    assert dim_map["高收益单债限额"]["剩余额度(万)"] == 230.0
+    assert dim_map["高收益主体限额"]["剩余额度(万)"] == 280.0
+    assert result["final_quota_wan"] == 230.0
+
+
+def test_query_bond_remaining_quota_errors_when_high_yield_capital_cost_values_blank():
+    base_date = pd.Timestamp("2026-04-27")
+    df_hy = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "HYBLANKCAP",
+                "代码": "HYBLANKCAP",
+                "资产名称": "高收益成本空值",
+                "债务主体": "主体高收成本空值",
+                "内部证券账户名称": "高收益账户",
+                "库存数量(万)_PR": 100.0,
+            }
+        ]
+    )
+    df_hy_capital = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "全价成本(元)": None,
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(
+            pd.DataFrame(),
+            pd.DataFrame(),
+            df_hy=df_hy,
+            df_hy_capital=df_hy_capital,
+            high_yield_annual_limit_wan=500.0,
+            high_yield_limit_maps={
+                "bond_limits": {"__default__": 1000.0},
+                "entity_limits": {"__default__": 1000.0},
+            },
+        ),
+        "HYBLANKCAP",
+        target_date=date(2026, 4, 27),
+    )
+
+    assert "高收益" in result["error"]
+    assert any("全价成本(元)" in item for item in result["data_health"]["errors"])
+    assert result["final_quota_wan"] == 0.0
+
+
+def test_query_bond_remaining_quota_errors_when_high_yield_position_values_blank():
+    base_date = pd.Timestamp("2026-04-27")
+    df_hy = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "HYBLANKPOS",
+                "代码": "HYBLANKPOS",
+                "资产名称": "高收益持仓空值",
+                "债务主体": "主体高收持仓空值",
+                "内部证券账户名称": "高收益账户",
+                "库存数量(万)_PR": None,
+            }
+        ]
+    )
+    df_hy_capital = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "高收益年度限额剩余额度(万)": 80.0,
+                "高收益年度限额是否超限": "否",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(
+            pd.DataFrame(),
+            pd.DataFrame(),
+            df_hy=df_hy,
+            df_hy_capital=df_hy_capital,
+            high_yield_limit_maps={
+                "bond_limits": {"__default__": 1000.0},
+                "entity_limits": {"__default__": 1000.0},
+            },
+        ),
+        "HYBLANKPOS",
+        target_date=date(2026, 4, 27),
+    )
+
+    assert "高收益" in result["error"]
+    assert any("库存数量(万)_PR" in item for item in result["data_health"]["errors"])
+    assert result["final_quota_wan"] == 0.0
+
+
+def test_query_bond_remaining_quota_warns_when_regulatory_constraint_is_not_calculable():
+    base_date = pd.Timestamp("2026-04-27")
+    df_1_2 = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "240011",
+                "代码": "240011",
+                "资产名称": "缺余额债",
+                "债务主体": "主体缺余额",
+                "内部证券账户名称": "账户A",
+                "库存数量(万)_PR": 100.0,
+                "单一债券规模剩余额度(万)": 100.0,
+                "单一债券是否超限": "否",
+            }
+        ]
+    )
+    df_full_reg = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "240011",
+                "资产名称": "缺余额债",
+                "监管集中度剩余额度(万)": None,
+                "监管集中度是否超限": "",
+                "是否可计算": "否",
+                "不可计算原因": "缺债券余额",
+            }
+        ]
+    )
+
+    result = query_bond_remaining_quota(
+        FakeLoader(df_1_2, pd.DataFrame(), df_full_reg=df_full_reg),
+        "240011",
+        target_date=date(2026, 4, 27),
+    )
+
+    assert result["error"] is None
+    assert any(
+        "监管集中度不可计算：缺债券余额" in item
+        for item in result["data_health"]["warnings"]
+    )
+    assert result["final_quota_wan"] == 100.0
+
+
 def test_query_bond_remaining_quota_reports_ambiguous_name_matches():
     base_date = pd.Timestamp("2026-04-27")
     df_1_2 = pd.DataFrame(
@@ -609,6 +1380,39 @@ def test_query_bond_remaining_quota_reports_ambiguous_name_matches():
     assert result["error"] is None
     assert "匹配到多只债券" in result["message"]
     assert len(result["candidates"]) == 2
+
+
+def test_query_bond_remaining_quota_treats_name_contains_input_as_literal_text():
+    base_date = pd.Timestamp("2026-04-27")
+    df_1_2 = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "资产代码": "240001",
+                "代码": "240001",
+                "资产名称": "测试债A",
+                "债务主体": "主体甲",
+                "内部证券账户名称": "账户A",
+                "库存数量(万)_PR": 100.0,
+                "单一债券规模剩余额度(万)": 100.0,
+                "单一债券是否超限": "否",
+            }
+        ]
+    )
+
+    bracket_result = query_bond_remaining_quota(
+        FakeLoader(df_1_2, pd.DataFrame()),
+        "[",
+        target_date=date(2026, 4, 27),
+    )
+    wildcard_result = query_bond_remaining_quota(
+        FakeLoader(df_1_2, pd.DataFrame()),
+        ".*",
+        target_date=date(2026, 4, 27),
+    )
+
+    assert bracket_result["error"] == "未找到该债券"
+    assert wildcard_result["error"] == "未找到该债券"
 
 
 def test_query_bond_remaining_quota_fails_loudly_when_core_source_unavailable():

@@ -10,6 +10,12 @@ from loguru import logger
 from typing import Dict
 from .stage1_limit_detail import LimitDetailCalculator
 from ..common import normalize_security_code_series
+from ..common.financial_tool_pool import (
+    build_financial_tool_pool_sets,
+    load_financial_tool_pool,
+    normalize_tool_pool_code,
+    row_in_financial_tool_pool,
+)
 from ..utils.limit_config_loader import load_limit_config
 
 
@@ -55,6 +61,58 @@ class Stage1Processor:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
+
+    def _build_penetration_high_yield_codes(self) -> set[str]:
+        df_high_yield = self.cache.get('穿透高收益债券')
+        if df_high_yield is None or df_high_yield.empty or '类型' not in df_high_yield.columns:
+            return set()
+
+        high_yield_rows = df_high_yield[
+            df_high_yield['类型'].astype(str).str.strip() == '高收益'
+        ]
+        code_columns = [
+            col
+            for col in ('债券代码', '资产代码', '主证券代码', '主证券代码_标准', '代码')
+            if col in high_yield_rows.columns
+        ]
+        codes: set[str] = set()
+        for col in code_columns:
+            codes.update(
+                code
+                for code in high_yield_rows[col].apply(normalize_tool_pool_code)
+                if code
+            )
+        return codes
+
+    def _filter_non_high_yield_credit_rows(self, df: pd.DataFrame) -> pd.DataFrame:
+        """M-code 原本排除高收益的节点：仅替换为修正后的高收益识别规则。"""
+        result = df.copy()
+        high_yield_mask = pd.Series(False, index=result.index)
+
+        if '是否属于高收益' in result.columns:
+            high_yield_mask |= result['是否属于高收益'].astype(str).str.strip() == '是'
+
+        if '内部证券账户名称' in result.columns:
+            high_yield_mask |= result['内部证券账户名称'].astype(str).str.contains('高收益', na=False)
+
+        penetration_codes = self._build_penetration_high_yield_codes()
+        if penetration_codes:
+            for col in ('资产代码', '资产代码_标准', '主证券代码', '主证券代码_标准'):
+                if col in result.columns:
+                    high_yield_mask |= result[col].apply(normalize_tool_pool_code).isin(penetration_codes)
+
+        tool_pool_names, tool_pool_codes = build_financial_tool_pool_sets(
+            self.cache.get('金融工具池设置')
+        )
+        if tool_pool_names or tool_pool_codes:
+            high_yield_mask |= result.apply(
+                row_in_financial_tool_pool,
+                axis=1,
+                tool_pool_names=tool_pool_names,
+                tool_pool_codes=tool_pool_codes,
+            )
+
+        return result[~high_yield_mask].copy()
 
     def _ensure_source_row_id(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
         """为信用债源持仓生成运行内唯一行号，用于保护真实重复持仓。"""
@@ -268,6 +326,11 @@ class Stage1Processor:
         results['穿透高收益债券'] = df_high_yield
         self.cache['穿透高收益债券'] = df_high_yield
         logger.info(f"✓ {len(df_high_yield)} 行")
+
+        logger.info("\n执行查询: 金融工具池设置")
+        df_tool_pool = self.query_financial_tool_pool()
+        self.cache['金融工具池设置'] = df_tool_pool
+        logger.info(f"✓ {len(df_tool_pool)} 行")
         
         # === 第2层：信用债查询 ===
         logger.info("\n【第2层】信用债查询")
@@ -775,6 +838,16 @@ class Stage1Processor:
         logger.info(f"  穿透高收益债券: {len(df)} 行")
 
         return df
+
+    def query_financial_tool_pool(self) -> pd.DataFrame:
+        """
+        查询: 金融工具池设置（可转债白名单）
+        数据源: 金融工具池设置.xlsx
+        """
+        return load_financial_tool_pool(
+            self._data_file_path("金融工具池设置.xlsx"),
+            logger=logger,
+        )
     
     def query_bond_rating_aaa(self) -> pd.DataFrame:
         """
@@ -859,7 +932,7 @@ class Stage1Processor:
         df = self.cache.get('债券持仓明细表_信用债')
         if df is None:
             df = self.query_bond_position_credit()
-        
+
         df = df.copy()
         df = self._ensure_source_row_id(df, '债券持仓明细表_信用债')
         source_row_count = len(df)
@@ -870,7 +943,7 @@ class Stage1Processor:
         
         logger.info(f"  开始合并风险限额字段...")
         
-        # 1. 合并穿透高收益债券
+        # 1. 合并穿透高收益债券，并按账户/穿透配置/金融工具池识别高收益
         df_high_yield = self.cache.get('穿透高收益债券')
         if df_high_yield is not None and '债券代码' in df_high_yield.columns:
             df = df.merge(
@@ -880,15 +953,33 @@ class Stage1Processor:
                 how='left'
             )
             df = df.drop(columns=['债券代码'], errors='ignore')
-            
-            # 添加"是否属于高收益"列
-            df['是否属于高收益'] = df.apply(
-                lambda row: '是' if ('高收益' in str(row.get('内部证券账户名称', '')) or 
-                                    row.get('类型') == '高收益') else '否',
-                axis=1
-            )
-            df = df.drop(columns=['类型'], errors='ignore')
             logger.info(f"    ✓ 合并穿透高收益债券")
+
+        if '类型' not in df.columns:
+            df['类型'] = pd.NA
+
+        df_tool_pool = self.cache.get('金融工具池设置')
+        if df_tool_pool is None:
+            df_tool_pool = self.query_financial_tool_pool()
+            self.cache['金融工具池设置'] = df_tool_pool
+
+        tool_pool_names, tool_pool_codes = build_financial_tool_pool_sets(df_tool_pool)
+
+        def is_high_yield(row):
+            if '高收益' in str(row.get('内部证券账户名称', '')):
+                return '是'
+            if row.get('类型') == '高收益':
+                return '是'
+            if row_in_financial_tool_pool(row, tool_pool_names, tool_pool_codes):
+                return '是'
+            return '否'
+
+        df['是否属于高收益'] = df.apply(is_high_yield, axis=1)
+        df = df.drop(columns=['类型'], errors='ignore')
+        logger.info(
+            f"    ✓ 识别高收益: {(df['是否属于高收益'] == '是').sum()} 条 "
+            f"(金融工具池代码/简称: {len(tool_pool_codes)}/{len(tool_pool_names)})"
+        )
         
         # 2. 合并中债隐含评级
         df_rating = self.cache.get('中债隐含评级AAA&AAA+')
@@ -1398,7 +1489,6 @@ class Stage1Processor:
         df = self.cache.get('债券持仓明细表_信用债')
         if df is None:
             df = self.query_bond_position_credit()
-        
         df = df.copy()
         
         # 添加业务分类
@@ -1461,7 +1551,6 @@ class Stage1Processor:
         df = self.cache.get('债券持仓明细表_信用债')
         if df is None:
             df = self.query_bond_position_credit()
-        
         df = df.copy()
         
         # 添加业务分类
@@ -1489,11 +1578,9 @@ class Stage1Processor:
         df = self.cache.get('债券持仓明细表_信用债')
         if df is None:
             df = self.query_bond_position_credit()
-        
-        df = df.copy()
-        
+        df = self._filter_non_high_yield_credit_rows(df)
+
         # 筛选：排除高收益和关注池
-        df = df[~df['内部证券账户名称'].str.contains('高收益', na=False)]
         df = df[~df['内部证券账户名称'].str.contains('关注池', na=False)]
         
         # 与特定主体限额关联
@@ -1574,10 +1661,9 @@ class Stage1Processor:
         if df is None:
             df = self.query_bond_position_credit_merged()
         
-        df = df.copy()
+        df = self._filter_non_high_yield_credit_rows(df)
         
         # 筛选：排除高收益和关注池
-        df = df[~df['内部证券账户名称'].str.contains('高收益', na=False)]
         df = df[~df['内部证券账户名称'].str.contains('关注池', na=False)]
         
         # 与特定实控人限额关联
@@ -1635,10 +1721,9 @@ class Stage1Processor:
         if df is None:
             df = self.query_bond_position_credit_merged()
         
-        df = df.copy()
+        df = self._filter_non_high_yield_credit_rows(df)
         
         # 【P1-4修复1】筛选：排除高收益和关注池（M代码第179-183行）
-        df = df[~df['内部证券账户名称'].str.contains('高收益', na=False)]
         df = df[~df['内部证券账户名称'].str.contains('关注池', na=False)]
         
         # 步骤2: 只保留有担保人wind代码的记录

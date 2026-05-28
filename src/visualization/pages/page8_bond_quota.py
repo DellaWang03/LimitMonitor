@@ -42,6 +42,15 @@ def _request_query() -> None:
     st.session_state["page8_query_requested"] = True
 
 
+def _build_query_cache_key(query_text: str, data_loader) -> tuple[str, str, str]:
+    archive_date = getattr(data_loader, "archive_date_str", None)
+    target_date = getattr(data_loader, "target_date", None)
+    if archive_date is None and hasattr(target_date, "isoformat"):
+        archive_date = target_date.isoformat()
+    snapshot_version = getattr(data_loader, "_snapshot_version", None) or getattr(data_loader, "data_source", "")
+    return (str(query_text or "").strip(), str(archive_date or ""), str(snapshot_version or ""))
+
+
 def _inject_page8_css() -> None:
     # Streamlit rebuilds the DOM on every rerun, so page-level styles must be
     # emitted every time. Otherwise widgets outside the query form can trigger a
@@ -242,6 +251,10 @@ def _render_query_result(result: dict) -> None:
         )
         return
 
+    health_warnings = data_health.get("warnings") or []
+    for item in health_warnings:
+        st.warning(item)
+
     common_bond_info = result.get("common_bond_info") or result.get("bond_info", {})
     account_results = result.get("account_results", [])
     account_summary = result.get("account_summary", [])
@@ -308,22 +321,25 @@ def _render_page_title() -> None:
 def _render_query_area(data_loader) -> None:
     query_text = str(st.session_state.get("page8_bond_quota_input", "") or "").strip()
     do_query = bool(st.session_state.pop("page8_query_requested", False))
-    cached_query_text = st.session_state.get("page8_last_query_text")
+    current_cache_key = _build_query_cache_key(query_text, data_loader)
+    cached_query_key = st.session_state.get("page8_last_query_cache_key")
     cached_result = st.session_state.get("page8_last_query_result")
     query_warning: str | None = None
     result = None
 
     if do_query and not query_text:
         st.session_state.pop("page8_last_query_text", None)
+        st.session_state.pop("page8_last_query_cache_key", None)
         st.session_state.pop("page8_last_query_result", None)
         query_warning = "请输入债券代码或名称。"
     elif do_query:
-        if query_text == cached_query_text and cached_result:
+        if current_cache_key == cached_query_key and cached_result:
             result = cached_result
         else:
             target_date = getattr(data_loader, "target_date", None)
             result = query_bond_remaining_quota(data_loader, query_text, target_date=target_date)
             st.session_state["page8_last_query_text"] = query_text
+            st.session_state["page8_last_query_cache_key"] = current_cache_key
             st.session_state["page8_last_query_result"] = result
 
     col_input, col_btn = st.columns([4, 1])
@@ -357,7 +373,8 @@ def _render_query_area(data_loader) -> None:
 
     if result is None:
         result = cached_result
-        if not result or query_text != cached_query_text:
+        current_cache_key = _build_query_cache_key(query_text, data_loader)
+        if not result or current_cache_key != cached_query_key:
             result_slot.info("请输入债券代码或名称并点击「查询」。")
             return
 

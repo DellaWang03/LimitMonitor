@@ -8,7 +8,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import pandas as pd
 
@@ -76,6 +76,13 @@ BOND_CONSTRAINT_SPECS = {
     ],
 }
 
+REQUIRED_CONSTRAINT_DIMENSIONS = {
+    "credit_1_2": {"单一债券规模", "单一债券集中度", "单一主体规模"},
+    "credit_1_1": set(),
+    "credit_2": {"地域集中度"},
+    "full_reg": {"监管集中度"},
+}
+
 DATAFRAME_SOURCES = [
     ("credit_1_1", "信用债1_1", "load_stage1_credit_1_1"),
     ("credit_1_2", "信用债1_2", "load_stage1_credit_1_2"),
@@ -129,6 +136,10 @@ def _pick_first_float(series: pd.Series) -> Optional[float]:
         if numeric_value is not None:
             return numeric_value
     return None
+
+
+def _has_numeric_value(series: pd.Series) -> bool:
+    return bool(pd.to_numeric(series, errors="coerce").notna().any())
 
 
 def _clean_code_text(value: Any) -> Optional[str]:
@@ -332,6 +343,56 @@ def _normalize_overlimit_flag(value: Any) -> str:
     if text in {"是", "否", "不适用"}:
         return text
     return text
+
+
+def _is_yes_flag(value: Any) -> bool:
+    return _clean_text(value) == "是"
+
+
+def _filter_non_high_yield_credit_rows(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    result = df.copy()
+    if "是否属于高收益" in result.columns:
+        result = result[~result["是否属于高收益"].apply(_is_yes_flag)].copy()
+    if "内部证券账户名称" in result.columns:
+        account_text = result["内部证券账户名称"].astype(str)
+        result = result[~account_text.str.contains("高收益", na=False)].copy()
+    return result
+
+
+def _has_high_yield_indicator_rows(df: pd.DataFrame) -> bool:
+    if df.empty:
+        return False
+
+    mask = pd.Series(False, index=df.index)
+    for flag_col in ["是否属于高收益", "是否高收益"]:
+        if flag_col in df.columns:
+            mask |= df[flag_col].apply(_is_yes_flag)
+    if "内部证券账户名称" in df.columns:
+        mask |= df["内部证券账户名称"].astype(str).str.contains("高收益", na=False)
+    return bool(mask.any())
+
+
+def _is_high_yield_data_error(data_health: Dict[str, Any]) -> bool:
+    return any("高收益" in _clean_text(item) for item in data_health.get("errors", []))
+
+
+def _find_regulatory_not_calculable_reason(full_reg_df: pd.DataFrame) -> Optional[str]:
+    if full_reg_df.empty or "是否可计算" not in full_reg_df.columns:
+        return None
+
+    calculable_mask = full_reg_df["是否可计算"].apply(_is_yes_flag)
+    not_calculable_df = full_reg_df[~calculable_mask].copy()
+    if not_calculable_df.empty:
+        return None
+
+    if "不可计算原因" in not_calculable_df.columns:
+        reason = _pick_first_non_empty(not_calculable_df["不可计算原因"])
+        if reason:
+            return _clean_text(reason)
+    return "原因未注明"
 
 
 def _load_dataframe_source(
@@ -567,7 +628,7 @@ def _resolve_bond_rows(
         resolved_entity_key = _pick_first_non_empty(exact_name_df[ENTITY_KEY_COL])
         return df[df[ENTITY_KEY_COL] == resolved_entity_key].copy(), _clean_text(resolved_entity_key), None
 
-    contains_df = df[name_series.str.contains(raw, na=False, case=False)].copy()
+    contains_df = df[name_series.str.contains(raw, na=False, case=False, regex=False)].copy()
     if contains_df.empty:
         return None, "未找到该债券", None
 
@@ -586,11 +647,13 @@ def _build_constraints_from_frame(
     scope_type: str,
     scope_name: str,
     source_name: str,
+    required_dimension_names: Optional[Set[str]] = None,
 ) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     if df.empty:
         return pd.DataFrame()
 
+    required_dimension_names = required_dimension_names or set()
     for _, row in df.iterrows():
         current_scope_name = scope_name
         if scope_type == "account":
@@ -599,6 +662,18 @@ def _build_constraints_from_frame(
         for spec in specs:
             remaining = _coerce_float(row.get(spec["remaining"]))
             overlimit_flag = _normalize_overlimit_flag(row.get(spec["overlimit"]))
+            if remaining is None and spec["name"] in required_dimension_names and overlimit_flag != "是":
+                rows.append(
+                    {
+                        "scope_type": scope_type,
+                        "scope_name": current_scope_name,
+                        "dimension_name": spec["name"],
+                        "remaining_wan": None,
+                        "overlimit_flag": "不可计算",
+                        "source_name": source_name,
+                    }
+                )
+                continue
             if remaining is None and overlimit_flag in {"", "不适用"}:
                 continue
 
@@ -617,6 +692,86 @@ def _build_constraints_from_frame(
             )
 
     return pd.DataFrame(rows)
+
+
+def _build_validated_constraints_from_frame(
+    df: pd.DataFrame,
+    specs: List[Dict[str, str]],
+    *,
+    scope_type: str,
+    scope_name: str,
+    source_name: str,
+    data_health: Dict[str, Any],
+    required_dimension_names: Optional[Set[str]] = None,
+) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+
+    if required_dimension_names is None:
+        required_dimension_names = {spec["name"] for spec in specs}
+    available_specs = [spec for spec in specs if spec["remaining"] in df.columns]
+    missing_specs = [
+        spec
+        for spec in specs
+        if spec["remaining"] not in df.columns and spec["name"] in required_dimension_names
+    ]
+    warning_dimensions = []
+    for spec in missing_specs:
+        warning_dimensions.append(f"{spec['name']}（缺少 {spec['remaining']}）")
+    for spec in available_specs:
+        if spec["name"] not in required_dimension_names:
+            continue
+        has_blank_required_value = False
+        for _, row in df.iterrows():
+            remaining = _coerce_float(row.get(spec["remaining"]))
+            overlimit_flag = _normalize_overlimit_flag(row.get(spec["overlimit"]))
+            if remaining is None and overlimit_flag != "是":
+                has_blank_required_value = True
+                break
+        if has_blank_required_value:
+            warning_dimensions.append(f"{spec['name']}（{spec['remaining']} 为空，无法计算剩余额度）")
+    for spec in available_specs:
+        if spec["overlimit"] not in df.columns:
+            data_health["warnings"].append(
+                f"{source_name}{spec['name']}缺少 {spec['overlimit']}，已按剩余额度推导是否超限。"
+            )
+    if warning_dimensions:
+        data_health["warnings"].append(
+            f"{source_name}部分维度不可计算：" + "、".join(warning_dimensions)
+        )
+
+    constraint_df = _build_constraints_from_frame(
+        df,
+        available_specs,
+        scope_type=scope_type,
+        scope_name=scope_name,
+        source_name=source_name,
+        required_dimension_names=required_dimension_names,
+    )
+    if not missing_specs:
+        return constraint_df
+
+    rows: List[Dict[str, Any]] = []
+    for _, row in df.iterrows():
+        current_scope_name = scope_name
+        if scope_type == "account":
+            current_scope_name = _clean_text(row.get("内部证券账户名称")) or "未识别账户"
+        for spec in missing_specs:
+            rows.append(
+                {
+                    "scope_type": scope_type,
+                    "scope_name": current_scope_name,
+                    "dimension_name": spec["name"],
+                    "remaining_wan": None,
+                    "overlimit_flag": "不可计算",
+                    "source_name": source_name,
+                }
+            )
+
+    missing_df = pd.DataFrame(rows)
+    if constraint_df.empty:
+        return missing_df
+    return pd.concat([constraint_df, missing_df], ignore_index=True)
 
 
 def _build_high_yield_constraints(
@@ -662,6 +817,17 @@ def _build_high_yield_constraints(
         if "高收益年度限额是否超限" in df_capital.columns:
             result_row["高收益年度限额是否超限"] = _pick_first_non_empty(df_capital["高收益年度限额是否超限"])
     else:
+        if df_capital.empty:
+            data_health["errors"].append("高收益投资本金规模缺失：目标日期无可用数据，无法计算高收益年度限额。")
+            return pd.DataFrame()
+        if "全价成本(元)" not in df_capital.columns:
+            data_health["errors"].append("高收益投资本金规模缺少 全价成本(元)，无法计算高收益年度限额。")
+            return pd.DataFrame()
+        capital_cost = pd.to_numeric(df_capital["全价成本(元)"], errors="coerce")
+        if capital_cost.empty or capital_cost.isna().any():
+            data_health["errors"].append("高收益投资本金规模 全价成本(元) 存在空值或非法值，无法计算高收益年度限额。")
+            return pd.DataFrame()
+
         annual_limit = _load_value_source(
             data_loader,
             "high_yield_annual_limit",
@@ -672,11 +838,7 @@ def _build_high_yield_constraints(
         if data_health["errors"]:
             return pd.DataFrame()
 
-        total_capital_wan = float(
-            pd.to_numeric(df_capital.get("全价成本(元)", pd.Series(dtype="float64")), errors="coerce")
-            .fillna(0)
-            .sum()
-        ) / 10000
+        total_capital_wan = float(capital_cost.sum()) / 10000
         annual_remaining_wan = float(annual_limit) - total_capital_wan
         result_row["高收益年度限额剩余额度(万)"] = annual_remaining_wan
         result_row["高收益年度限额是否超限"] = "是" if annual_remaining_wan < 0 else "否"
@@ -688,7 +850,12 @@ def _build_high_yield_constraints(
             "高收益主体剩余额度(万)", "高收益主体是否超限",
         ]
     )
-    if has_persisted_detail:
+    has_usable_persisted_detail = (
+        has_persisted_detail
+        and _has_numeric_value(df_hy_filtered["高收益单债剩余额度(万)"])
+        and _has_numeric_value(df_hy_filtered["高收益主体剩余额度(万)"])
+    )
+    if has_usable_persisted_detail:
         result_row["高收益单债剩余额度(万)"] = _pick_first_float(
             df_hy_filtered["高收益单债剩余额度(万)"]
         )
@@ -722,11 +889,15 @@ def _build_high_yield_constraints(
 
         asset_name = _clean_text(_pick_first_non_empty(df_hy_filtered["资产名称"])) if "资产名称" in df_hy_filtered.columns else ""
         issuer_name = _clean_text(_pick_first_non_empty(df_hy_filtered["债务主体"])) if "债务主体" in df_hy_filtered.columns else ""
-        asset_position = float(
-            pd.to_numeric(df_hy_filtered.get("库存数量(万)_PR", pd.Series(dtype="float64")), errors="coerce")
-            .fillna(0)
-            .sum()
-        )
+        if "库存数量(万)_PR" not in df_hy_filtered.columns:
+            data_health["errors"].append("高收益明细缺少 库存数量(万)_PR，无法计算高收益单债/主体剩余额度。")
+            return pd.DataFrame()
+
+        asset_position_series = pd.to_numeric(df_hy_filtered["库存数量(万)_PR"], errors="coerce")
+        if asset_position_series.empty or asset_position_series.isna().any():
+            data_health["errors"].append("高收益明细 库存数量(万)_PR 存在空值或非法值，无法计算高收益单债/主体剩余额度。")
+            return pd.DataFrame()
+        asset_position = float(asset_position_series.sum())
 
         asset_limit = bond_limits.get(asset_name, default_bond_limit)
         if asset_limit is not None:
@@ -735,16 +906,18 @@ def _build_high_yield_constraints(
             result_row["高收益单债是否超限"] = "是" if asset_remaining < 0 else "否"
 
         issuer_total = 0.0
-        if issuer_name and {"债务主体", "库存数量(万)_PR"}.issubset(df_hy_date.columns):
-            issuer_total = float(
-                pd.to_numeric(
-                    df_hy_date.loc[
-                        df_hy_date["债务主体"].astype(str).str.strip() == issuer_name,
-                        "库存数量(万)_PR",
-                    ],
-                    errors="coerce",
-                ).fillna(0).sum()
+        if issuer_name and "债务主体" in df_hy_date.columns:
+            issuer_position_series = pd.to_numeric(
+                df_hy_date.loc[
+                    df_hy_date["债务主体"].astype(str).str.strip() == issuer_name,
+                    "库存数量(万)_PR",
+                ],
+                errors="coerce",
             )
+            if issuer_position_series.empty or issuer_position_series.isna().any():
+                data_health["errors"].append("高收益明细 库存数量(万)_PR 存在空值或非法值，无法计算高收益主体剩余额度。")
+                return pd.DataFrame()
+            issuer_total = float(issuer_position_series.sum())
         issuer_limit = entity_limits.get(issuer_name, default_entity_limit)
         if issuer_limit is not None:
             issuer_remaining = float(issuer_limit) - issuer_total
@@ -787,6 +960,8 @@ def _collapse_constraints(constraint_frames: List[pd.DataFrame]) -> pd.DataFrame
             return "是"
         if "否" in flags:
             return "否"
+        if "不可计算" in flags:
+            return "不可计算"
         if "不适用" in flags:
             return "不适用"
         return ""
@@ -865,9 +1040,19 @@ def _build_scope_result(
 
         flags = [_normalize_overlimit_flag(v) for v in dim_df["overlimit_flag"] if _normalize_overlimit_flag(v)]
         is_overlimit = (remaining_value is not None and remaining_value < 0) or ("是" in flags)
-        over_str = "是" if is_overlimit else ("否" if remaining_value is not None or "否" in flags else "不适用")
+        is_uncalculable = remaining_value is None and "不可计算" in flags
+        over_str = (
+            "是"
+            if is_overlimit
+            else (
+                "不可计算"
+                if is_uncalculable
+                else ("否" if remaining_value is not None or "否" in flags else "不适用")
+            )
+        )
         if is_overlimit:
             overlimit_dimensions.append(dim_name)
+            limiting_dimensions.append(dim_name)
 
         if remaining_value is not None:
             valid_remaining.append(remaining_value)
@@ -880,7 +1065,9 @@ def _build_scope_result(
             }
         )
 
-    if any(value < 0 for value in valid_remaining):
+    if overlimit_dimensions:
+        final_quota_wan = 0.0
+    elif any(value < 0 for value in valid_remaining):
         final_quota_wan = 0.0
     elif valid_remaining:
         final_quota_wan = max(0.0, min(valid_remaining))
@@ -1026,6 +1213,24 @@ def query_bond_remaining_quota(
         for key, df in dated_sources.items()
     }
     high_yield_date_df = dated_sources["high_yield"]
+    high_yield_entity_df = _filter_frame_by_entity(high_yield_date_df, resolved_entity_key)
+    is_high_yield_query = (
+        not high_yield_entity_df.empty
+        or any(_has_high_yield_indicator_rows(df) for df in filtered_sources.values())
+    )
+    if is_high_yield_query and high_yield_entity_df.empty:
+        data_health["errors"].append(
+            "高收益明细缺失：该债券已识别为高收益，但目标日期高收益明细中未找到对应记录，无法计算高收益专属限额。"
+        )
+        return _empty_query_result(
+            error="高收益限额数据缺失，无法计算单券可购额度。",
+            data_health=data_health,
+        )
+
+    regulatory_not_calculable_reason = _find_regulatory_not_calculable_reason(filtered_sources["full_reg"])
+    if regulatory_not_calculable_reason:
+        message = f"监管集中度不可计算：{regulatory_not_calculable_reason}"
+        data_health["warnings"].append(message)
 
     account_base_frames = [
         _prepare_base_frame(filtered_sources["credit_1_1"], query_date=None, entity_key=resolved_entity_key),
@@ -1037,26 +1242,32 @@ def query_bond_remaining_quota(
     full_reg_base_df = _prepare_base_frame(filtered_sources["full_reg"], query_date=None, entity_key=resolved_entity_key)
 
     constraint_frames = [
-        _build_constraints_from_frame(
-            filtered_sources["credit_1_2"],
+        _build_validated_constraints_from_frame(
+            _filter_non_high_yield_credit_rows(filtered_sources["credit_1_2"]),
             ACCOUNT_CONSTRAINT_SPECS["credit_1_2"],
             scope_type="account",
             scope_name="",
             source_name="信用债1_2",
+            data_health=data_health,
+            required_dimension_names=REQUIRED_CONSTRAINT_DIMENSIONS["credit_1_2"],
         ),
-        _build_constraints_from_frame(
-            filtered_sources["credit_1_1"],
+        _build_validated_constraints_from_frame(
+            _filter_non_high_yield_credit_rows(filtered_sources["credit_1_1"]),
             ACCOUNT_CONSTRAINT_SPECS["credit_1_1"],
             scope_type="account",
             scope_name="",
             source_name="信用债1_1",
+            data_health=data_health,
+            required_dimension_names=REQUIRED_CONSTRAINT_DIMENSIONS["credit_1_1"],
         ),
-        _build_constraints_from_frame(
+        _build_validated_constraints_from_frame(
             filtered_sources["credit_2"],
             ACCOUNT_CONSTRAINT_SPECS["credit_2"],
             scope_type="account",
             scope_name="",
             source_name="信用债2",
+            data_health=data_health,
+            required_dimension_names=REQUIRED_CONSTRAINT_DIMENSIONS["credit_2"],
         ),
     ]
 
@@ -1064,12 +1275,14 @@ def query_bond_remaining_quota(
     if not full_reg_constraint_df.empty and "是否可计算" in full_reg_constraint_df.columns:
         full_reg_constraint_df = full_reg_constraint_df[full_reg_constraint_df["是否可计算"] != "否"].copy()
     constraint_frames.append(
-        _build_constraints_from_frame(
+        _build_validated_constraints_from_frame(
             full_reg_constraint_df,
             BOND_CONSTRAINT_SPECS["full_reg"],
             scope_type="bond",
             scope_name="债券级结果",
             source_name="全量债券监管集中度",
+            data_health=data_health,
+            required_dimension_names=REQUIRED_CONSTRAINT_DIMENSIONS["full_reg"],
         )
     )
     constraint_frames.append(
@@ -1082,6 +1295,11 @@ def query_bond_remaining_quota(
         )
     )
     if data_health["errors"]:
+        if _is_high_yield_data_error(data_health):
+            return _empty_query_result(
+                error="高收益限额数据缺失，无法计算单券可购额度。",
+                data_health=data_health,
+            )
         return _empty_query_result(
             error="单券可购额度查询关键数据源加载失败，请先修复数据后再查询。",
             data_health=data_health,

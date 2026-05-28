@@ -8,6 +8,11 @@ import numpy as np
 from loguru import logger
 from typing import Dict
 from ..common import normalize_security_code_series
+from ..common.financial_tool_pool import (
+    build_financial_tool_pool_sets,
+    normalize_tool_pool_code,
+    row_in_financial_tool_pool,
+)
 from ..utils.config_loader import ConfigLoader
 from ..utils.limit_config_loader import load_limit_config
 
@@ -66,6 +71,169 @@ class LimitDetailCalculator:
         if len(non_null) == 0:
             return None
         return non_null.iloc[0]
+
+    @staticmethod
+    def _normalize_match_series(series: pd.Series, column_name: str) -> pd.Series:
+        """用于跨表兜底匹配的轻量标准化。"""
+        if column_name == '日期':
+            parsed = pd.to_datetime(series, errors='coerce')
+            raw = series.astype('string').str.strip().fillna('')
+            return parsed.dt.strftime('%Y-%m-%d').fillna(raw)
+        if '代码' in column_name:
+            return series.apply(normalize_tool_pool_code)
+        return series.apply(lambda x: '' if pd.isna(x) else str(x).strip())
+
+    @classmethod
+    def _row_key_series(cls, df: pd.DataFrame, columns: list[str]) -> pd.Series:
+        key_parts = [
+            cls._normalize_match_series(df[col], col).astype(str)
+            for col in columns
+        ]
+        return pd.concat(key_parts, axis=1).agg('\x1f'.join, axis=1)
+
+    def _build_penetration_high_yield_codes(self) -> set[str]:
+        df_high_yield = self.cache.get('穿透高收益债券')
+        if df_high_yield is None or df_high_yield.empty:
+            return set()
+        if '类型' not in df_high_yield.columns:
+            return set()
+
+        high_yield_rows = df_high_yield[
+            df_high_yield['类型'].astype(str).str.strip() == '高收益'
+        ]
+        code_columns = [
+            col
+            for col in ('债券代码', '资产代码', '主证券代码', '主证券代码_标准', '代码')
+            if col in high_yield_rows.columns
+        ]
+        codes: set[str] = set()
+        for col in code_columns:
+            codes.update(
+                code
+                for code in high_yield_rows[col].apply(normalize_tool_pool_code)
+                if code
+            )
+        return codes
+
+    def _merged_high_yield_mask(self, result: pd.DataFrame) -> pd.Series:
+        """原始持仓表没有高收益标记时，用合并信用债表做行级兜底。"""
+        mask = pd.Series(False, index=result.index)
+        merged = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
+        if merged is None or merged.empty or '是否属于高收益' not in merged.columns:
+            return mask
+
+        merged_flag = merged['是否属于高收益'].astype(str).str.strip()
+        if not (merged_flag == '是').any():
+            return mask
+
+        high_yield_rows = merged[merged_flag == '是'].copy()
+        exact_candidates = [
+            SOURCE_ROW_ID_COL,
+            '日期',
+            '内部证券账户名称',
+            '资产代码',
+            '资产名称',
+            '主证券代码',
+            '主证券名称',
+            '库存数量(万)_PR',
+        ]
+        exact_cols = [
+            col
+            for col in exact_candidates
+            if col in result.columns and col in high_yield_rows.columns
+        ]
+        if exact_cols:
+            high_yield_keys = set(self._row_key_series(high_yield_rows, exact_cols))
+            mask |= self._row_key_series(result, exact_cols).isin(high_yield_keys)
+
+        code_cols = [
+            col
+            for col in ('资产代码', '资产代码_标准', '主证券代码', '主证券代码_标准')
+            if col in merged.columns
+        ]
+        if not code_cols:
+            return mask
+
+        merged_code_records = []
+        merged_accounts = (
+            merged['内部证券账户名称'].astype(str)
+            if '内部证券账户名称' in merged.columns
+            else pd.Series('', index=merged.index)
+        )
+        for idx, row in merged.iterrows():
+            row_codes = {
+                normalize_tool_pool_code(row.get(col))
+                for col in code_cols
+            }
+            row_codes.discard('')
+            for code in row_codes:
+                merged_code_records.append(
+                    {
+                        'code': code,
+                        'is_high_yield': merged_flag.loc[idx] == '是',
+                        'is_account_high_yield': '高收益' in merged_accounts.loc[idx],
+                    }
+                )
+
+        if not merged_code_records:
+            return mask
+
+        code_status = pd.DataFrame(merged_code_records)
+        all_high_yield_by_code = code_status.groupby('code')['is_high_yield'].all()
+        has_non_account_reason_by_code = (
+            code_status[code_status['is_high_yield']]
+            .groupby('code')['is_account_high_yield']
+            .apply(lambda s: (~s).any())
+        )
+        code_level_high_yield = {
+            code
+            for code, all_high_yield in all_high_yield_by_code.items()
+            if all_high_yield and has_non_account_reason_by_code.get(code, False)
+        }
+        if not code_level_high_yield:
+            return mask
+
+        result_code_cols = [
+            col
+            for col in ('资产代码', '资产代码_标准', '主证券代码', '主证券代码_标准')
+            if col in result.columns
+        ]
+        for col in result_code_cols:
+            mask |= result[col].apply(normalize_tool_pool_code).isin(code_level_high_yield)
+        return mask
+
+    def _filter_non_high_yield_rows(self, df: pd.DataFrame) -> pd.DataFrame:
+        """普通信用债限额口径：排除账户、穿透配置、金融工具池识别出的高收益。"""
+        result = df.copy()
+        high_yield_mask = pd.Series(False, index=result.index)
+
+        if '是否属于高收益' in result.columns:
+            high_yield_mask |= result['是否属于高收益'].astype(str).str.strip() == '是'
+
+        if '内部证券账户名称' in result.columns:
+            high_yield_mask |= result['内部证券账户名称'].astype(str).str.contains('高收益', na=False)
+
+        penetration_codes = self._build_penetration_high_yield_codes()
+        if penetration_codes:
+            for col in ('资产代码', '资产代码_标准', '主证券代码', '主证券代码_标准'):
+                if col in result.columns:
+                    high_yield_mask |= result[col].apply(normalize_tool_pool_code).isin(penetration_codes)
+
+        tool_pool_names, tool_pool_codes = build_financial_tool_pool_sets(
+            self.cache.get('金融工具池设置')
+        )
+        if tool_pool_names or tool_pool_codes:
+            high_yield_mask |= result.apply(
+                row_in_financial_tool_pool,
+                axis=1,
+                tool_pool_names=tool_pool_names,
+                tool_pool_codes=tool_pool_codes,
+            )
+
+        if '是否属于高收益' not in result.columns:
+            high_yield_mask |= self._merged_high_yield_mask(result)
+
+        return result[~high_yield_mask].copy()
     
     def calculate_limit_detail_1_2(self) -> pd.DataFrame:
         """
@@ -542,12 +710,14 @@ class LimitDetailCalculator:
         按M代码完整实现：分组后与限额明细1_2合并，展开限额字段
         
         M代码关键逻辑（第729-806行）:
-        1. 源=债券持仓明细表，排除高收益，筛选非利率债
+        1. 源=债券持仓明细表，按修正后的高收益口径排除高收益后筛选非利率债
         2. 分组：日期+主证券代码+主证券名称
         3. 与"限额明细_债券持仓明细表_信用债1_2"按(日期+主证券代码)左连接
         4. 展开限额相关列（单一债券规模/集中度限额、超限判断）
         5. 去重，筛选单一债券规模限额适用类别不为null
         """
+        # 与 Excel M-code 一致：单一债券明细从原始“债券持仓明细表”取数；
+        # 高收益剔除由统一过滤器按修正后的识别口径补足。
         df = self.cache.get('债券持仓明细表')
         if df is None:
             return pd.DataFrame()
@@ -558,7 +728,7 @@ class LimitDetailCalculator:
             df['主证券代码_标准'] = normalize_security_code_series(df['主证券代码'])
         
         # 【P1-5修复1】排除高收益（M代码第735-736行）
-        df = df[~df['内部证券账户名称'].str.contains('高收益', na=False)]
+        df = self._filter_non_high_yield_rows(df)
         
         # 筛选非利率债（M代码第738-739行）
         df = df[df['债券分类2'] != '利率债']
@@ -672,10 +842,8 @@ class LimitDetailCalculator:
         if df is None:
             return pd.DataFrame()
         
-        df = df.copy()
-        
         # 【P1-5修复1】排除高收益（M代码第814-815行）
-        df = df[~df['内部证券账户名称'].str.contains('高收益', na=False)]
+        df = self._filter_non_high_yield_rows(df)
         
         # 【P1-5修复2】分组计算（M代码第817-819行）
         result = df.groupby(['日期', '债务主体wind代码', '债务主体'], as_index=False).agg({
@@ -842,10 +1010,8 @@ class LimitDetailCalculator:
         if df is None:
             return pd.DataFrame()
         
-        df = df.copy()
-        
         # 排除高收益和关注池
-        df = df[~df['内部证券账户名称'].str.contains('高收益', na=False)]
+        df = self._filter_non_high_yield_rows(df)
         df = df[~df['内部证券账户名称'].str.contains('关注池', na=False)]
         
         # 与特定主体限额关联
@@ -919,11 +1085,9 @@ class LimitDetailCalculator:
         df = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
         if df is None:
             return pd.DataFrame()
-        
-        df = df.copy()
-        
+
         # 【P1-5修复】仅排除高收益（M代码第913-914行，未排除关注池）
-        df = df[~df['内部证券账户名称'].str.contains('高收益', na=False)]
+        df = self._filter_non_high_yield_rows(df)
         
         # 与特定实控人限额关联（M代码第916-922行）
         df_limit = self.cache.get('特定实控人限额')
@@ -960,7 +1124,7 @@ class LimitDetailCalculator:
             if df_total is not None:
                 result = result.merge(
                     df_total[['日期', '业务分类', '特定实控人名称', '特定实控人总持仓']],
-                    left_on=['日期', '业务分类', '指标名称'],
+                    left_on=['日期', '业务分类', '实控人名称'],
                     right_on=['日期', '业务分类', '特定实控人名称'],
                     how='left'
                 )
@@ -983,72 +1147,64 @@ class LimitDetailCalculator:
     def calculate_limit_detail_single_controller(self) -> pd.DataFrame:
         """
         查询: 限额明细_单一实控人
-        基于债券持仓明细表_信用债_合并风险限额相关，计算单一实控人限额
+        按M代码实现：实控人维度汇总后关联1_2限额字段
         """
         df = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
         if df is None:
             return pd.DataFrame()
-        
+
+        # M-code 仅排除高收益；这里仅替换为修正后的高收益识别口径。
+        df = self._filter_non_high_yield_rows(df)
+
+        if df.empty:
+            return pd.DataFrame()
+
         df = df.copy()
-        
-        # 排除高收益和关注池
-        df = df[~df['内部证券账户名称'].str.contains('高收益', na=False)]
-        df = df[~df['内部证券账户名称'].str.contains('关注池', na=False)]
-        
-        # 添加业务分类
-        df['业务分类'] = df['内部证券账户名称'].apply(
-            lambda x: '做市业务' if x == '做市交易部做市业务' else '自营业务'
-        )
-        
-        # 计算单一实控人限额适用类别
-        df['单一实控人限额适用类别'] = df.apply(
-            lambda row: f"中债隐含评级{row['中债隐含评级']}" 
-            if pd.notna(row.get('中债隐含评级')) and row['中债隐含评级'] in ['AAA', 'AAA+']
-            else f"{row.get('发行人类型_调整', row.get('发行人类型', ''))}/{row.get('主体池', '')}",
-            axis=1
-        )
-        
-        # 关联单一实控人规模限额
-        df_limit = self.cache.get('单一实控人规模限额')
-        if df_limit is not None:
-            df = df.merge(
-                df_limit[['日期', '指标名称', '指标值']],
-                left_on=['日期', '单一实控人限额适用类别'],
-                right_on=['日期', '指标名称'],
-                how='left'
-            )
-            df = df.drop(columns=['指标名称'], errors='ignore')
-            df = df.rename(columns={'指标值': '单一实控人规模限额指标值'})
-        
-        # 关联单一实控人总持仓
-        df_total = self.cache.get('单一实控人总持仓')
-        if df_total is not None:
-            df = df.merge(
-                df_total[['日期', '业务分类', '实际控制人名称_修正', '单一实控人总持仓_PR']],
-                on=['日期', '业务分类', '实际控制人名称_修正'],
-                how='left'
-            )
-            
-            # 计算剩余额度
-            df['单一实控人规模剩余额度(万)'] = df['单一实控人规模限额指标值'] - df['单一实控人总持仓_PR']
-            
-            # 判断是否超限
-            df['单一实控人是否超限'] = df['单一实控人规模剩余额度(万)'].apply(
-                lambda x: '是' if pd.notna(x) and x < 0 else '否'
-            )
-        
-        # 选择需要的列
-        result_cols = ['日期', '业务分类', '实际控制人名称_修正', '资产代码', '资产名称',
-                      '单一实控人限额适用类别', '单一实控人规模限额指标值', 
-                      '单一实控人总持仓_PR', '单一实控人规模剩余额度(万)', '单一实控人是否超限']
-        
-        result = df[[col for col in result_cols if col in df.columns]].copy()
-        
-        # 筛选实控人不为空
+        df['库存数量(万)_PR'] = pd.to_numeric(df['库存数量(万)_PR'], errors='coerce')
+
+        result = df.groupby(['日期', '实际控制人名称_修正'], as_index=False).agg({
+            '库存数量(万)_PR': 'sum'
+        })
+        result = result.rename(columns={'库存数量(万)_PR': '单一实控人总持仓_PR'})
         result = result[result['实际控制人名称_修正'].notna()]
-        
+
+        df_limit_detail = self.cache.get('限额明细_债券持仓明细表_信用债1_2')
+        if df_limit_detail is not None and len(df_limit_detail) > 0:
+            limit_cols = [
+                '日期',
+                '实际控制人名称_修正',
+                '单一实控人规模限额指标值',
+                '单一实控人规模剩余额度(万)',
+            ]
+            category_col = None
+            for candidate in ['单一主体/实控人限额适用类别', '单一实控人限额适用类别']:
+                if candidate in df_limit_detail.columns:
+                    category_col = candidate
+                    limit_cols.append(candidate)
+                    break
+
+            limit_cols = [col for col in limit_cols if col in df_limit_detail.columns]
+            result = result.merge(
+                df_limit_detail[limit_cols],
+                on=['日期', '实际控制人名称_修正'],
+                how='left'
+            )
+            result = result.drop_duplicates()
+
+            agg_dict = {'单一实控人总持仓_PR': 'mean'}
+            if '单一实控人规模限额指标值' in result.columns:
+                agg_dict['单一实控人规模限额指标值'] = 'max'
+            if '单一实控人规模剩余额度(万)' in result.columns:
+                agg_dict['单一实控人规模剩余额度(万)'] = 'max'
+
+            result = (
+                result.sort_values(['实际控制人名称_修正'])
+                .groupby(['日期', '实际控制人名称_修正'], as_index=False)
+                .agg(agg_dict)
+            )
+
         logger.info(f"  限额明细_单一实控人: {len(result)} 行")
-        
+
         return result
     
     def calculate_limit_detail_single_controller_max(self) -> pd.DataFrame:
@@ -1074,7 +1230,7 @@ class LimitDetailCalculator:
         df = df.copy()
         
         # 筛选：仅排除高收益（M代码第966-967行）
-        df = df[~df['内部证券账户名称'].str.contains('高收益', na=False)]
+        df = self._filter_non_high_yield_rows(df)
         logger.info(f"  筛选非高收益: {len(df)} 行")
         
         # 【P1-2修复2】补全转债交债分支
@@ -1350,7 +1506,8 @@ class LimitDetailCalculator:
         df = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
         if df is None:
             return pd.DataFrame()
-        
+
+        # M-code 1_1 直接使用合并表，不在此处排除高收益行。
         df = df.copy()
         
         # 添加业务分类

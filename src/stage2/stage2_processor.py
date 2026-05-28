@@ -11,6 +11,11 @@ from loguru import logger
 from typing import Dict, Optional, Any
 import zipfile
 import xml.etree.ElementTree as ET
+from ..common.financial_tool_pool import (
+    build_financial_tool_pool_sets,
+    load_financial_tool_pool,
+    row_in_financial_tool_pool,
+)
 from ..common.security_code_normalizer import normalize_security_code_series
 from ..utils.limit_config_loader import load_limit_config
 
@@ -497,107 +502,7 @@ class Stage2Processor:
         - 保留"代码"和"简称"列（同时支持代码匹配和简称匹配，提高兼容性）
         """
         file_path = self._data_file_path("金融工具池设置.xlsx")
-        
-        try:
-            # 先尝试用pandas正常读取
-            xls = pd.ExcelFile(file_path)
-            sheet_name = xls.sheet_names[0] if xls.sheet_names else None
-            if sheet_name:
-                df = pd.read_excel(file_path, sheet_name=sheet_name)
-                
-                # 筛选可转债品种（与PBI M-code保持一致）
-                if '品种' in df.columns:
-                    df = df[df['品种'] == '可转债'].copy()
-                    logger.info(f"    ✓ 筛选品种='可转债': {len(df)} 行")
-                
-                # 保留代码和简称列（同时支持两种匹配方式）
-                cols_to_keep = []
-                if '代码' in df.columns:
-                    cols_to_keep.append('代码')
-                if '简称' in df.columns:
-                    cols_to_keep.append('简称')
-                
-                if cols_to_keep:
-                    df = df[cols_to_keep].copy()
-                    
-                    # 数据清洗：严格处理空值和无效值
-                    for col in cols_to_keep:
-                        # 先保留原始NaN，转换前清理
-                        df[col] = df[col].replace(['', ' ', 'nan', 'None', 'NaN', 'NULL'], pd.NA)
-                        # 转成字符串并去除空格
-                        df[col] = df[col].astype(str).str.strip()
-                        # 再次过滤无效值（转字符串后可能产生的）
-                        df.loc[df[col].isin(['', 'nan', 'None', '<NA>', 'NaT']), col] = pd.NA
-                    
-                    # 去除完全无效的行
-                    df = df.dropna(how='all')
-                    # 去重
-                    df = df.drop_duplicates()
-                    
-                    # 统计有效数据
-                    code_count = df['代码'].notna().sum() if '代码' in df.columns else 0
-                    name_count = df['简称'].notna().sum() if '简称' in df.columns else 0
-                    logger.info(f"  金融工具池设置（可转债白名单）: {len(df)} 行 (代码: {code_count}, 简称: {name_count})")
-                    
-                    # 打印前10个简称用于调试
-                    if '简称' in df.columns and len(df) > 0:
-                        valid_names = df['简称'].dropna().head(10).tolist()
-                        logger.info(f"    前10个简称: {valid_names}")
-                    
-                    return df
-        except Exception as e:
-            # pandas读取失败，尝试手动解析XML
-            logger.warning(f"  pandas读取失败，尝试手动解析XML: {str(e)[:50]}")
-            df = self._parse_damaged_excel(file_path)
-            
-            if not df.empty:
-                # 筛选可转债品种
-                if '品种' in df.columns:
-                    df = df[df['品种'] == '可转债'].copy()
-                    logger.info(f"    ✓ 筛选品种='可转债': {len(df)} 行")
-                
-                # 保留代码和简称列
-                cols_to_keep = []
-                if '代码' in df.columns:
-                    cols_to_keep.append('代码')
-                if '简称' in df.columns:
-                    cols_to_keep.append('简称')
-                
-                if cols_to_keep:
-                    df = df[cols_to_keep].copy()
-                    
-                    # 数据清洗：严格处理空值和无效值
-                    for col in cols_to_keep:
-                        # 先保留原始NaN，转换前清理
-                        df[col] = df[col].replace(['', ' ', 'nan', 'None', 'NaN', 'NULL'], pd.NA)
-                        # 转成字符串并去除空格
-                        df[col] = df[col].astype(str).str.strip()
-                        # 再次过滤无效值（转字符串后可能产生的）
-                        df.loc[df[col].isin(['', 'nan', 'None', '<NA>', 'NaT']), col] = pd.NA
-                    
-                    # 去除完全无效的行
-                    df = df.dropna(how='all')
-                    # 去重
-                    df = df.drop_duplicates()
-                    
-                    # 统计有效数据
-                    code_count = df['代码'].notna().sum() if '代码' in df.columns else 0
-                    name_count = df['简称'].notna().sum() if '简称' in df.columns else 0
-                    logger.info(f"  金融工具池设置（手动解析，可转债白名单）: {len(df)} 行 (代码: {code_count}, 简称: {name_count})")
-                    
-                    # 打印前10个简称用于调试
-                    if '简称' in df.columns and len(df) > 0:
-                        valid_names = df['简称'].dropna().head(10).tolist()
-                        logger.info(f"    前10个简称: {valid_names}")
-                    
-                    return df
-                else:
-                    logger.warning(f"  手动解析失败或缺少'代码'/'简称'列")
-            else:
-                logger.warning(f"  手动解析失败或数据格式不正确")
-        
-        # 返回空DataFrame
-        return pd.DataFrame({'代码': [], '简称': []})
+        return load_financial_tool_pool(file_path, logger=logger)
     
     def query_penetrate_high_yield(self) -> pd.DataFrame:
         """
@@ -1543,8 +1448,8 @@ class Stage2Processor:
         限额明细_高收益
         M-code: 高收益债券持仓明细
         
-        与PBI M-code保持严格一致的识别规则：
-        1. 优先级最高：资产名称（简称）在金融工具池白名单中 → 纳入（可转债白名单）
+        高收益识别规则：
+        1. 优先级最高：资产代码/主证券代码/资产名称/主证券名称命中金融工具池 → 纳入（可转债白名单）
         2. 账户包含"高收益" → 全部纳入
         3. 穿透高收益债券表中"类型"="高收益" → 纳入（通过ISIN码匹配，对所有债券生效）
         """
@@ -1556,19 +1461,13 @@ class Stage2Processor:
         
         # ===== 准备匹配数据 =====
         
-        # 1. 获取金融工具池设置（可转债白名单，仅按简称匹配，严格对齐M代码）
+        # 1. 获取金融工具池设置（可转债白名单，代码或简称命中即纳入）
         df_tool_pool = self.cache.get('金融工具池设置')
-        tool_pool_names = set()  # 简称白名单
-        if df_tool_pool is not None:
-            if '简称' in df_tool_pool.columns:
-                # 过滤掉NaN和无效值
-                valid_names = df_tool_pool['简称'].dropna()
-                valid_names = valid_names[valid_names.astype(str).str.strip().isin(['', 'nan', 'None', '<NA>']) == False]
-                tool_pool_names = set(valid_names.astype(str).str.strip().unique())
-                logger.info(f"    ✓ 金融工具池白名单（可转债简称）: {len(tool_pool_names)} 个")
-                if len(tool_pool_names) > 0:
-                    sample_names = list(tool_pool_names)[:5]
-                    logger.info(f"      示例: {sample_names}")
+        tool_pool_names, tool_pool_codes = build_financial_tool_pool_sets(df_tool_pool)
+        logger.info(
+            f"    ✓ 金融工具池白名单（可转债代码/简称）: "
+            f"{len(tool_pool_codes)}/{len(tool_pool_names)} 个"
+        )
         
         # 2. 获取穿透高收益债券表，构建ISIN码→类型的映射（严格对齐M代码）
         df_penetrate = self.cache.get('穿透高收益债券')
@@ -1601,19 +1500,18 @@ class Stage2Processor:
         
         # 用于调试：记录每个规则匹配的数量
         match_stats = {
-            'rule1_name': 0,  # 简称在白名单
+            'rule1_tool_pool': 0,  # 代码或简称在白名单
             'rule2_account': 0,  # 账户包含"高收益"
             'rule3_isin': 0   # ISIN码匹配穿透表
         }
         
         def is_high_yield(row):
             account = str(row.get('内部证券账户名称', ''))
-            asset_name = str(row.get('资产名称', '')).strip()  # 简称
 
-            # 规则1（优先级最高）：资产名称（简称）在金融工具池白名单中
+            # 规则1（优先级最高）：代码或简称在金融工具池白名单中
             # 对应 PBI M-code: if [高收益量化可转债] <> null then "是"
-            if asset_name in tool_pool_names:
-                match_stats['rule1_name'] += 1
+            if row_in_financial_tool_pool(row, tool_pool_names, tool_pool_codes):
+                match_stats['rule1_tool_pool'] += 1
                 return '是'
 
             # 规则2：账户名称包含"高收益"
@@ -1641,7 +1539,7 @@ class Stage2Processor:
         # 统计识别结果（调试用）
         high_yield_count = (df['是否高收益'] == '是').sum()
         logger.info(f"    ✓ 识别为高收益的债券: {high_yield_count} 条")
-        logger.info(f"      规则1-简称匹配: {match_stats['rule1_name']} 条")
+        logger.info(f"      规则1-金融工具池代码/简称匹配: {match_stats['rule1_tool_pool']} 条")
         logger.info(f"      规则2-账户高收益: {match_stats['rule2_account']} 条")
         logger.info(f"      规则3-ISIN穿透表: {match_stats['rule3_isin']} 条")
         
@@ -1763,7 +1661,7 @@ class Stage2Processor:
         """
         限额明细_高收益_投资本金规模
         M 代码: 阶段2_query.md 第573-609行
-        源 = 债券持仓表_核算系统，与金融工具池设置左连接简称，筛选（账户含"高收益" or 可转债），
+        源 = 债券持仓表_核算系统，按代码或简称匹配金融工具池设置，筛选（账户含"高收益" or 可转债），
         选列后与 穿透高收益_投资本金规模 追加合并。
         """
         df_src = self.cache.get('债券持仓表_核算系统')
@@ -1790,15 +1688,17 @@ class Stage2Processor:
             logger.warning(f"    债券持仓表_核算系统缺少列: {missing_src}")
             return pd.DataFrame()
         
-        df_tool = self.cache.get('金融工具池设置')
-        if df_tool is not None and '简称' in df_tool.columns:
-            tool_short = df_tool[['简称']].drop_duplicates()
-            tool_short = tool_short.rename(columns={'简称': '高收益量化可转债'})
-            df_src = df_src.merge(
-                tool_short,
-                left_on='简称',
-                right_on='高收益量化可转债',
-                how='left'
+        tool_pool_names, tool_pool_codes = build_financial_tool_pool_sets(
+            self.cache.get('金融工具池设置')
+        )
+        if tool_pool_names or tool_pool_codes:
+            df_src['高收益量化可转债'] = df_src.apply(
+                lambda row: (
+                    row.get('简称')
+                    if row_in_financial_tool_pool(row, tool_pool_names, tool_pool_codes)
+                    else pd.NA
+                ),
+                axis=1,
             )
         else:
             df_src['高收益量化可转债'] = pd.NA
