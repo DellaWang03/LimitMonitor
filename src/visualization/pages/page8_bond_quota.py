@@ -336,8 +336,7 @@ def _render_query_area(data_loader) -> None:
         if current_cache_key == cached_query_key and cached_result:
             result = cached_result
         else:
-            target_date = getattr(data_loader, "target_date", None)
-            result = query_bond_remaining_quota(data_loader, query_text, target_date=target_date)
+            result = query_bond_remaining_quota(data_loader, query_text)
             st.session_state["page8_last_query_text"] = query_text
             st.session_state["page8_last_query_cache_key"] = current_cache_key
             st.session_state["page8_last_query_result"] = result

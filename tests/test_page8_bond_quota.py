@@ -15,6 +15,7 @@ fake_streamlit = types.SimpleNamespace(
 )
 sys.modules.setdefault("streamlit", fake_streamlit)
 
+from src.visualization.pages import page8_bond_quota
 from src.visualization.pages.page8_bond_quota import _build_query_cache_key
 
 
@@ -37,3 +38,62 @@ def test_page8_query_cache_key_includes_archive_and_snapshot_version():
     assert first_key != second_key
     assert first_key == ("240001", "2026-04-27", "snapshot-a")
     assert second_key == ("240001", "2026-04-28", "snapshot-b")
+
+
+class _Context:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _ResultSlot:
+    def warning(self, *_args, **_kwargs):
+        return None
+
+    def info(self, *_args, **_kwargs):
+        return None
+
+    def container(self):
+        return _Context()
+
+
+class _FakeStreamlit:
+    def __init__(self):
+        self.session_state = {
+            "page8_bond_quota_input": "26津渤海MTN003",
+            "page8_query_requested": True,
+        }
+
+    def columns(self, *_args, **_kwargs):
+        return [_Context(), _Context()]
+
+    def text_input(self, *_args, **_kwargs):
+        return self.session_state["page8_bond_quota_input"]
+
+    def button(self, *_args, **_kwargs):
+        return False
+
+    def markdown(self, *_args, **_kwargs):
+        return None
+
+    def empty(self):
+        return _ResultSlot()
+
+
+def test_page8_query_uses_snapshot_data_date_instead_of_archive_date(monkeypatch):
+    captured = {}
+
+    def fake_query(_loader, _query_text, target_date=None):
+        captured["target_date"] = target_date
+        return {"success": True}
+
+    fake_st = _FakeStreamlit()
+    monkeypatch.setattr(page8_bond_quota, "st", fake_st)
+    monkeypatch.setattr(page8_bond_quota, "query_bond_remaining_quota", fake_query)
+    monkeypatch.setattr(page8_bond_quota, "_render_query_result", lambda _result: None)
+
+    page8_bond_quota._render_query_area(LoaderWithDifferentArchive())
+
+    assert captured["target_date"] is None
