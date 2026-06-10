@@ -37,6 +37,22 @@ data_sources:
         # 风控部债券池.accdb：统一走 file_subpaths（公盘 …/投资条线/债券池列表/）。
         # macOS 上由 AccessDatabaseReader 从公盘 accdb mdb-export 到 data_config_source 再读 CSV，勿再 override 到本机副本。
         净资产.xlsx: "/Volumes/sjz-share/共享数据（财务、部门）_紫琪维护/部门数据/4.净资产/净资产.xlsx"
+    # windows：生产运行使用 UNC 公共网盘路径；由 start_web.bat / run_daily.bat 自动启用。
+    windows:
+      data_dir: '\\192.168.136.150\sjz-share\PBI'
+      data_config_source: '\\192.168.136.150\sjz-share\PBI\限额\限额监控'
+      file_subpaths:
+        金融工具池设置.xlsx: '限额\限额监控'
+        限额监控_阶段0_指标设置.xlsx: '限额\限额监控'
+        限额配置_当前.xlsx: '限额\限额监控'
+        统计报表底稿1_债券.xlsx: '投资条线\2026\统计报表新\收益互换临时文件'
+        统计报表底稿2_债券SPPI.xlsx: '投资条线\2026\统计报表新\收益互换临时文件'
+        德勤-主体评级列表.xlsx: '投资条线\2026\统计报表新\数据源'
+        债券持仓表.xlsx: '投资条线\2026\1.收入核算\核算底稿V3'
+        标准日期表.xlsx: '日期表'
+        风控部债券池.accdb: '投资条线\债券池列表'
+      path_overrides:
+        净资产.xlsx: '\\192.168.136.150\sjz-share\共享数据（财务、部门）_紫琪维护\部门数据\4.净资产\净资产.xlsx'
   
   # Excel 文件路径
   excel_files:

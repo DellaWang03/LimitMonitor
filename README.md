@@ -16,6 +16,7 @@ python -m pip install -r requirements.txt
 Windows 可使用：
 
 ```bat
+python -m venv .venv
 .venv\Scripts\activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
@@ -40,6 +41,9 @@ data_sources:
     migration:
       data_dir: "/Volumes/sjz-share/PBI"
       data_config_source: "/Volumes/sjz-share/PBI/限额/限额监控"
+    windows:
+      data_dir: '\\192.168.136.150\sjz-share\PBI'
+      data_config_source: '\\192.168.136.150\sjz-share\PBI\限额\限额监控'
 ```
 
 上线使用共享盘时，重点确认：
@@ -49,12 +53,19 @@ data_sources:
 - `path_profiles.migration.file_subpaths` 与共享盘实际目录一致
 - `path_profiles.migration.path_overrides.净资产.xlsx` 指向净资产文件实际路径
 - `path_profiles.migration.data_config_source` 指向共享盘上的 Base64 拆出表目录，当前为 `/Volumes/sjz-share/PBI/限额/限额监控`
+- Windows 生产环境由 `start_web.bat` / `run_daily.bat` 自动使用 `windows` profile
 - `local` profile 仍读取项目根目录下的 `data_source_0123/`，其中包含本地调试用的 Base64 拆出表
 
 也可以用环境变量临时切换 profile：
 
 ```bash
 export LIMIT_MONITOR_PROFILE=migration
+```
+
+Windows 上如需手工验证 profile：
+
+```bat
+set LIMIT_MONITOR_PROFILE=windows
 ```
 
 ## 三、配置 DB 连接
@@ -67,6 +78,16 @@ export DB_PORT=<port>
 export DB_USER=<user>
 export DB_PASSWORD=<password>
 export DB_NAME=<database>
+```
+
+Windows 可在系统环境变量中配置；也可在本机创建不提交 Git 的 `config\local_env.bat`：
+
+```bat
+set DB_HOST=<host>
+set DB_PORT=3306
+set DB_USER=<user>
+set DB_PASSWORD=<password>
+set DB_NAME=<database>
 ```
 
 ## 四、每日运行
@@ -83,7 +104,9 @@ Windows：
 run_daily.bat
 ```
 
-生产模式建议显式指定：
+Windows 脚本会自动设置 `LIMIT_MONITOR_PROFILE=windows` 和 `LIMIT_MONITOR_ENV=production`，并优先使用 `.venv\Scripts\python.exe`。
+
+macOS/Linux 生产模式建议显式指定：
 
 ```bash
 LIMIT_MONITOR_ENV=production bash run_daily.sh
@@ -120,6 +143,8 @@ Windows：
 ```bat
 start_web.bat
 ```
+
+Windows 脚本会自动加载 `config\local_env.bat`（如存在），检查 DB 环境变量和 `streamlit` 后再启动。
 
 默认访问：
 

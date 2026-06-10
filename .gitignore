@@ -27,6 +27,7 @@ ENV/
 # 数据文件（避免提交大文件）
 data/
 !data/.gitkeep
+config/local_env.bat
 sample data/
 *.xlsx
 *.xls

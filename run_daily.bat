@@ -2,8 +2,44 @@
 chcp 65001 > nul
 REM 每日数据更新脚本 - 支持历史数据备份和环境区分
 
-REM 设置环境模式（默认为development）
-if not defined LIMIT_MONITOR_ENV set LIMIT_MONITOR_ENV=development
+REM 切换到脚本所在目录
+cd /d "%~dp0"
+set PROJECT_ROOT=%cd%
+
+set LIMIT_MONITOR_PROFILE=windows
+set LIMIT_MONITOR_ENV=production
+if exist "config\local_env.bat" call "config\local_env.bat"
+
+if exist ".venv\Scripts\python.exe" (
+    set PYTHON_BIN=.venv\Scripts\python.exe
+) else (
+    set PYTHON_BIN=python
+)
+
+%PYTHON_BIN% --version > nul 2>&1
+if errorlevel 1 (
+    echo 错误: 未找到可用的 Python 解释器
+    echo 请先安装 Python，或在项目根目录创建 .venv
+    pause
+    exit /b 1
+)
+
+%PYTHON_BIN% -c "import pandas, pymysql, streamlit" > nul 2>&1
+if errorlevel 1 (
+    echo 错误: 当前 Python 环境缺少运行依赖
+    echo 请先执行: %PYTHON_BIN% -m pip install -r requirements.txt
+    pause
+    exit /b 1
+)
+
+for %%V in (DB_HOST DB_PORT DB_USER DB_PASSWORD DB_NAME) do (
+    if not defined %%V (
+        echo 错误: 缺少数据库环境变量 %%V
+        echo 请配置系统环境变量，或创建 config\local_env.bat
+        pause
+        exit /b 1
+    )
+)
 
 echo =========================================
 echo 限额监控系统 - 每日数据更新
@@ -20,14 +56,10 @@ for /f "tokens=1-3 delims=/ " %%a in ('date /t') do (
     set TODAY=%%a-%%b-%%c
 )
 
-REM 切换到脚本所在目录
-cd /d "%~dp0"
-set PROJECT_ROOT=%cd%
-
 REM 1. 运行Stage0
 echo.
 echo [1/5] 运行Stage0 - Wind代码处理...
-python run_stage0.py
+%PYTHON_BIN% run_stage0.py
 if errorlevel 1 (
     echo ❌ Stage0运行失败
     pause
@@ -38,7 +70,7 @@ echo ✅ Stage0完成
 REM 2. 运行Stage1
 echo.
 echo [2/5] 运行Stage1 - 限额明细计算...
-python run_stage1.py
+%PYTHON_BIN% run_stage1.py
 if errorlevel 1 (
     echo ❌ Stage1运行失败
     pause
@@ -49,7 +81,7 @@ echo ✅ Stage1完成
 REM 3. 运行Stage2
 echo.
 echo [3/5] 运行Stage2 - 集中度指标计算...
-python run_stage2.py
+%PYTHON_BIN% run_stage2.py
 if errorlevel 1 (
     echo ❌ Stage2运行失败
     pause
@@ -101,7 +133,7 @@ if exist "%WARNING_FILE%" (
     if exist "%CURRENT_DIR%\stage0_output" (
         if exist "%CURRENT_DIR%\stage1_output" (
             if exist "%CURRENT_DIR%\stage2_output" (
-                python scripts/daily_archive.py
+                %PYTHON_BIN% scripts/daily_archive.py
                 if not errorlevel 1 (
                     set ARCHIVED=true
                     echo ✅ 数据已写入 DB current 快照
@@ -130,7 +162,7 @@ REM 5. 基于 DB current 快照生成展示层快照
 if "%ARCHIVED%"=="true" (
     echo.
     echo [5/5] 生成展示层 CSV 快照...
-    python scripts/generate_display_snapshot.py
+    %PYTHON_BIN% scripts/generate_display_snapshot.py
     if errorlevel 1 (
         echo ⚠️  展示层快照生成失败（DB 已归档成功，请单独检查 generate_display_snapshot.py）
     ) else (
