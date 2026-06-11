@@ -1,0 +1,75 @@
+"""阶段1运行脚本"""
+
+import os
+from pathlib import Path
+from datetime import datetime
+from loguru import logger
+from src.stage1 import Stage1Processor
+from src.common.logger_setup import LoggerSetup
+from src.utils.config_loader import get_config
+
+
+def main():
+    """主函数"""
+    # 读取环境模式
+    ENV_MODE = os.getenv('LIMIT_MONITOR_ENV', 'development').lower()
+    # 补跑模式（--target-date）下，DATA_INCOMPLETE 由上游 stage0 管理，此处仅做日志展示
+    data_incomplete = os.getenv('DATA_INCOMPLETE', 'false').lower() == 'true'
+    
+    # 初始化日志
+    log_setup = LoggerSetup(level="INFO")
+    log_setup.setup()
+    
+    # 设置路径
+    base_dir = Path(__file__).parent
+    
+    # 从配置文件读取数据源目录
+    config = get_config()
+    data_dir = config.get_data_dir()
+    
+    output_dir = base_dir / "data" / "current" / "stage1_output"
+
+    stage0_output_dir = base_dir / "data" / "current" / "stage0_output"
+    
+    logger.info("=" * 80)
+    logger.info("阶段1: 限额监控数据处理")
+    logger.info(f"运行模式: {'🔴 生产环境' if ENV_MODE == 'production' else '🟡 测试环境'}")
+    if data_incomplete:
+        logger.warning("⚠️  数据完整性: 不完整（使用旧数据）")
+    logger.info("=" * 80)
+    logger.info(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    try:
+        # 创建处理器（传入 config 以支持路径 profile 一键切换）
+        processor = Stage1Processor(
+            data_dir=data_dir,
+            output_dir=output_dir,
+            stage0_output_dir=stage0_output_dir,
+            config=config,
+        )
+        
+        # 执行处理
+        results = processor.process_all()
+        
+        # 输出结果汇总
+        logger.info("\n" + "=" * 80)
+        logger.info("阶段1处理结果汇总")
+        logger.info("=" * 80)
+        
+        for name, df in results.items():
+            logger.info(f"✓ {name}: {len(df)} 行")
+        
+        logger.info("\n" + "=" * 80)
+        logger.info(f"结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info("阶段1处理完成！")
+        if data_incomplete and ENV_MODE == 'development':
+            logger.warning("⚠️  数据不完整，请勿用于生产决策")
+        logger.info("=" * 80)
+        
+    except Exception as e:
+        logger.exception(f"阶段1处理失败: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    main()

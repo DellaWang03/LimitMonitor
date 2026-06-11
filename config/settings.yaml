@@ -1,0 +1,161 @@
+# 限额监控系统 - 核心配置
+# ================================================================================
+
+# 项目信息
+project:
+  name: "限额监控自动化系统"
+  version: "1.0.0"
+  description: "固定收益事业部债券投资限额监控"
+
+# 数据源配置
+data_sources:
+  # 默认/回退数据源根目录（相对于项目根目录）。
+  # local profile 实际使用 path_profiles.local.data_dir；仅当未配置 local.data_dir 时才用此项。
+  data_dir: "限额"
+  
+  # 路径配置：一键切换 local（当前环境）| migration（另一台电脑）
+  active_profile: "migration"
+  path_profiles:
+    # local：不修改现有行为，所有文件从 data_dir 下读取
+    local:
+      data_dir: "data_source_0123"
+    # migration：共享盘固定路径，按实际挂载点修改 data_dir / data_config_source / path_overrides
+    migration:
+      data_dir: "/Volumes/sjz-share/PBI"
+      data_config_source: "/Volumes/sjz-share/PBI/限额/限额监控"
+      file_subpaths:
+        金融工具池设置.xlsx: "限额/限额监控"
+        限额监控_阶段0_指标设置.xlsx: "限额/限额监控"
+        限额配置_当前.xlsx: "限额/限额监控"
+        统计报表底稿1_债券.xlsx: "投资条线/2026/统计报表新"
+        统计报表底稿2_债券SPPI.xlsx: "投资条线/2026/统计报表新"
+        德勤-主体评级列表.xlsx: "投资条线/2026/统计报表新/数据源"
+        债券持仓表.xlsx: "投资条线/2026/1.收入核算/核算底稿V3"
+        标准日期表.xlsx: "日期表"
+        风控部债券池.accdb: "投资条线/债券池列表"
+      path_overrides:
+        # 风控部债券池.accdb：统一走 file_subpaths（公盘 …/投资条线/债券池列表/）。
+        # macOS 上由 AccessDatabaseReader 从公盘 accdb mdb-export 到 data_config_source 再读 CSV，勿再 override 到本机副本。
+        净资产.xlsx: "/Volumes/sjz-share/共享数据（财务、部门）_紫琪维护/部门数据/4.净资产/净资产.xlsx"
+    # windows：生产运行使用 UNC 公共网盘路径；由 start_web.bat / run_daily.bat 自动启用。
+    windows:
+      data_dir: '\\192.168.136.150\sjz-share\PBI'
+      data_config_source: '\\192.168.136.150\sjz-share\PBI\限额\限额监控'
+      file_subpaths:
+        金融工具池设置.xlsx: '限额\限额监控'
+        限额监控_阶段0_指标设置.xlsx: '限额\限额监控'
+        限额配置_当前.xlsx: '限额\限额监控'
+        统计报表底稿1_债券.xlsx: '投资条线\2026\统计报表新\收益互换临时文件'
+        统计报表底稿2_债券SPPI.xlsx: '投资条线\2026\统计报表新\收益互换临时文件'
+        德勤-主体评级列表.xlsx: '投资条线\2026\统计报表新\数据源'
+        债券持仓表.xlsx: '投资条线\2026\1.收入核算\核算底稿V3'
+        标准日期表.xlsx: '日期表'
+        风控部债券池.accdb: '投资条线\债券池列表'
+      path_overrides:
+        净资产.xlsx: '\\192.168.136.150\sjz-share\共享数据（财务、部门）_紫琪维护\部门数据\4.净资产\净资产.xlsx'
+  
+  # Excel 文件路径
+  excel_files:
+    bond_holdings: "限额/债券持仓表.xlsx"
+    net_assets: "限额/净资产.xlsx"
+    instrument_pool: "限额/金融工具池设置.xlsx"
+    
+  # Access 数据库
+  access_db:
+    bond_pool_db: "限额/风控部债券池.accdb"
+    driver: "{Microsoft Access Driver (*.mdb, *.accdb)}"
+    
+  # Wind API（如适用）
+  wind:
+    enabled: false  # 是否启用 Wind API
+    # api_key: ${WIND_API_KEY}  # 从环境变量读取
+    
+  # 核算系统（待配置）
+  accounting_system:
+    type: "excel"  # 或 "database", "api"
+    path: "限额/债券持仓表.xlsx"
+
+# 输出配置
+output:
+  # 输出目录
+  directories:
+    processed: "data/processed"
+    reports: "data/output"
+    logs: "logs"
+    
+  # 报表格式
+  reports:
+    format: "excel"  # xlsx
+    include_charts: true
+    include_summary: true
+    
+  # 文件命名
+  filename_pattern: "限额监控报告_{date}.xlsx"
+  date_format: "%Y%m%d"
+
+# 日志配置
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} - {message}"
+  rotation: "10 MB"  # 日志轮转大小
+  retention: "30 days"  # 保留时间
+  
+# 计算配置
+calculation:
+  # 日期配置
+  business_date: "auto"  # auto 表示使用当前日期，也可指定 "2026-01-19"
+  
+  # 精度配置
+  decimal_places: 2
+  
+  # 并行计算
+  parallel:
+    enabled: false
+    workers: 4
+
+# 数据校验
+validation:
+  # 是否启用数据校验
+  enabled: true
+  
+  # 校验规则
+  rules:
+    check_missing_values: true
+    check_data_types: true
+    check_duplicates: true
+    
+  # 容错配置
+  tolerance:
+    max_missing_rate: 0.05  # 最大缺失率 5%
+    
+# 告警配置
+alerts:
+  enabled: true
+  
+  # 告警阈值默认值（两档）—— 由 daily_archive.py 拷贝到 archive_meta，看板运行时从 DB 读取
+  # 修改此处后，下次 daily_archive.py 写库时生效；历史日期阈值不受影响
+  thresholds_default:
+    warning: 0.80   # 使用率 ≥ 80% 时进入警戒区间（黄色）
+    overlimit: 1.00  # 使用率 ≥ 100% 时超限（红色）
+    
+  # 告警方式（待实现）
+  channels:
+    email: false
+    wechat: false
+    console: true
+
+# 性能配置
+performance:
+  # 缓存配置
+  cache:
+    enabled: false
+    ttl: 3600  # 缓存时间（秒）
+    
+  # 数据加载优化
+  chunk_size: 10000  # 分块读取大文件
+  
+# 开发配置
+development:
+  debug_mode: true
+  save_intermediate_results: true  # 保存中间结果以便调试
+  compare_with_excel: true  # 与 Excel 结果对比

@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+.venv/
+env/
+ENV/
+
+# 数据文件（避免提交大文件）
+data/
+!data/.gitkeep
+config/local_env.bat
+sample data/
+*.xlsx
+*.xls
+*.csv
+*.accdb
+*.mdb
+
+# 汇报交付物与演示提纲（按需单独归档，不随代码提交）
+汇报/
+docs/*ppt*.md
+docs/*PPT*.md
+docs/*汇报*.md
+docs/*周报*.md
+docs/*report*.md
+docs/*outline*.md
+diagrams/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 日志文件
+*.log
+logs/
+temp/
+tmp/
+
+# 测试文件
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Streamlit
+.streamlit/
+
+# 快照文件（可选：如果快照文件过大可以忽略）
+# data/snapshots/
+
+# 本地生成产物与第三方依赖缓存
+outputs/
+vendor/
+
+# 终端日志（Cursor IDE）
+.cursor/
