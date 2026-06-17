@@ -21,10 +21,24 @@ TODAY=$(date '+%Y-%m-%d')
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_ROOT"
 
+if [ -x "$PROJECT_ROOT/.venv/bin/python" ]; then
+    PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
+else
+    PYTHON_BIN="${PYTHON_BIN:-python3}"
+fi
+
+echo "Python解释器: $PYTHON_BIN"
+"$PYTHON_BIN" --version
+if [ $? -ne 0 ]; then
+    echo "❌ 未找到可用的 Python 解释器"
+    echo "   请先创建项目虚拟环境: python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt"
+    exit 1
+fi
+
 # 1. 运行Stage0
 echo ""
 echo "[1/5] 运行Stage0 - Wind代码处理..."
-python3 run_stage0.py
+"$PYTHON_BIN" run_stage0.py
 if [ $? -ne 0 ]; then
     echo "❌ Stage0运行失败"
     exit 1
@@ -34,7 +48,7 @@ echo "✅ Stage0完成"
 # 2. 运行Stage1
 echo ""
 echo "[2/5] 运行Stage1 - 限额明细计算..."
-python3 run_stage1.py
+"$PYTHON_BIN" run_stage1.py
 if [ $? -ne 0 ]; then
     echo "❌ Stage1运行失败"
     exit 1
@@ -44,7 +58,7 @@ echo "✅ Stage1完成"
 # 3. 运行Stage2
 echo ""
 echo "[3/5] 运行Stage2 - 集中度指标计算..."
-python3 run_stage2.py
+"$PYTHON_BIN" run_stage2.py
 if [ $? -ne 0 ]; then
     echo "❌ Stage2运行失败"
     exit 1
@@ -93,7 +107,7 @@ else
     echo "✅ 数据完整性检查通过，开始归档到 DB..."
     
     if [ -d "$CURRENT_DIR/stage0_output" ] && [ -d "$CURRENT_DIR/stage1_output" ] && [ -d "$CURRENT_DIR/stage2_output" ]; then
-        python3 scripts/daily_archive.py
+        "$PYTHON_BIN" scripts/daily_archive.py
         if [ $? -eq 0 ]; then
             ARCHIVED=true
             echo "✅ 数据已写入 DB current 快照"
@@ -113,7 +127,7 @@ fi
 if [ "$ARCHIVED" = true ]; then
     echo ""
     echo "[5/5] 生成展示层 CSV 快照..."
-    python3 scripts/generate_display_snapshot.py
+    "$PYTHON_BIN" scripts/generate_display_snapshot.py
     if [ $? -ne 0 ]; then
         echo "⚠️  展示层快照生成失败（DB 已归档成功，请单独检查 generate_display_snapshot.py）"
     else
