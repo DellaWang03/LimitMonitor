@@ -152,6 +152,8 @@ class Stage0Processor:
                     
             except Exception as e:
                 logger.debug(f"批量解析过程信息: {e}")
+        else:
+            logger.info("没有缺失的Wind代码需要解析")
         
         logger.info("\n" + "=" * 80)
         logger.info("阶段0处理完成")
@@ -455,26 +457,29 @@ class Stage0Processor:
         df_virtual = df_virtual.copy()
         df_virtual['变动日期'] = pd.to_datetime(df_virtual['变动日期'], format='mixed', errors='coerce')
         
-        # 展开逻辑：每个主体从其变动日期开始，在之后的所有日期都存在
-        # M代码逻辑: 对每个日期，找出变动日期<=该日期的所有主体，取最新的记录
+        # M代码逻辑: 对每个日期、每个发行人，找出变动日期<=该日期的记录，取最后的有效状态。
+        # 同一变动日期出现多条时保留Excel原始行顺序的最后一条，对齐 Power Query Table.Last。
+        df_virtual['_原始顺序'] = range(len(df_virtual))
+        df_virtual = df_virtual[df_virtual['变动日期'].notna()].copy()
+        df_virtual = df_virtual.sort_values(['发行人名称', '变动日期', '_原始顺序'])
+
         results = []
-        for _, row in df_virtual.iterrows():
-            change_date = row['变动日期']
-            # 只选择 >= 变动日期的日期
-            valid_dates = df_dates[df_dates['日期'] >= change_date]
-            
-            if len(valid_dates) > 0:
-                temp_df = valid_dates[['日期']].copy()
-                temp_df['发行人名称'] = row['发行人名称']
-                temp_df['主体池'] = row['主体池']
-                results.append(temp_df)
+        for current_date in df_dates['日期']:
+            active_records = df_virtual[df_virtual['变动日期'] <= current_date]
+            if active_records.empty:
+                continue
+
+            latest_records = active_records.groupby('发行人名称', sort=False).tail(1)
+            temp_df = latest_records[['发行人名称', '主体池']].copy()
+            temp_df.insert(0, '日期', current_date)
+            results.append(temp_df)
         
         if len(results) == 0:
             logger.info(f"  虚拟添加每日展开(本年度): 0 条记录")
             return pd.DataFrame(columns=['日期', '发行人名称', '主体池'])
         
         df_expanded = pd.concat(results, ignore_index=True)
-        logger.info(f"  虚拟添加每日展开(本年度): {len(df_expanded)} 条记录（{len(df_virtual)}个主体）")
+        logger.info(f"  虚拟添加每日展开(本年度): {len(df_expanded)} 条记录（按每日最新有效记录）")
         
         # 【P1-3修复2】按M代码要求:与"债券池日期"右连接，只保留债券池实际存在的日期
         # M代码: Table.NestedJoin(更改的类型, {"日期"}, 债券池日期, {"日期"}, "债券池日期", JoinKind.RightOuter)
@@ -531,6 +536,33 @@ class Stage0Processor:
         
         # 筛选非空主体池
         df = df[df['主体池'].notna() & (df['主体池'] != '')]
+
+        conflict_counts = (
+            df.groupby(['日期', '发行人名称'])['主体池']
+            .nunique(dropna=True)
+        )
+        conflict_keys = conflict_counts[conflict_counts > 1].index
+        if len(conflict_keys) > 0:
+            samples = []
+            for date_value, issuer_name in list(conflict_keys)[:10]:
+                values = (
+                    df[
+                        (df['日期'] == date_value)
+                        & (df['发行人名称'] == issuer_name)
+                    ]['主体池']
+                    .drop_duplicates()
+                    .astype(str)
+                    .tolist()
+                )
+                if pd.notna(date_value):
+                    date_label = pd.to_datetime(date_value).date()
+                else:
+                    date_label = date_value
+                samples.append(f"{date_label} {issuer_name}: {', '.join(values)}")
+            raise ValueError(
+                "风控部主体池存在同日同发行人多个主体池，无法安全合并到持仓；"
+                f"示例: {samples}"
+            )
         
         # 添加Wind代码
         logger.info(f"  查询 {len(df)} 个主体的Wind代码...")
