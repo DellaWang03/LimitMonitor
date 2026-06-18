@@ -39,6 +39,30 @@ def _first_non_empty(series: pd.Series) -> str:
     return ''
 
 
+def _build_penetrate_isin_type_map_keep_last(df: pd.DataFrame) -> Dict[str, str]:
+    """构造 ISIN -> 类型 映射；重复 ISIN 按配置表中靠后的记录覆盖。"""
+    if df is None or df.empty:
+        return {}
+
+    isin_col = None
+    if 'ISIN代码' in df.columns:
+        isin_col = 'ISIN代码'
+    elif 'ISIN码' in df.columns:
+        isin_col = 'ISIN码'
+    if isin_col is None or '类型' not in df.columns:
+        return {}
+
+    mapping = {}
+    for _, row in df.iterrows():
+        type_value = str(row.get('类型', '')).strip()
+        raw_isin = row.get(isin_col)
+        if pd.notna(raw_isin):
+            isin = str(raw_isin).strip()
+            if isin and isin.lower() not in ('nan', 'none', 'nat') and type_value:
+                mapping[isin] = type_value
+    return mapping
+
+
 def _lookup_high_yield_limit(name: Any, default_limit: float, category_limits: Dict[str, float]) -> float:
     key = _clean_text_value(name)
     if key and key in category_limits:
@@ -635,7 +659,7 @@ class Stage2Processor:
             logger.warning("  穿透高收益_投资本金规模: 穿透表无 ISIN 列")
             return pd.DataFrame()
         
-        penetrate_isin = df_penetrate[[isin_col_penetrate]].drop_duplicates()
+        penetrate_isin = df_penetrate[[isin_col_penetrate]].drop_duplicates(keep='last')
         penetrate_isin = penetrate_isin.dropna(subset=[isin_col_penetrate])
         penetrate_isin.columns = ['ISIN码']
         
@@ -1469,32 +1493,12 @@ class Stage2Processor:
             f"{len(tool_pool_codes)}/{len(tool_pool_names)} 个"
         )
         
-        # 2. 获取穿透高收益债券表，构建ISIN码→类型的映射（严格对齐M代码）
+        # 2. 获取穿透高收益债券表，构建ISIN码→类型的映射；重复 ISIN 保留后面的配置
         df_penetrate = self.cache.get('穿透高收益债券')
-        penetrate_isin_dict = {}  # ISIN码 → 类型
-        if df_penetrate is not None:
-            # 尝试不同的ISIN列名
-            isin_col = None
-            if 'ISIN代码' in df_penetrate.columns:
-                isin_col = 'ISIN代码'
-            elif 'ISIN码' in df_penetrate.columns:
-                isin_col = 'ISIN码'
-            
-            if '类型' in df_penetrate.columns:
-                for _, row in df_penetrate.iterrows():
-                    type_value = str(row.get('类型', '')).strip()
-
-                    # 构建ISIN码映射：严格过滤 NaN，对齐 M 代码 NestedJoin 语义（NaN≠NaN）
-                    if isin_col:
-                        raw_isin = row.get(isin_col)
-                        if pd.notna(raw_isin):
-                            isin = str(raw_isin).strip()
-                            if isin and isin.lower() not in ('nan', 'none', 'nat') and type_value:
-                                penetrate_isin_dict[isin] = type_value
-
-                logger.info(f"    ✓ 穿透高收益债券表（ISIN→类型映射）: {len(penetrate_isin_dict)} 个")
-            else:
-                logger.warning(f"    ⚠️  穿透高收益债券表缺少'类型'列")
+        penetrate_isin_dict = _build_penetrate_isin_type_map_keep_last(df_penetrate)
+        if df_penetrate is not None and '类型' not in df_penetrate.columns:
+            logger.warning(f"    ⚠️  穿透高收益债券表缺少'类型'列")
+        logger.info(f"    ✓ 穿透高收益债券表（ISIN→类型映射）: {len(penetrate_isin_dict)} 个")
         
         # ===== 高收益识别逻辑（增强版：同时支持简称和代码匹配）=====
         
