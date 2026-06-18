@@ -26,19 +26,26 @@ export DB_NAME=<database>
 
 `archive_meta` 记录：
 
-- `archive_date`
-- `data_date`
+- `archive_date`：归档运行日期
+- `data_date`：业务数据日期，也是覆盖与历史读取键
 - `is_current`
 - 告警阈值
 - 高收益年度限额
 - `captured_at`
+
+写入业务表时，每张表都会补充 `archive_date` 与 `data_date` 两列。重跑时按
+`data_date` 清理旧业务行和旧元数据，再写入本次结果。因此：
+
+- 同一个 `data_date` 无论在哪个自然日重跑，只保留最新一版。
+- 不同 `data_date` 即使在同一个自然日归档，也会同时保留。
+- `archive_date` 不再作为业务快照唯一键，只用于记录这批数据是哪天归档的。
 
 ## 读取口径
 
 展示层通过 `src.visualization.data_loader.DataLoader` 读取 DB：
 
 - `target_date=None`：读取 `archive_meta.is_current=1` 对应快照
-- `target_date=<date>`：读取指定 `archive_date` 快照
+- `target_date=<date>`：读取指定 `data_date` 快照
 
 展示层不再从 `data/history/` 读取业务结果，也不从历史目录读取 `data_date.txt`。
 

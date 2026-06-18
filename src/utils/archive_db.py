@@ -9,8 +9,8 @@
 - ``ArchiveDB.prepare_stage_tables_schema()``：在写数据前预同步 schema
   （建表 / 补列 / 建索引）。该阶段可能触发 MySQL DDL 隐式提交，因此与数据
   事务分离；失败时只会留下 schema 变更，不会留下半批业务快照。
-- ``ArchiveDB.write_batch()``：``daily_archive.py`` 唯一入口，单事务内完成
-  所有 stage 表"删旧 + 写新" + ``archive_meta`` upsert + ``is_current`` 切换；
+- ``ArchiveDB.write_batch()``：``daily_archive.py`` 唯一入口，单事务内按
+  ``data_date`` 完成所有 stage 表"删旧 + 写新" + ``archive_meta`` current 切换；
   前提是 schema 已预同步完成。
 - ``ArchiveDB.read_dataframe`` / ``get_archive_meta`` / ``get_available_dates``
   / ``get_current_archive_date``：``DataLoader`` 读取入口。
@@ -23,7 +23,7 @@ from functools import lru_cache
 from typing import Optional
 
 import pandas as pd
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import bindparam, create_engine, inspect, text
 from sqlalchemy.dialects.mysql import (
     BIGINT,
     DATETIME as MYSQL_DATETIME,
@@ -38,6 +38,7 @@ from sqlalchemy.types import TypeEngine
 from src.utils.logger import get_logger
 
 logger = get_logger()
+_ARCHIVE_WRITE_LOCK_TIMEOUT_SECONDS = 60
 
 
 # ---------------------------------------------------------------------------
@@ -45,14 +46,16 @@ logger = get_logger()
 # ---------------------------------------------------------------------------
 _ARCHIVE_META_DDL = """
 CREATE TABLE IF NOT EXISTS archive_meta (
-    archive_date              VARCHAR(10)    NOT NULL PRIMARY KEY,
-    data_date                 VARCHAR(10)    NULL,
+    archive_date              VARCHAR(10)    NOT NULL,
+    data_date                 VARCHAR(10)    NOT NULL,
     is_current                TINYINT(1)     NOT NULL DEFAULT 0,
     alert_warning_threshold   DECIMAL(10,4)  NOT NULL DEFAULT 0.8000,
     alert_overlimit_threshold DECIMAL(10,4)  NOT NULL DEFAULT 1.0000,
     high_yield_annual_limit_wan DOUBLE       NULL,
     captured_at               DATETIME(6)    NOT NULL,
-    KEY idx_archive_meta_current (is_current)
+    KEY idx_archive_meta_current (is_current),
+    KEY idx_archive_meta_archive_date (archive_date),
+    KEY idx_archive_meta_data_date (data_date)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
 """.strip()
 
@@ -80,14 +83,14 @@ def _resolve_dtype(df: pd.DataFrame) -> dict[str, TypeEngine]:
         - ``datetime64[ns]``              → ``DATETIME``
         - 其余 / ``object``               → ``LONGTEXT``（兜底，按文本落库；
                                             读取侧再做日期/数值还原）
-        - ``archive_date`` 业务键固定     → ``VARCHAR(10)``
+        - ``archive_date`` / ``data_date`` 快照键固定 → ``VARCHAR(10)``
 
     注意：本函数应当对同一张表的每次写入都返回相同类型映射；后续写入仍以此为准，
     避免某一批次的空列被 pandas 推断为 ``object`` 而触发隐式 ALTER。
     """
     dtype_map: dict[str, TypeEngine] = {}
     for col, dt in df.dtypes.items():
-        if col == "archive_date":
+        if col in {"archive_date", "data_date"}:
             dtype_map[col] = VARCHAR(10)
             continue
 
@@ -113,15 +116,19 @@ def _prepare_dataframe_for_storage(
     df: pd.DataFrame,
     archive_date: str,
     table_name: str,
+    data_date: Optional[str] = None,
 ) -> pd.DataFrame:
-    """统一补 ``archive_date`` 首列，保证 schema 预同步与正式写入口径一致。"""
+    """统一补快照日期列，保证 schema 预同步与正式写入口径一致。"""
     if df is None:
         raise ValueError(f"{table_name} dataframe 为 None")
 
     prepared = df.copy()
-    if "archive_date" in prepared.columns:
-        prepared = prepared.drop(columns=["archive_date"])
+    for snapshot_col in ("archive_date", "data_date"):
+        if snapshot_col in prepared.columns:
+            prepared = prepared.drop(columns=[snapshot_col])
     prepared.insert(0, "archive_date", archive_date)
+    if data_date is not None:
+        prepared.insert(1, "data_date", data_date)
     return prepared
 
 
@@ -202,6 +209,8 @@ class ArchiveDB:
         with self._engine.begin() as conn:
             conn.execute(text(_ARCHIVE_META_DDL))
             self._ensure_archive_meta_columns(conn)
+            self._ensure_archive_meta_allows_repeated_archive_dates(conn)
+            self._ensure_archive_meta_indexes(conn)
         logger.info("archive_meta 表已就绪")
 
     @property
@@ -224,10 +233,10 @@ class ArchiveDB:
         """
         在 schema 已预同步的前提下，单事务完成：
 
-        1. 对 ``stage_tables`` 中每张表按 ``archive_date`` 删旧 + 追加写新；
+        1. 对 ``stage_tables`` 中每张表按 ``data_date`` 删旧 + 追加写新；
         2. ``UPDATE archive_meta SET is_current = 0``；
-        3. ``INSERT ... ON DUPLICATE KEY UPDATE`` ``archive_meta``：
-           ``is_current=1``、``data_date``、``alert_*_threshold``、
+        3. 删除 ``archive_meta`` 中同 ``data_date`` 的旧记录并插入本次元数据：
+           ``archive_date``、``is_current=1``、``alert_*_threshold``、
            ``high_yield_annual_limit_wan``、``captured_at=NOW(6)``。
 
         该事务只包含 DML，不再在事务内执行建表 / 补列 / 建索引等 DDL；
@@ -240,52 +249,70 @@ class ArchiveDB:
             raise ValueError(
                 f"write_batch: archive_date 必须为 'YYYY-MM-DD' 字符串，收到 {archive_date!r}"
             )
-
-        with self._engine.begin() as conn:
-            for table_name, df in stage_tables.items():
-                rows = self._write_dataframe_in_conn(
-                    conn=conn,
-                    table_name=table_name,
-                    archive_date=archive_date,
-                    df=df,
-                )
-                logger.info(
-                    f"write_batch: {table_name} 写入 {rows} 行 "
-                    f"(archive_date={archive_date})"
-                )
-
-            conn.execute(text("UPDATE archive_meta SET is_current = 0"))
-
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO archive_meta (
-                        archive_date, data_date, is_current,
-                        alert_warning_threshold, alert_overlimit_threshold,
-                        high_yield_annual_limit_wan,
-                        captured_at
-                    ) VALUES (
-                        :archive_date, :data_date, 1,
-                        :warning, :overlimit, :high_yield_annual_limit_wan,
-                        NOW(6)
-                    )
-                    ON DUPLICATE KEY UPDATE
-                        data_date = VALUES(data_date),
-                        is_current = 1,
-                        alert_warning_threshold = VALUES(alert_warning_threshold),
-                        alert_overlimit_threshold = VALUES(alert_overlimit_threshold),
-                        high_yield_annual_limit_wan = VALUES(high_yield_annual_limit_wan),
-                        captured_at = VALUES(captured_at)
-                    """
-                ),
-                {
-                    "archive_date": archive_date,
-                    "data_date": data_date,
-                    "warning": float(alert_warning_threshold),
-                    "overlimit": float(alert_overlimit_threshold),
-                    "high_yield_annual_limit_wan": float(high_yield_annual_limit_wan),
-                },
+        if not isinstance(data_date, str) or len(data_date) != 10:
+            raise ValueError(
+                f"write_batch: data_date 必须为 'YYYY-MM-DD' 字符串，收到 {data_date!r}"
             )
+
+        with self._engine.connect() as conn:
+            lock_name = self._acquire_data_date_lock(conn, data_date)
+            try:
+                # GET_LOCK is connection-scoped. SQLAlchemy may still autobegin
+                # around the SELECT, so close that implicit transaction before
+                # opening the business DML transaction on the same connection.
+                conn.commit()
+
+                with conn.begin():
+                    old_archive_dates = self._get_archive_dates_for_data_date(
+                        conn, data_date
+                    )
+                    for table_name, df in stage_tables.items():
+                        rows = self._write_dataframe_in_conn(
+                            conn=conn,
+                            table_name=table_name,
+                            archive_date=archive_date,
+                            data_date=data_date,
+                            df=df,
+                            old_archive_dates=old_archive_dates,
+                        )
+                        logger.info(
+                            f"write_batch: {table_name} 写入 {rows} 行 "
+                            f"(archive_date={archive_date}, data_date={data_date})"
+                        )
+
+                    conn.execute(text("UPDATE archive_meta SET is_current = 0"))
+                    conn.execute(
+                        text("DELETE FROM archive_meta WHERE data_date = :data_date"),
+                        {"data_date": data_date},
+                    )
+
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO archive_meta (
+                                archive_date, data_date, is_current,
+                                alert_warning_threshold, alert_overlimit_threshold,
+                                high_yield_annual_limit_wan,
+                                captured_at
+                            ) VALUES (
+                                :archive_date, :data_date, 1,
+                                :warning, :overlimit, :high_yield_annual_limit_wan,
+                                NOW(6)
+                            )
+                            """
+                        ),
+                        {
+                            "archive_date": archive_date,
+                            "data_date": data_date,
+                            "warning": float(alert_warning_threshold),
+                            "overlimit": float(alert_overlimit_threshold),
+                            "high_yield_annual_limit_wan": float(
+                                high_yield_annual_limit_wan
+                            ),
+                        },
+                    )
+            finally:
+                self._release_data_date_lock(conn, lock_name)
 
         logger.info(
             f"write_batch: archive_date={archive_date} 提交成功 "
@@ -300,6 +327,7 @@ class ArchiveDB:
         table_name: str,
         archive_date: str,
         df: pd.DataFrame,
+        data_date: Optional[str] = None,
     ) -> int:
         """
         按 ``archive_date`` 覆盖写入指定表（删旧 + 追加），返回写入行数。
@@ -308,6 +336,7 @@ class ArchiveDB:
         """
         self.prepare_stage_tables_schema(
             archive_date=archive_date,
+            data_date=data_date,
             stage_tables={table_name: df},
         )
         with self._engine.begin() as conn:
@@ -315,6 +344,7 @@ class ArchiveDB:
                 conn=conn,
                 table_name=table_name,
                 archive_date=archive_date,
+                data_date=data_date,
                 df=df,
             )
 
@@ -322,6 +352,7 @@ class ArchiveDB:
         self,
         archive_date: str,
         stage_tables: dict[str, pd.DataFrame],
+        data_date: Optional[str] = None,
     ) -> None:
         """
         预同步业务表 schema（建表 / 补列 / 建索引）。
@@ -338,6 +369,7 @@ class ArchiveDB:
                 prepared_df = _prepare_dataframe_for_storage(
                     df=df,
                     archive_date=archive_date,
+                    data_date=data_date,
                     table_name=table_name,
                 )
                 dtype_map = _resolve_dtype(prepared_df)
@@ -354,7 +386,7 @@ class ArchiveDB:
                     )
                     logger.info(f"prepare_stage_tables_schema: 已创建新表 {table_name}")
 
-                self._ensure_archive_date_index(conn, table_name)
+                self._ensure_snapshot_key_indexes(conn, table_name, dtype_map)
 
     def _write_dataframe_in_conn(
         self,
@@ -362,13 +394,15 @@ class ArchiveDB:
         table_name: str,
         archive_date: str,
         df: pd.DataFrame,
+        data_date: Optional[str] = None,
+        old_archive_dates: Optional[list[str]] = None,
     ) -> int:
         """
         在指定连接（已开启事务）上完成"删旧 + 写新"。
 
         关键约束：
 
-        - 写入前若 dataframe 已有 ``archive_date`` 列先丢掉，再统一首列插入，
+        - 写入前若 dataframe 已有快照日期列先丢掉，再统一首列插入，
           保证字段顺序与 to_sql 自动建表的列顺序稳定；
         - 调用前必须已完成 schema 预同步；
         - 通过 :func:`_resolve_dtype` 显式提供 ``dtype`` 映射，避免 Excel 空值 /
@@ -377,6 +411,7 @@ class ArchiveDB:
         df = _prepare_dataframe_for_storage(
             df=df,
             archive_date=archive_date,
+            data_date=data_date,
             table_name=table_name,
         )
 
@@ -389,10 +424,28 @@ class ArchiveDB:
                 "请先调用 prepare_stage_tables_schema()。"
             )
 
-        conn.execute(
-            text(f"DELETE FROM `{table_name}` WHERE archive_date = :ad"),
-            {"ad": archive_date},
-        )
+        if data_date is None:
+            conn.execute(
+                text(f"DELETE FROM `{table_name}` WHERE archive_date = :ad"),
+                {"ad": archive_date},
+            )
+        else:
+            conn.execute(
+                text(f"DELETE FROM `{table_name}` WHERE data_date = :dd"),
+                {"dd": data_date},
+            )
+            archive_dates_to_clean = [
+                old_archive_date
+                for old_archive_date in (old_archive_dates or [])
+                if old_archive_date
+            ]
+            if archive_dates_to_clean:
+                stmt = text(
+                    f"DELETE FROM `{table_name}` "
+                    "WHERE archive_date IN :archive_dates "
+                    "AND (data_date IS NULL OR data_date = '')"
+                ).bindparams(bindparam("archive_dates", expanding=True))
+                conn.execute(stmt, {"archive_dates": archive_dates_to_clean})
 
         if not df.empty:
             df.to_sql(
@@ -423,6 +476,46 @@ class ArchiveDB:
                 )
             )
             logger.info(f"_ensure_archive_meta_columns: 新增列 {column_name} ({ddl})")
+
+    @staticmethod
+    def _ensure_archive_meta_allows_repeated_archive_dates(conn: Connection) -> None:
+        """
+        旧版本以 ``archive_date`` 作为 ``archive_meta`` 主键；新口径允许同一天
+        归档多个不同 ``data_date``，因此需要移除这个唯一性约束。
+        """
+        inspector = inspect(conn)
+        pk_columns = (
+            inspector.get_pk_constraint("archive_meta").get("constrained_columns")
+            or []
+        )
+        if pk_columns == ["archive_date"]:
+            conn.execute(text("ALTER TABLE archive_meta DROP PRIMARY KEY"))
+            logger.info(
+                "_ensure_archive_meta_allows_repeated_archive_dates: "
+                "已移除 archive_meta.archive_date 主键"
+            )
+
+    @staticmethod
+    def _ensure_archive_meta_indexes(conn: Connection) -> None:
+        """补齐 ``archive_meta`` 查询索引。"""
+        ArchiveDB._ensure_index(
+            conn=conn,
+            table_name="archive_meta",
+            column_name="is_current",
+            index_name="idx_archive_meta_current",
+        )
+        ArchiveDB._ensure_index(
+            conn=conn,
+            table_name="archive_meta",
+            column_name="archive_date",
+            index_name="idx_archive_meta_archive_date",
+        )
+        ArchiveDB._ensure_index(
+            conn=conn,
+            table_name="archive_meta",
+            column_name="data_date",
+            index_name="idx_archive_meta_data_date",
+        )
 
     @staticmethod
     def _ensure_table_columns(
@@ -458,12 +551,37 @@ class ArchiveDB:
             )
 
     @staticmethod
-    def _ensure_archive_date_index(conn: Connection, table_name: str) -> None:
+    def _ensure_snapshot_key_indexes(
+        conn: Connection,
+        table_name: str,
+        dtype_map: dict[str, TypeEngine],
+    ) -> None:
+        """补齐业务表 ``archive_date`` / ``data_date`` 查询索引。"""
+        ArchiveDB._ensure_index(
+            conn=conn,
+            table_name=table_name,
+            column_name="archive_date",
+            index_name=f"idx_{table_name}_date",
+        )
+        if "data_date" in dtype_map:
+            ArchiveDB._ensure_index(
+                conn=conn,
+                table_name=table_name,
+                column_name="data_date",
+                index_name=f"idx_{table_name}_data_date",
+            )
+
+    @staticmethod
+    def _ensure_index(
+        conn: Connection,
+        table_name: str,
+        column_name: str,
+        index_name: str,
+    ) -> None:
         """
         MySQL 不支持 ``CREATE INDEX IF NOT EXISTS``，这里查 ``information_schema``
-        后按需创建（命名沿用 ``idx_<table>_date`` 约定）。
+        后按需创建。
         """
-        index_name = f"idx_{table_name}_date"
         exists = conn.execute(
             text(
                 """
@@ -479,9 +597,61 @@ class ArchiveDB:
             conn.execute(
                 text(
                     f"CREATE INDEX `{index_name}` "
-                    f"ON `{table_name}` (`archive_date`)"
+                    f"ON `{table_name}` (`{column_name}`)"
                 )
             )
+
+    @staticmethod
+    def _get_archive_dates_for_data_date(
+        conn: Connection,
+        data_date: str,
+    ) -> list[str]:
+        """返回同一 ``data_date`` 已登记过的归档日，用于清理旧口径业务行。"""
+        rows = conn.execute(
+            text(
+                """
+                SELECT archive_date
+                FROM archive_meta
+                WHERE data_date = :data_date
+                """
+            ),
+            {"data_date": data_date},
+        ).all()
+        return [str(row[0]) for row in rows if row[0]]
+
+    @staticmethod
+    def _data_date_lock_name(data_date: str) -> str:
+        """MySQL advisory lock 名称，长度需控制在 64 字符以内。"""
+        return f"limit_monitor_archive:{data_date}"
+
+    @staticmethod
+    def _acquire_data_date_lock(conn: Connection, data_date: str) -> str:
+        """同一 ``data_date`` 归档串行化，避免人工补跑和定时任务交错写库。"""
+        lock_name = ArchiveDB._data_date_lock_name(data_date)
+        acquired = conn.execute(
+            text("SELECT GET_LOCK(:lock_name, :timeout_seconds)"),
+            {
+                "lock_name": lock_name,
+                "timeout_seconds": _ARCHIVE_WRITE_LOCK_TIMEOUT_SECONDS,
+            },
+        ).scalar()
+        if int(acquired or 0) != 1:
+            raise TimeoutError(
+                f"获取 data_date={data_date} 的归档写锁超时，"
+                "可能已有同一业务数据日的归档任务正在执行。"
+            )
+        return lock_name
+
+    @staticmethod
+    def _release_data_date_lock(conn: Connection, lock_name: str) -> None:
+        """释放 MySQL advisory lock；释放失败只记录日志，不覆盖原始写库异常。"""
+        try:
+            conn.execute(
+                text("SELECT RELEASE_LOCK(:lock_name)"),
+                {"lock_name": lock_name},
+            )
+        except Exception as exc:  # pragma: no cover - 防御性日志，不改变主流程结果
+            logger.warning(f"释放归档写锁失败: {lock_name}: {exc}")
 
     def read_dataframe(
         self,
@@ -495,7 +665,7 @@ class ArchiveDB:
 
         - 表不存在 → 返回 ``None``；
         - 表存在但该日期无数据 → 返回带正确列结构的空 dataframe；
-        - 返回的 dataframe **不含** ``archive_date`` 列；
+        - 返回的 dataframe **不含** ``archive_date`` / ``data_date`` 列；
         - 若包含 ``日期`` 列，自动还原为 pandas ``datetime``，兜住 ``LONGTEXT``
           落库的退化场景（确保下游 ``DataLoader`` 拿到的结构与原读 Excel 一致）。
         """
@@ -509,8 +679,66 @@ class ArchiveDB:
                 params={"ad": archive_date},
             )
 
-        if "archive_date" in df.columns:
-            df = df.drop(columns=["archive_date"])
+        return self._normalize_dataframe_from_storage(df)
+
+    def read_dataframe_by_data_date(
+        self,
+        table_name: str,
+        data_date: str,
+    ) -> Optional[pd.DataFrame]:
+        """
+        读取指定 ``data_date`` 的数据。看板历史回放使用该入口，确保同一业务
+        数据日无论在哪天归档都只读取最新版。
+        """
+        with self._engine.connect() as conn:
+            inspector = inspect(conn)
+            if not inspector.has_table(table_name):
+                return None
+            column_names = {
+                column["name"] for column in inspector.get_columns(table_name)
+            }
+            if "data_date" not in column_names:
+                archive_date = (
+                    conn.execute(
+                        text(
+                            """
+                            SELECT archive_date
+                            FROM archive_meta
+                            WHERE data_date = :dd
+                            ORDER BY captured_at DESC
+                            LIMIT 1
+                            """
+                        ),
+                        {"dd": data_date},
+                    ).scalar()
+                )
+                if not archive_date:
+                    df = pd.read_sql(
+                        text(f"SELECT * FROM `{table_name}` WHERE 1 = 0"),
+                        conn,
+                    )
+                    return self._normalize_dataframe_from_storage(df)
+                df = pd.read_sql(
+                    text(f"SELECT * FROM `{table_name}` WHERE archive_date = :ad"),
+                    conn,
+                    params={"ad": archive_date},
+                )
+                return self._normalize_dataframe_from_storage(df)
+
+            df = pd.read_sql(
+                text(f"SELECT * FROM `{table_name}` WHERE data_date = :dd"),
+                conn,
+                params={"dd": data_date},
+            )
+
+        return self._normalize_dataframe_from_storage(df)
+
+    @staticmethod
+    def _normalize_dataframe_from_storage(df: pd.DataFrame) -> pd.DataFrame:
+        """去掉内部快照键并恢复常用字段类型。"""
+        for snapshot_col in ("archive_date", "data_date"):
+            if snapshot_col in df.columns:
+                df = df.drop(columns=[snapshot_col])
 
         if "日期" in df.columns:
             df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
@@ -541,6 +769,8 @@ class ArchiveDB:
                                captured_at
                         FROM archive_meta
                         WHERE archive_date = :ad
+                        ORDER BY is_current DESC, captured_at DESC
+                        LIMIT 1
                         """
                     ),
                     {"ad": archive_date},
@@ -549,6 +779,38 @@ class ArchiveDB:
                 .first()
             )
 
+        return self._archive_meta_row_to_dict(row)
+
+    def get_archive_meta_by_data_date(self, data_date: str) -> Optional[dict]:
+        """
+        返回某 ``data_date`` 的元数据。新归档口径下，``data_date`` 是业务覆盖键。
+        """
+        with self._engine.connect() as conn:
+            row = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT archive_date, data_date, is_current,
+                               alert_warning_threshold, alert_overlimit_threshold,
+                               high_yield_annual_limit_wan,
+                               captured_at
+                        FROM archive_meta
+                        WHERE data_date = :dd
+                        ORDER BY captured_at DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"dd": data_date},
+                )
+                .mappings()
+                .first()
+            )
+
+        return self._archive_meta_row_to_dict(row)
+
+    @staticmethod
+    def _archive_meta_row_to_dict(row) -> Optional[dict]:
+        """统一转换 ``archive_meta`` 查询结果。"""
         if row is None:
             return None
 
@@ -577,7 +839,7 @@ class ArchiveDB:
                         """
                         SELECT archive_date, data_date, is_current, captured_at
                         FROM archive_meta
-                        ORDER BY archive_date DESC
+                        ORDER BY data_date DESC, captured_at DESC
                         """
                     )
                 )
@@ -595,12 +857,12 @@ class ArchiveDB:
         ]
 
     def get_available_dates(self) -> list[str]:
-        """返回 ``archive_meta`` 中全部 ``archive_date``，按降序排列。"""
+        """返回 ``archive_meta`` 中全部 ``data_date``，按降序排列。"""
         with self._engine.connect() as conn:
             rows = conn.execute(
                 text(
-                    "SELECT archive_date FROM archive_meta "
-                    "ORDER BY archive_date DESC"
+                    "SELECT DISTINCT data_date FROM archive_meta "
+                    "ORDER BY data_date DESC"
                 )
             ).all()
         return [r[0] for r in rows]
@@ -611,7 +873,18 @@ class ArchiveDB:
             row = conn.execute(
                 text(
                     "SELECT archive_date FROM archive_meta "
-                    "WHERE is_current = 1 LIMIT 1"
+                    "WHERE is_current = 1 ORDER BY captured_at DESC LIMIT 1"
+                )
+            ).first()
+        return row[0] if row else None
+
+    def get_current_data_date(self) -> Optional[str]:
+        """返回 ``is_current = 1`` 的 ``data_date``，不存在则 ``None``。"""
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT data_date FROM archive_meta "
+                    "WHERE is_current = 1 ORDER BY captured_at DESC LIMIT 1"
                 )
             ).first()
         return row[0] if row else None

@@ -3,7 +3,7 @@
 
 目标：
 1. 确认 ``DataLoader(target_date=None)`` 读取到的 current 快照就是本次测试归档；
-2. 确认 current 模式与显式 ``archive_date`` 历史模式返回相同的原始表、
+2. 确认 current 模式与显式 ``data_date`` 历史模式返回相同的原始表、
    看板筛选/摘要元数据以及页面 builder 结果；
 3. 额外生成两套展示快照 CSV 做逐表严格对比，确保“最终校验数据”和
    “看板实际读取数据”是同一份 DB 结果。
@@ -235,15 +235,30 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="校验 DB current/history 模式下的看板口径一致")
     parser.add_argument(
         "--archive-date",
-        required=True,
-        help="显式历史模式使用的 archive_date（YYYY-MM-DD）",
+        default=None,
+        help="兼容旧参数名；实际含义为业务数据日期 data_date（YYYY-MM-DD）。",
+    )
+    parser.add_argument(
+        "--data-date",
+        default=None,
+        help="显式历史模式使用的 data_date（YYYY-MM-DD）。",
     )
     args = parser.parse_args()
+    selected_data_date = args.data_date or args.archive_date
+    if args.data_date and args.archive_date and args.data_date != args.archive_date:
+        print(
+            "❌ --data-date 与兼容参数 --archive-date 不一致，"
+            "请只传一个业务数据日期。"
+        )
+        return 1
+    if selected_data_date is None:
+        print("❌ 必须传入 --data-date YYYY-MM-DD")
+        return 1
 
     try:
-        target_date = datetime.strptime(args.archive_date, "%Y-%m-%d").date()
+        target_date = datetime.strptime(selected_data_date, "%Y-%m-%d").date()
     except ValueError:
-        print(f"❌ archive_date 必须为 YYYY-MM-DD，收到: {args.archive_date!r}")
+        print(f"❌ data_date 必须为 YYYY-MM-DD，收到: {selected_data_date!r}")
         return 1
 
     from scripts.generate_display_snapshot import write_display_snapshots
@@ -274,20 +289,21 @@ def main() -> int:
     print("=" * 70)
     print("DB current/history 看板一致性校验")
     print("=" * 70)
-    print(f"目标 archive_date: {args.archive_date}")
+    print(f"目标 data_date: {selected_data_date}")
 
     current_loader = DataLoader(target_date=None)
     history_loader = DataLoader(target_date=target_date)
 
     failures: list[str] = []
-    if current_loader.archive_date_str != args.archive_date:
+    if current_loader.data_date_str != selected_data_date:
         failures.append(
             "current 模式未指向本次测试归档："
-            f"current={current_loader.archive_date_str}, expected={args.archive_date}"
+            f"current={current_loader.data_date_str}, expected={selected_data_date}"
         )
 
     public_checks: list[tuple[str, Callable[[DataLoader], Any]]] = [
         ("archive_date_str", lambda loader: loader.archive_date_str),
+        ("data_date_str", lambda loader: loader.data_date_str),
         ("data_source", lambda loader: loader.data_source),
         ("latest_date", lambda loader: loader.get_latest_date()),
         ("summary_metrics", lambda loader: loader.get_summary_metrics()),
@@ -326,7 +342,7 @@ def main() -> int:
         current_snapshot_dir = temp_root / "current"
         history_snapshot_dir = temp_root / "history"
         write_display_snapshots(current_snapshot_dir, archive_date=None)
-        write_display_snapshots(history_snapshot_dir, archive_date=args.archive_date)
+        write_display_snapshots(history_snapshot_dir, archive_date=selected_data_date)
         _compare_snapshot_dirs(
             current_snapshot_dir,
             history_snapshot_dir,

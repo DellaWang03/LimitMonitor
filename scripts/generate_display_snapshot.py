@@ -3,8 +3,8 @@
 
 职责（详见 docs/DB_ARCHIVE_REFERENCE.md）：
 
-1. 通过 ``DataLoader(target_date=...)`` 从 MySQL 归档库读取展示数据（``--archive-date``
-   省略时读 ``archive_meta.is_current=1`` 对应快照）；
+1. 通过 ``DataLoader(target_date=...)`` 从 MySQL 归档库读取展示数据（``--data-date``
+   省略时读 ``archive_meta.is_current=1`` 对应快照；``--archive-date`` 仅作旧参数兼容）；
 2. 调用 ``display_builders`` 复用页面构造逻辑；
 3. 输出 10 张主清单 CSV 到 ``data/current/display_snapshots/``，供
    ``validation/validate_dashboard_display.py`` 黄金校验比对。
@@ -119,7 +119,7 @@ def write_display_snapshots(
 
     Args:
         snapshot_dir: 输出目录（默认 ``data/current/display_snapshots``）。
-        archive_date: ``YYYY-MM-DD``；``None`` 时读取 current 快照。
+        archive_date: 兼容旧参数名，实际按 ``data_date`` 读取；``None`` 时读取 current 快照。
     """
     from src.visualization.data_loader import DataLoader
     from src.visualization.display_builders import (
@@ -190,7 +190,13 @@ def main() -> int:
         "--archive-date",
         type=str,
         default=None,
-        help="归档日期（YYYY-MM-DD），默认读 archive_meta.is_current=1",
+        help="兼容旧参数名；实际含义为业务数据日期 data_date（YYYY-MM-DD）。",
+    )
+    parser.add_argument(
+        "--data-date",
+        type=str,
+        default=None,
+        help="业务数据日期 data_date（YYYY-MM-DD）；默认读 current 快照。",
     )
     parser.add_argument(
         "--snapshot-dir",
@@ -200,12 +206,20 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if args.archive_date is not None:
+    selected_data_date = args.data_date or args.archive_date
+    if args.data_date and args.archive_date and args.data_date != args.archive_date:
+        print(
+            "❌ --data-date 与兼容参数 --archive-date 不一致，"
+            "请只传一个业务数据日期。"
+        )
+        return 1
+
+    if selected_data_date is not None:
         try:
-            datetime.strptime(args.archive_date, "%Y-%m-%d")
+            datetime.strptime(selected_data_date, "%Y-%m-%d")
         except ValueError:
             print(
-                f"❌ archive_date 必须为 'YYYY-MM-DD' 格式，收到: {args.archive_date!r}"
+                f"❌ data_date 必须为 'YYYY-MM-DD' 格式，收到: {selected_data_date!r}"
             )
             return 1
 
@@ -216,7 +230,7 @@ def main() -> int:
     )
 
     try:
-        write_display_snapshots(snapshot_dir, archive_date=args.archive_date)
+        write_display_snapshots(snapshot_dir, archive_date=selected_data_date)
     except Exception as exc:
         print(f"❌ 展示快照生成失败: {exc}")
         import traceback

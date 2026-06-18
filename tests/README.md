@@ -19,13 +19,13 @@ python3 -m pytest -q tests
 ## 上线前全流程集成测试
 
 ```bash
-bash tests/run_full_integration_test.sh [ARCHIVE_DATE] [REF_DIR]
+bash tests/run_full_integration_test.sh [DATA_DATE] [REF_DIR]
 ```
 
 如需指定解释器：
 
 ```bash
-PYTHON_BIN=.venv/bin/python bash tests/run_full_integration_test.sh [ARCHIVE_DATE] [REF_DIR]
+PYTHON_BIN=.venv/bin/python bash tests/run_full_integration_test.sh [DATA_DATE] [REF_DIR]
 ```
 
 前置条件：

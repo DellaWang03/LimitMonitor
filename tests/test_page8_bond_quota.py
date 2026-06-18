@@ -19,25 +19,27 @@ from src.visualization.pages import page8_bond_quota
 from src.visualization.pages.page8_bond_quota import _build_query_cache_key
 
 
-class LoaderWithArchive:
+class LoaderWithDataDate:
     target_date = date(2026, 4, 27)
     archive_date_str = "2026-04-27"
+    data_date_str = "2026-04-26"
     _snapshot_version = "snapshot-a"
 
 
-class LoaderWithDifferentArchive:
+class LoaderWithDifferentDataDate:
     target_date = date(2026, 4, 28)
     archive_date_str = "2026-04-28"
+    data_date_str = "2026-04-27"
     _snapshot_version = "snapshot-b"
 
 
-def test_page8_query_cache_key_includes_archive_and_snapshot_version():
-    first_key = _build_query_cache_key("240001", LoaderWithArchive())
-    second_key = _build_query_cache_key("240001", LoaderWithDifferentArchive())
+def test_page8_query_cache_key_includes_data_date_and_snapshot_version():
+    first_key = _build_query_cache_key("240001", LoaderWithDataDate())
+    second_key = _build_query_cache_key("240001", LoaderWithDifferentDataDate())
 
     assert first_key != second_key
-    assert first_key == ("240001", "2026-04-27", "snapshot-a")
-    assert second_key == ("240001", "2026-04-28", "snapshot-b")
+    assert first_key == ("240001", "2026-04-26", "snapshot-a")
+    assert second_key == ("240001", "2026-04-27", "snapshot-b")
 
 
 class _Context:
@@ -94,6 +96,6 @@ def test_page8_query_uses_snapshot_data_date_instead_of_archive_date(monkeypatch
     monkeypatch.setattr(page8_bond_quota, "query_bond_remaining_quota", fake_query)
     monkeypatch.setattr(page8_bond_quota, "_render_query_result", lambda _result: None)
 
-    page8_bond_quota._render_query_area(LoaderWithDifferentArchive())
+    page8_bond_quota._render_query_area(LoaderWithDifferentDataDate())
 
     assert captured["target_date"] is None

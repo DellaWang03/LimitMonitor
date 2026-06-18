@@ -128,9 +128,12 @@ LIMIT_MONITOR_ENV=production bash run_daily.sh
 python run_stage0.py --target-date 2026-04-07
 python run_stage1.py
 python run_stage2.py
-python scripts/daily_archive.py --archive-date 2026-04-07
-python scripts/generate_display_snapshot.py --archive-date 2026-04-07
+python scripts/daily_archive.py
+python scripts/generate_display_snapshot.py --data-date 2026-04-07
 ```
+
+`daily_archive.py --archive-date` 表示归档运行日；覆盖与历史读取按结果中的
+`data_date` 执行。展示快照、校验和单券审计请优先使用 `--data-date`。
 
 ## 六、启动看板
 
@@ -163,13 +166,13 @@ python3 -m pytest -q tests
 上线前临时全流程集成验收：
 
 ```bash
-bash tests/run_full_integration_test.sh [ARCHIVE_DATE] [REF_DIR]
+bash tests/run_full_integration_test.sh [DATA_DATE] [REF_DIR]
 ```
 
 如需指定解释器：
 
 ```bash
-PYTHON_BIN=.venv/bin/python bash tests/run_full_integration_test.sh [ARCHIVE_DATE] [REF_DIR]
+PYTHON_BIN=.venv/bin/python bash tests/run_full_integration_test.sh [DATA_DATE] [REF_DIR]
 ```
 
 前置条件：
@@ -212,4 +215,4 @@ LimitMonitorAutomation/
 - Stage 单独运行：`python run_stage0.py` / `python run_stage1.py` / `python run_stage2.py`
 - DB 归档：`python scripts/daily_archive.py`
 - 展示快照：`python scripts/generate_display_snapshot.py`
-- 上线前验收：`bash tests/run_full_integration_test.sh [ARCHIVE_DATE] [REF_DIR]`
+- 上线前验收：`bash tests/run_full_integration_test.sh [DATA_DATE] [REF_DIR]`

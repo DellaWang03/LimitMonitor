@@ -220,7 +220,8 @@ def archive_to_db(archive_date: str) -> int:
         3. 从 ``stage1_credit_1_2`` 解析 ``data_date``；
         4. 从配置文件读取展示阈值 / 高收益年度限额；
         5. ``ArchiveDB.prepare_stage_tables_schema()`` 预同步 schema；
-        6. ``ArchiveDB.write_batch()`` 单事务写入 16 张表 + ``archive_meta``。
+        6. ``ArchiveDB.write_batch()`` 按 ``data_date`` 覆盖写入 16 张表
+           + ``archive_meta``。
 
     任一步失败：异常向上抛；若失败发生在第 6 步，数据事务整体回滚。
     """
@@ -249,10 +250,14 @@ def archive_to_db(archive_date: str) -> int:
     db = ArchiveDB.from_env()
     db.prepare_stage_tables_schema(
         archive_date=archive_date,
+        data_date=data_date,
         stage_tables=stage_tables,
     )
 
-    print("\n[5/5] 单事务写入 DB（16 张 stage 表 + archive_meta，切 is_current=1）...")
+    print(
+        "\n[5/5] 单事务写入 DB"
+        "（按 data_date 覆盖；16 张 stage 表 + archive_meta，切 is_current=1）..."
+    )
     db.write_batch(
         archive_date=archive_date,
         stage_tables=stage_tables,
