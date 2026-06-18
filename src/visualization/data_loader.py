@@ -4,8 +4,8 @@
 口径要点：
 
 - 当前模式 (``target_date=None``) → 读取 ``archive_meta.is_current = 1``
-  对应的 ``archive_date``；
-- 历史模式 (``target_date=<date>``) → 读取该 ``archive_date`` 对应的快照；
+  对应的 ``data_date``；
+- 历史模式 (``target_date=<date>``) → 读取该 ``data_date`` 对应的快照；
 - 任一模式都**不再**读取 ``data/current/`` / ``data/history/`` 下的业务
   Excel、配置 Excel 或 ``data_date.txt``；DB 不存在对应快照时直接抛错，
   不静默降级。
@@ -17,7 +17,7 @@
 - 4 个配置读取入口 ``load_high_yield_annual_limit`` /
   ``load_alert_thresholds`` / ``load_regulatory_concentration_limit`` 与
   原有 ``load_*_limit`` 命名保持兼容；
-- 静态方法 ``get_available_dates`` / ``get_data_date_for_archive``。
+- 静态方法 ``get_available_dates`` / ``get_archive_date_for_data``。
 
 不入库的两张表（``load_stage1_single_bond`` /
 ``load_stage1_merged``）当前没有可视化调用方，本文件保留其方法签名但调用时
@@ -68,14 +68,23 @@ def _get_archive_catalog_cached() -> tuple[tuple[str, Optional[str], int], ...]:
 
     db = ArchiveDB.from_env()
     rows = db.list_archive_meta()
-    catalog = tuple(
-        (
-            str(row["archive_date"]),
-            row.get("data_date"),
-            int(row.get("is_current", 0)),
+    catalog_items: list[tuple[str, Optional[str], int]] = []
+    seen_data_dates: set[str] = set()
+    for row in rows:
+        if not row.get("data_date"):
+            continue
+        data_date = str(row["data_date"])
+        if data_date in seen_data_dates:
+            continue
+        seen_data_dates.add(data_date)
+        catalog_items.append(
+            (
+                data_date,
+                row.get("archive_date"),
+                int(row.get("is_current", 0)),
+            )
         )
-        for row in rows
-    )
+    catalog = tuple(catalog_items)
     _archive_catalog_cache["value"] = catalog
     _archive_catalog_cache["expires_at"] = now + _ARCHIVE_CATALOG_TTL_SECONDS
     return catalog
@@ -84,7 +93,7 @@ def _get_archive_catalog_cached() -> tuple[tuple[str, Optional[str], int], ...]:
 @lru_cache(maxsize=256)
 def _read_table_cached(
     table_name: str,
-    archive_date_str: str,
+    data_date_str: str,
     snapshot_version: str,
     attach_code: bool,
 ) -> Optional[pd.DataFrame]:
@@ -92,11 +101,11 @@ def _read_table_cached(
     表数据缓存。
 
     key 中带上 ``snapshot_version``（当前取 archive_meta.captured_at），这样即便
-    同一个 ``archive_date`` 被重新归档，也不会误复用旧快照内容。
+    同一个 ``data_date`` 被重新归档，也不会误复用旧快照内容。
     """
     del snapshot_version  # 仅作为缓存版本键使用
     db = ArchiveDB.from_env()
-    df = db.read_dataframe(table_name, archive_date_str)
+    df = db.read_dataframe_by_data_date(table_name, data_date_str)
     if df is None:
         return None
     if attach_code:
@@ -121,42 +130,42 @@ class DataLoader:
         """
         Args:
             target_date: 目标日期。``None`` 表示加载 ``archive_meta.is_current=1``
-                对应的当前快照；非空时按 ``archive_date = target_date`` 读取历史快照。
+                对应的当前快照；非空时按 ``data_date = target_date`` 读取历史快照。
         """
         self.target_date = target_date
         self._db: ArchiveDB = ArchiveDB.from_env()
         archive_meta: Optional[Dict[str, Any]] = None
 
         if target_date is None:
-            archive_date_str = self._db.get_current_archive_date()
-            if archive_date_str is None:
+            data_date_str = self._db.get_current_data_date()
+            if data_date_str is None:
                 raise FileNotFoundError(
                     "DB 中不存在 current 快照（archive_meta.is_current=1 未置位），"
                     "请先运行 scripts/daily_archive.py。"
                 )
-            archive_meta = self._db.get_archive_meta(archive_date_str)
+            archive_meta = self._db.get_archive_meta_by_data_date(data_date_str)
             if archive_meta is None:
                 raise FileNotFoundError(
-                    f"DB 中不存在 archive_date={archive_date_str} 的 archive_meta，"
+                    f"DB 中不存在 data_date={data_date_str} 的 archive_meta，"
                     "快照不完整，请重新运行 scripts/daily_archive.py。"
                 )
         else:
-            archive_date_str = target_date.strftime("%Y-%m-%d")
-            archive_meta = self._db.get_archive_meta(archive_date_str)
+            data_date_str = target_date.strftime("%Y-%m-%d")
+            archive_meta = self._db.get_archive_meta_by_data_date(data_date_str)
             if archive_meta is None:
                 raise FileNotFoundError(
-                    f"DB 中不存在 archive_date={archive_date_str} 的快照，"
-                    "请先运行 scripts/daily_archive.py --archive-date "
-                    f"{archive_date_str}。"
+                    f"DB 中不存在 data_date={data_date_str} 的快照，"
+                    "请先确认该业务数据日期已成功归档。"
                 )
 
-        self.archive_date_str: str = archive_date_str
+        self.data_date_str: str = str(archive_meta["data_date"])
+        self.archive_date_str: str = str(archive_meta["archive_date"])
         self._archive_meta: Dict[str, Any] = dict(archive_meta)
         captured_at = self._archive_meta.get("captured_at")
         self._snapshot_version: str = (
-            captured_at.isoformat() if captured_at is not None else archive_date_str
+            captured_at.isoformat() if captured_at is not None else self.data_date_str
         )
-        self.data_source: str = f"DB ({archive_date_str})"
+        self.data_source: str = f"DB data_date={self.data_date_str}"
         logger.info(f"数据加载器初始化: {self.data_source}")
 
     # ------------------------------------------------------------------
@@ -175,7 +184,7 @@ class DataLoader:
         """读取当前快照的 archive_meta；缺失时直接报错，不静默降级。"""
         if not self._archive_meta:
             raise FileNotFoundError(
-                f"DB 中不存在 archive_date={self.archive_date_str} 的 archive_meta，"
+                f"DB 中不存在 data_date={self.data_date_str} 的 archive_meta，"
                 "快照不完整，请重新运行 scripts/daily_archive.py。"
             )
         return dict(self._archive_meta)
@@ -183,8 +192,8 @@ class DataLoader:
     @staticmethod
     def get_available_dates() -> List[date]:
         """
-        返回 ``archive_meta`` 中所有 ``archive_date``（datetime.date 列表，
-        从新到旧排序），对齐旧版本"按目录扫描 history/"的对外行为。
+        返回 ``archive_meta`` 中所有 ``data_date``（datetime.date 列表，
+        从新到旧排序），对齐历史模式按业务数据日期选择的行为。
         """
         return [
             datetime.strptime(d, "%Y-%m-%d").date()
@@ -193,28 +202,39 @@ class DataLoader:
 
     @staticmethod
     def get_available_date_options() -> List[tuple[date, Optional[str]]]:
-        """返回历史日期下拉所需的 ``(archive_date, data_date)`` 列表。"""
+        """返回历史日期下拉所需的 ``(data_date, archive_date)`` 列表。"""
         return [
-            (datetime.strptime(d, "%Y-%m-%d").date(), data_date)
-            for d, data_date, _ in _get_archive_catalog_cached()
+            (datetime.strptime(d, "%Y-%m-%d").date(), archive_date)
+            for d, archive_date, _ in _get_archive_catalog_cached()
         ]
+
+    @staticmethod
+    def get_archive_date_for_data(data_date: date) -> Optional[str]:
+        """
+        返回某 ``data_date`` 对应的 ``archive_date``（YYYY-MM-DD 字符串）。
+        """
+        target = data_date.strftime("%Y-%m-%d")
+        for data_date_str, archive_date, _ in _get_archive_catalog_cached():
+            if data_date_str == target:
+                return archive_date
+        return None
 
     @staticmethod
     def get_data_date_for_archive(archive_date: date) -> Optional[str]:
         """
-        返回某 ``archive_date`` 对应的 ``data_date``（YYYY-MM-DD 字符串），
-        替代旧版本读取 ``data/history/<date>/data_date.txt``。
+        兼容旧调用：返回某 ``archive_date`` 下最新登记的 ``data_date``。
+        若同一归档日存在多个业务数据日，只返回元数据目录中的第一条。
         """
         target = archive_date.strftime("%Y-%m-%d")
-        for archive_date_str, data_date, _ in _get_archive_catalog_cached():
+        for data_date_str, archive_date_str, _ in _get_archive_catalog_cached():
             if archive_date_str == target:
-                return data_date
+                return data_date_str
         return None
 
     @staticmethod
     def get_current_archive_date() -> Optional[date]:
         """返回 current 快照的 ``archive_date``；不存在时返回 ``None``。"""
-        for archive_date_str, _, is_current in _get_archive_catalog_cached():
+        for _, archive_date_str, is_current in _get_archive_catalog_cached():
             if is_current == 1:
                 return datetime.strptime(archive_date_str, "%Y-%m-%d").date()
         return None
@@ -224,7 +244,7 @@ class DataLoader:
         """
         返回 current 快照的 ``data_date``（YYYY-MM-DD）；不存在时返回 ``None``。
         """
-        for _, data_date, is_current in _get_archive_catalog_cached():
+        for data_date, _, is_current in _get_archive_catalog_cached():
             if is_current == 1:
                 return data_date
         return None
@@ -238,7 +258,7 @@ class DataLoader:
         attach_code: bool = False,
     ) -> pd.DataFrame:
         """
-        从 DB 读取指定表对应当前 ``archive_date`` 的数据。
+        从 DB 读取指定表对应当前 ``data_date`` 的数据。
 
         - 表 / 数据缺失 → ``FileNotFoundError``（不再回退本地 Excel）；
         - ``日期`` 列由 ``ArchiveDB.read_dataframe`` 还原为 ``datetime``；
@@ -247,13 +267,13 @@ class DataLoader:
         """
         df = _read_table_cached(
             table_name=table_name,
-            archive_date_str=self.archive_date_str,
+            data_date_str=self.data_date_str,
             snapshot_version=self._snapshot_version,
             attach_code=attach_code,
         )
         if df is None:
             raise FileNotFoundError(
-                f"DB 中不存在 archive_date={self.archive_date_str} 的 "
+                f"DB 中不存在 data_date={self.data_date_str} 的 "
                 f"{table_name}，请先运行 scripts/daily_archive.py。"
             )
         return _copy_dataframe(df)
@@ -349,7 +369,7 @@ class DataLoader:
         value = meta.get("high_yield_annual_limit_wan")
         if value is None or pd.isna(value):
             raise ValueError(
-                f"archive_meta.archive_date={self.archive_date_str} 的 "
+                f"archive_meta.data_date={self.data_date_str} 的 "
                 "high_yield_annual_limit_wan 为空，"
                 "无法确定归档当日年度高收益限额。"
             )
@@ -464,7 +484,7 @@ class DataLoader:
         data_date = meta.get("data_date")
         if not data_date:
             raise ValueError(
-                f"archive_meta.archive_date={self.archive_date_str} 的 data_date 为空，"
+                f"archive_meta.data_date={self.data_date_str} 的 data_date 为空，"
                 "无法展示当前快照的数据日期。"
             )
         return datetime.strptime(data_date, "%Y-%m-%d")

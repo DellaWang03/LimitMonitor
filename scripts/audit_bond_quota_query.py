@@ -2,7 +2,7 @@
 单券可购额度查询页独立审计脚本。
 
 默认行为：
-1. 通过 DataLoader 读取指定归档日（未指定则取 current）数据；
+1. 通过 DataLoader 读取指定数据日（未指定则取 current）数据；
 2. 以 page8 五张来源表并集作为查询全集；
 3. 逐只调用 query_bond_remaining_quota，输出覆盖率与结果层级统计。
 """
@@ -83,7 +83,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="审计单券可购额度查询页的全量覆盖与返回口径。")
     parser.add_argument(
         "--archive-date",
-        help="归档日期，格式 YYYY-MM-DD；省略时读取 current 快照。",
+        help="兼容旧参数名；实际含义为业务数据日期 data_date（YYYY-MM-DD）。",
+    )
+    parser.add_argument(
+        "--data-date",
+        help="业务数据日期 data_date，格式 YYYY-MM-DD；省略时读取 current 快照。",
     )
     parser.add_argument(
         "--limit",
@@ -93,7 +97,12 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    target_date = pd.Timestamp(args.archive_date).date() if args.archive_date else None
+    selected_data_date = args.data_date or args.archive_date
+    if args.data_date and args.archive_date and args.data_date != args.archive_date:
+        print("--data-date 与兼容参数 --archive-date 不一致，请只传一个业务数据日期。")
+        return 1
+
+    target_date = pd.Timestamp(selected_data_date).date() if selected_data_date else None
     loader = DataLoader(target_date=target_date) if target_date else DataLoader()
     source_frames = _load_source_frames(loader)
     if all(df.empty for df in source_frames.values()):

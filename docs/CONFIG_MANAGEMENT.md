@@ -122,7 +122,7 @@ alerts:
     overlimit: 1.00
 ```
 
-`scripts/daily_archive.py` 会在归档时把这些阈值写入 `archive_meta`。历史日期展示使用对应归档日写入的阈值。
+`scripts/daily_archive.py` 会在归档时把这些阈值写入 `archive_meta`。历史日期展示使用对应 `data_date` 快照固化的阈值。
 
 ## 常用命令
 
@@ -134,7 +134,7 @@ LIMIT_MONITOR_PROFILE=migration LIMIT_MONITOR_ENV=production bash run_daily.sh
 bash start_web.sh
 
 # 上线前集成验收
-bash tests/run_full_integration_test.sh [ARCHIVE_DATE] [REF_DIR]
+bash tests/run_full_integration_test.sh [DATA_DATE] [REF_DIR]
 ```
 
 DB current/history 的表结构与归档口径详见 `docs/DB_ARCHIVE_REFERENCE.md`。

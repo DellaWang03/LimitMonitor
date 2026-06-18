@@ -43,12 +43,12 @@ def _request_query() -> None:
 
 
 def _build_query_cache_key(query_text: str, data_loader) -> tuple[str, str, str]:
-    archive_date = getattr(data_loader, "archive_date_str", None)
+    snapshot_date = getattr(data_loader, "data_date_str", None)
     target_date = getattr(data_loader, "target_date", None)
-    if archive_date is None and hasattr(target_date, "isoformat"):
-        archive_date = target_date.isoformat()
+    if snapshot_date is None and hasattr(target_date, "isoformat"):
+        snapshot_date = target_date.isoformat()
     snapshot_version = getattr(data_loader, "_snapshot_version", None) or getattr(data_loader, "data_source", "")
-    return (str(query_text or "").strip(), str(archive_date or ""), str(snapshot_version or ""))
+    return (str(query_text or "").strip(), str(snapshot_date or ""), str(snapshot_version or ""))
 
 
 def _inject_page8_css() -> None:

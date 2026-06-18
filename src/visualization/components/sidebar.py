@@ -47,10 +47,10 @@ def render_sidebar(current_page=None) -> tuple[str, Optional[date]]:
         current_archive_date = DL.get_current_archive_date()
         current_data_date = DL.get_current_data_date()
         available_date_options = DL.get_available_date_options()
-        available_dates = [archive_date for archive_date, _ in available_date_options]
-        data_dates_by_archive = {
-            archive_date: data_date
-            for archive_date, data_date in available_date_options
+        available_dates = [data_date for data_date, _ in available_date_options]
+        archive_dates_by_data = {
+            data_date: archive_date
+            for data_date, archive_date in available_date_options
         }
 
         if "date_mode" not in st.session_state:
@@ -70,25 +70,25 @@ def render_sidebar(current_page=None) -> tuple[str, Optional[date]]:
         target_date = None
         
         if date_mode == "历史数据":
-            def _format_archive_option(d):
-                data_date = data_dates_by_archive.get(d)
-                if data_date:
-                    return f"{d.strftime('%Y年%m月%d日')} (数据日期: {data_date})"
+            def _format_data_option(d):
+                archive_date = archive_dates_by_data.get(d)
+                if archive_date:
+                    return f"{d.strftime('%Y年%m月%d日')} (归档: {archive_date})"
                 return d.strftime('%Y年%m月%d日')
 
             if available_dates:
                 target_date = st.selectbox(
                     "选择日期",
                     options=available_dates,
-                    format_func=_format_archive_option,
+                    format_func=_format_data_option,
                     key="selected_date",
                     label_visibility="collapsed"
                 )
-                # 显示当前选中：归档日 + 数据日期（若有）
-                data_date_str = data_dates_by_archive.get(target_date)
-                date_label = f"归档: {target_date.strftime('%Y-%m-%d')}"
-                if data_date_str:
-                    date_label += f" · 数据: {data_date_str}"
+                # 显示当前选中：数据日 + 归档日（若有）
+                archive_date_str = archive_dates_by_data.get(target_date)
+                date_label = f"数据: {target_date.strftime('%Y-%m-%d')}"
+                if archive_date_str:
+                    date_label += f" · 归档: {archive_date_str}"
                 st.markdown(f"""
                 <div style="background: {SIDEBAR_BADGE_BG}; border: 1px solid {SIDEBAR_BADGE_BORDER}; border-radius: 8px; padding: 8px 12px; margin-top: 8px;">
                     <span style="color: {SIDEBAR_BADGE_TEXT}; font-size: 0.8rem;">📅 {date_label}</span>
