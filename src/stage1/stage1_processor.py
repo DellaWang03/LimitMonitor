@@ -9,7 +9,12 @@ from pathlib import Path
 from loguru import logger
 from typing import Dict
 from .stage1_limit_detail import LimitDetailCalculator
-from ..common import normalize_security_code_series
+from ..common import (
+    SINGLE_BOND_GROUP_KEY_COL,
+    SINGLE_BOND_GROUP_KEY_SOURCE_COL,
+    ensure_single_bond_group_key,
+    normalize_security_code_series,
+)
 from ..common.financial_tool_pool import (
     build_financial_tool_pool_sets,
     load_financial_tool_pool,
@@ -61,6 +66,11 @@ class Stage1Processor:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
+
+    @staticmethod
+    def _first_non_null(series: pd.Series):
+        non_null = series.dropna()
+        return non_null.iloc[0] if not non_null.empty else None
 
     def _build_penetration_high_yield_codes(self) -> set[str]:
         df_high_yield = self.cache.get('穿透高收益债券')
@@ -628,7 +638,7 @@ class Stage1Processor:
         
         # 根据M代码选择需要的列（这里只列出关键的23列）
         # 含 实际控制人名称 作为底稿兜底（当 实际控制人名称_修正 缺失时）
-        selected_cols = ['日期', '金融资产会计属性', '部门', '内部证券账户名称', '资产代码', '资产名称', 
+        selected_cols = ['日期', '金融资产会计属性', '部门', '内部证券账户名称', '资产代码', 'ISIN码', '资产名称',
                         '债券分类2', '债券类型1', '主证券代码', '主证券名称', '库存数量(万)_PR', '债券余额(亿)',
                         '发行人类型', '债务主体', '债务主体wind代码', '实际控制人名称', '实际控制人名称_修正', 
                         '担保人', '担保人wind代码', '是否城投债', '债券类别', 'wind行业', '省份', '合并辅助列']
@@ -1484,7 +1494,8 @@ class Stage1Processor:
         M代码逻辑:
         1. 添加业务分类列
         2. 筛选非利率债
-        3. 按日期、业务分类、主证券代码分组，计算总持仓和集中度
+        3. 按日期、业务分类、单债归并键分组，计算总持仓和集中度
+           归并键优先级：主证券代码_标准 -> ISIN码 -> 资产代码_标准 -> 资产名称 -> 行级缺省键
         """
         df = self.cache.get('债券持仓明细表_信用债')
         if df is None:
@@ -1502,10 +1513,12 @@ class Stage1Processor:
         if '主证券代码_标准' not in df.columns and '主证券代码' in df.columns:
             df['主证券代码_标准'] = normalize_security_code_series(df['主证券代码'])
 
+        df = ensure_single_bond_group_key(df)
+
         if '主证券代码' in df.columns and '主证券代码_标准' in df.columns:
             df['_主证券代码_已标准化'] = df['主证券代码'] == df['主证券代码_标准']
             df = df.sort_values(
-                ['日期', '业务分类', '主证券代码_标准', '_主证券代码_已标准化'],
+                ['日期', '业务分类', SINGLE_BOND_GROUP_KEY_COL, '_主证券代码_已标准化'],
                 ascending=[True, True, True, False]
             )
 
@@ -1515,14 +1528,22 @@ class Stage1Processor:
         )
         
         # 分组计算
-        result = df.groupby(
-            ['日期', '业务分类', '主证券代码_标准', '主证券名称'],
-            as_index=False
-        ).agg({
-            '主证券代码': 'first',
+        aggregation_map = {
             '库存数量(万)_PR': 'sum',
-            '债券余额(亿)': 'mean'
-        })
+            '债券余额(亿)': 'mean',
+        }
+        for col in [
+            '主证券代码', '主证券代码_标准', '主证券名称',
+            '资产代码', '资产代码_标准', '资产名称', 'ISIN码',
+            SINGLE_BOND_GROUP_KEY_SOURCE_COL,
+        ]:
+            if col in df.columns:
+                aggregation_map[col] = self._first_non_null
+
+        result = df.groupby(
+            ['日期', '业务分类', SINGLE_BOND_GROUP_KEY_COL],
+            as_index=False
+        ).agg(aggregation_map)
         
         result = result.rename(columns={'库存数量(万)_PR': '单一债券总持仓_PR'})
         
