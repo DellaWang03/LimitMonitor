@@ -7,7 +7,11 @@ import pandas as pd
 import numpy as np
 from loguru import logger
 from typing import Dict
-from ..common import normalize_security_code_series
+from ..common import (
+    SINGLE_BOND_GROUP_KEY_COL,
+    ensure_single_bond_group_key,
+    normalize_security_code_series,
+)
 from ..common.financial_tool_pool import (
     build_financial_tool_pool_sets,
     normalize_tool_pool_code,
@@ -261,6 +265,7 @@ class LimitDetailCalculator:
 
         if '主证券代码_标准' not in df.columns and '主证券代码' in df.columns:
             df['主证券代码_标准'] = normalize_security_code_series(df['主证券代码'])
+        df = ensure_single_bond_group_key(df)
         
         # 1. 筛选非高收益
         df = df[df['是否属于高收益'] == '否']
@@ -486,11 +491,16 @@ class LimitDetailCalculator:
         df_bond_pos = self.cache.get('单一债券总持仓')
         if df_bond_pos is not None:
             df_bond_pos = df_bond_pos.copy()
-            if '主证券代码_标准' not in df_bond_pos.columns and '主证券代码' in df_bond_pos.columns:
-                df_bond_pos['主证券代码_标准'] = normalize_security_code_series(df_bond_pos['主证券代码'])
+            if SINGLE_BOND_GROUP_KEY_COL not in df_bond_pos.columns:
+                df_bond_pos = ensure_single_bond_group_key(df_bond_pos)
             df = df.merge(
-                df_bond_pos[['日期', '业务分类', '主证券代码_标准', '单一债券总持仓_PR', '单一债券集中度']],
-                on=['日期', '业务分类', '主证券代码_标准'],
+                df_bond_pos[
+                    [
+                        '日期', '业务分类', SINGLE_BOND_GROUP_KEY_COL,
+                        '单一债券总持仓_PR', '单一债券集中度'
+                    ]
+                ],
+                on=['日期', '业务分类', SINGLE_BOND_GROUP_KEY_COL],
                 how='left'
             )
             logger.info(f"    关联单一债券总持仓")

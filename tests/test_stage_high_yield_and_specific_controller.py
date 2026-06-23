@@ -132,6 +132,66 @@ def test_stage1_single_bond_total_position_keeps_high_yield_rows_per_m_code(tmp_
     assert result["单一债券总持仓_PR"].iloc[0] == 100.0
 
 
+def test_stage1_single_bond_total_position_uses_fallback_bond_key_when_main_code_missing(tmp_path):
+    processor = Stage1Processor(tmp_path, tmp_path, tmp_path)
+    processor.cache["债券持仓明细表_信用债"] = pd.DataFrame(
+        [
+            _minimal_credit_row(
+                **{
+                    "资产代码": "5354.HK",
+                    "资产名称": "ZBTECH 6.95 12/13/27",
+                    "主证券代码": None,
+                    "主证券名称": None,
+                    "ISIN码": "XS1234567890",
+                    "库存数量(万)_PR": 100.0,
+                    "债券余额(亿)": 10.0,
+                }
+            ),
+            _minimal_credit_row(
+                **{
+                    "内部证券账户名称": "普通账户2",
+                    "资产代码": "ALT5354.HK",
+                    "资产名称": "ZBTECH 6.95 12/13/27",
+                    "主证券代码": None,
+                    "主证券名称": None,
+                    "ISIN码": "XS1234567890",
+                    "库存数量(万)_PR": 50.0,
+                    "债券余额(亿)": 10.0,
+                }
+            ),
+            _minimal_credit_row(
+                **{
+                    "资产代码": "MOXTB23122.MOX",
+                    "资产名称": "CDSNFE 7.9 12/22/26",
+                    "主证券代码": None,
+                    "主证券名称": None,
+                    "ISIN码": None,
+                    "库存数量(万)_PR": 30.0,
+                    "债券余额(亿)": 5.0,
+                }
+            ),
+            _minimal_credit_row(
+                **{
+                    "内部证券账户名称": "普通账户2",
+                    "资产代码": "MOXTB23122.MOX",
+                    "资产名称": "CDSNFE 7.9 12/22/26",
+                    "主证券代码": None,
+                    "主证券名称": None,
+                    "ISIN码": None,
+                    "库存数量(万)_PR": 20.0,
+                    "债券余额(亿)": 5.0,
+                }
+            ),
+        ]
+    )
+
+    result = processor.query_single_bond_total_position()
+    position_by_key = result.set_index("单一债券归并键")["单一债券总持仓_PR"].to_dict()
+
+    assert position_by_key["ISIN码::XS1234567890"] == 150.0
+    assert position_by_key["资产代码_标准::MOXTB23122.MOX"] == 50.0
+
+
 def test_stage1_single_issuer_total_position_keeps_high_yield_rows_per_m_code(tmp_path):
     processor = Stage1Processor(tmp_path, tmp_path, tmp_path)
     credit_rows = pd.DataFrame(
@@ -270,6 +330,87 @@ def test_single_bond_detail_excludes_financial_tool_pool_high_yield_rows():
     result = calculator.calculate_limit_detail_single_bond()
 
     assert result["单一债券总持仓_PR"].iloc[0] == 20.0
+
+
+def test_limit_detail_1_2_merges_single_bond_position_by_fallback_bond_key():
+    base_date = pd.Timestamp("2026-05-20")
+    merged_rows = pd.DataFrame(
+        [
+            _minimal_credit_row(
+                **{
+                    "日期": base_date,
+                    "资产代码": "5354.HK",
+                    "资产名称": "ZBTECH 6.95 12/13/27",
+                    "主证券代码": None,
+                    "主证券名称": None,
+                    "ISIN码": None,
+                    "库存数量(万)_PR": 2383.5,
+                    "债券余额(亿)": None,
+                    "是否属于高收益": "否",
+                    "发行人类型_调整": "国企",
+                    "债券池": None,
+                    "主体池": None,
+                    "主体池_担保": None,
+                    "担保公司是否准入": None,
+                }
+            )
+        ]
+    )
+    single_bond_position = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "业务分类": "自营业务",
+                "单一债券归并键": "资产代码_标准::5354.HK",
+                "单一债券归并键来源": "资产代码_标准",
+                "单一债券总持仓_PR": 2383.5,
+                "单一债券集中度": None,
+            }
+        ]
+    )
+    calculator = LimitDetailCalculator(
+        {
+            "债券持仓明细表_信用债_合并风险限额相关": merged_rows,
+            "单一债券规模限额": pd.DataFrame(
+                [{"日期": base_date, "指标名称": "国企/", "指标值": 0.0}]
+            ),
+            "单一债券集中度限额": pd.DataFrame(
+                [{"日期": base_date, "指标名称": "国企/", "指标值": 0.0}]
+            ),
+            "单一主体规模限额": pd.DataFrame(
+                [{"日期": base_date, "指标名称": "国企", "指标值": 10000.0}]
+            ),
+            "单一债券总持仓": single_bond_position,
+            "单一主体总持仓": pd.DataFrame(
+                [
+                    {
+                        "日期": base_date,
+                        "业务分类": "自营业务",
+                        "债务主体": "测试主体",
+                        "单一主体总持仓_PR": 2383.5,
+                    }
+                ]
+            ),
+            "限额明细_单一实控人_取最高额度": pd.DataFrame(
+                [
+                    {
+                        "日期": base_date,
+                        "业务分类": "自营业务",
+                        "实际控制人名称_修正": "测试实控人",
+                        "单一实控人限额适用类别": "国企",
+                        "单一实控人规模限额指标值": 10000.0,
+                        "单一实控人总持仓_PR": 2383.5,
+                        "单一实控人规模剩余额度(万)": 7616.5,
+                        "单一实控人是否超限": "否",
+                    }
+                ]
+            ),
+        }
+    )
+
+    result = calculator.calculate_limit_detail_1_2()
+
+    assert result["单一债券总持仓_PR"].iloc[0] == 2383.5
 
 
 def test_single_bond_detail_keeps_original_position_rows_not_in_credit_merged():
