@@ -413,6 +413,97 @@ def test_limit_detail_1_2_merges_single_bond_position_by_fallback_bond_key():
     assert result["单一债券总持仓_PR"].iloc[0] == 2383.5
 
 
+def test_limit_detail_1_2_special_single_bond_limit_overrides_scale_only():
+    base_date = pd.Timestamp("2026-05-20")
+    merged_rows = pd.DataFrame(
+        [
+            _minimal_credit_row(
+                **{
+                    "库存数量(万)_PR": 10000.0,
+                    "债券余额(亿)": 10.0,
+                    "是否属于高收益": "否",
+                    "发行人类型_调整": "国企",
+                    "债券池": None,
+                    "主体池": None,
+                    "担保公司是否准入": None,
+                }
+            )
+        ]
+    )
+    single_bond_position = pd.DataFrame(
+        [
+            {
+                "日期": base_date,
+                "业务分类": "自营业务",
+                "单一债券归并键": "主证券代码_标准::113680.SH",
+                "单一债券归并键来源": "主证券代码_标准",
+                "单一债券总持仓_PR": 10000.0,
+                "单一债券集中度": 0.10,
+            }
+        ]
+    )
+    calculator = LimitDetailCalculator(
+        {
+            "债券持仓明细表_信用债_合并风险限额相关": merged_rows,
+            "单一债券规模限额": pd.DataFrame(
+                [{"日期": base_date, "指标名称": "可转债/", "指标值": 15000.0}]
+            ),
+            "单一债券集中度限额": pd.DataFrame(
+                [{"日期": base_date, "指标名称": "可转债/", "指标值": 0.16}]
+            ),
+            "特批单一债券限额": pd.DataFrame(
+                [
+                    {
+                        "日期": base_date,
+                        "主证券代码": "113680.SH",
+                        "规模指标值": 20000.0,
+                        "集中度指标值": 0.05,
+                    }
+                ]
+            ),
+            "单一主体规模限额": pd.DataFrame(
+                [{"日期": base_date, "指标名称": "国企", "指标值": 30000.0}]
+            ),
+            "单一债券总持仓": single_bond_position,
+            "单一主体总持仓": pd.DataFrame(
+                [
+                    {
+                        "日期": base_date,
+                        "业务分类": "自营业务",
+                        "债务主体": "测试主体",
+                        "单一主体总持仓_PR": 10000.0,
+                    }
+                ]
+            ),
+            "限额明细_单一实控人_取最高额度": pd.DataFrame(
+                [
+                    {
+                        "日期": base_date,
+                        "业务分类": "自营业务",
+                        "实际控制人名称_修正": "测试实控人",
+                        "单一实控人限额适用类别": "国企",
+                        "单一实控人规模限额指标值": 35000.0,
+                        "单一实控人总持仓_PR": 10000.0,
+                        "单一实控人规模剩余额度(万)": 25000.0,
+                        "单一实控人是否超限": "否",
+                    }
+                ]
+            ),
+        }
+    )
+
+    result = calculator.calculate_limit_detail_1_2()
+
+    row = result.iloc[0]
+    assert row["单一债券规模限额指标值"] == 20000.0
+    assert row["单一债券规模剩余额度(万)"] == 10000.0
+    assert row["单一债券集中度限额指标值"] == 0.16
+    assert row["单一债券集中度总额度"] == 16000.0
+    assert row["单一债券集中度剩余额度(万)"] == 6000.0
+    assert row["单一债券集中度是否超限"] == "否"
+    assert row["是否超限"] == "否"
+
+
 def test_single_bond_detail_keeps_original_position_rows_not_in_credit_merged():
     base_date = pd.Timestamp("2026-05-20")
     original_rows = pd.DataFrame(
