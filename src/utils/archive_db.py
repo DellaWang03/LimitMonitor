@@ -112,6 +112,35 @@ def _quote_identifier(name: str) -> str:
     return f"`{str(name).replace('`', '``')}`"
 
 
+def _should_widen_to_double(existing_type: TypeEngine, desired_type: TypeEngine) -> bool:
+    """
+    旧表若把实际可带小数的持仓字段建成整数，后续 ``to_sql`` 追加会被 MySQL
+    截断。新批次 dtype 已推断为 DOUBLE 时，将整数或零小数位 DECIMAL 列扩为 DOUBLE。
+    """
+    desired_text = str(desired_type).upper()
+    if "DOUBLE" not in desired_text:
+        return False
+
+    existing_text = str(existing_type).upper().replace(" ", "")
+    existing_name = existing_type.__class__.__name__.upper()
+    if any(token in existing_text for token in ("DOUBLE", "FLOAT", "REAL")):
+        return False
+
+    if "DECIMAL" in existing_text or "NUMERIC" in existing_text:
+        scale = getattr(existing_type, "scale", None)
+        return scale in (None, 0)
+
+    integer_type_names = {
+        "BIGINT",
+        "INTEGER",
+        "INT",
+        "SMALLINT",
+        "TINYINT",
+        "MEDIUMINT",
+    }
+    return existing_name in integer_type_names or existing_text in integer_type_names
+
+
 def _prepare_dataframe_for_storage(
     df: pd.DataFrame,
     archive_date: str,
@@ -527,16 +556,14 @@ class ArchiveDB:
         对已存在表补齐 dataframe 中新增的列，保证历史库能平滑接收新版本快照。
         """
         inspector = inspect(conn)
-        existing_columns = {
-            column["name"] for column in inspector.get_columns(table_name)
+        existing_column_map = {
+            column["name"]: column for column in inspector.get_columns(table_name)
         }
         missing_columns = [
             (col_name, col_type)
             for col_name, col_type in dtype_map.items()
-            if col_name not in existing_columns
+            if col_name not in existing_column_map
         ]
-        if not missing_columns:
-            return
 
         for col_name, col_type in missing_columns:
             ddl_type = col_type.compile(dialect=conn.dialect)
@@ -548,6 +575,24 @@ class ArchiveDB:
             )
             logger.info(
                 f"_ensure_table_columns: {table_name} 新增列 {col_name} ({ddl_type})"
+            )
+
+        widen_columns = [
+            (col_name, col_type)
+            for col_name, col_type in dtype_map.items()
+            if col_name in existing_column_map
+            and _should_widen_to_double(existing_column_map[col_name]["type"], col_type)
+        ]
+        for col_name, col_type in widen_columns:
+            ddl_type = col_type.compile(dialect=conn.dialect)
+            conn.execute(
+                text(
+                    f"ALTER TABLE {_quote_identifier(table_name)} "
+                    f"MODIFY COLUMN {_quote_identifier(col_name)} {ddl_type} NULL"
+                )
+            )
+            logger.info(
+                f"_ensure_table_columns: {table_name} 扩展列 {col_name} 为 {ddl_type}"
             )
 
     @staticmethod
