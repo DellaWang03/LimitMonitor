@@ -90,6 +90,64 @@ class WindCodeResolver:
         
         # 记录未找到的发行人（用于批量Excel查询）
         self.missing_issuers = []
+        self.session_codes = {}
+
+    @staticmethod
+    def _clean_wind_code(value: object) -> Optional[str]:
+        if pd.isna(value):
+            return None
+        text = str(value).strip()
+        if text.lower() in {"", "nan", "none", "null", "na", "n/a"}:
+            return None
+        return text
+
+    @classmethod
+    def _is_successful_wind_result(cls, value: object) -> bool:
+        text = cls._clean_wind_code(value)
+        if text is None:
+            return False
+        if text.startswith("="):
+            return False
+        return text.upper() not in {
+            "#N/A",
+            "#NAME?",
+            "#VALUE!",
+            "#REF!",
+            "#DIV/0!",
+            "#NULL!",
+            "#NUM!",
+        }
+
+    @staticmethod
+    def _is_zero_wind_result(text: str) -> bool:
+        try:
+            return float(text) == 0
+        except ValueError:
+            return False
+
+    @classmethod
+    def _is_cacheable_wind_code(cls, value: object) -> bool:
+        text = cls._clean_wind_code(value)
+        if text is None:
+            return False
+        return cls._is_successful_wind_result(text) and not cls._is_zero_wind_result(text)
+
+    _is_valid_wind_code = _is_successful_wind_result
+
+    def _save_missing_issuers(self) -> None:
+        if not self.missing_issuers:
+            return
+
+        missing_file = Path("temp/missing_wind_codes.txt")
+        missing_file.parent.mkdir(exist_ok=True, parents=True)
+        with open(missing_file, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(sorted(set(self.missing_issuers))))
+
+        logger.warning(f"⚠️  {len(self.missing_issuers)} 个Wind代码未找到")
+        logger.warning(f"   缺失列表已保存: {missing_file.absolute()}")
+
+        if self.system != 'Windows':
+            logger.info(f"   💡 Windows环境部署时将自动使用Excel获取")
     
     def _data_file_path(self, file_name: str) -> Path:
         """按当前 profile 返回数据源文件路径。"""
@@ -180,12 +238,19 @@ class WindCodeResolver:
         """
         if not issuer_name or pd.isna(issuer_name):
             return None
+        issuer_name = str(issuer_name).strip()
+
+        session_code = self.session_codes.get(issuer_name)
+        if self._is_successful_wind_result(session_code):
+            return self._clean_wind_code(session_code)
         
         # 从映射表查询（唯一数据源）
         result = self.mapping[self.mapping['发行人'] == issuer_name]
         
         if len(result) > 0:
-            return str(result.iloc[0]['wind代码'])
+            valid_codes = result['wind代码'].apply(self._is_cacheable_wind_code)
+            if valid_codes.any():
+                return self._clean_wind_code(result.loc[valid_codes, 'wind代码'].iloc[0])
         
         # 未找到：记录到缺失列表，等待批量To_WindCode()补充
         if issuer_name not in self.missing_issuers:
@@ -212,7 +277,9 @@ class WindCodeResolver:
     
     def _cache_code(self, issuer_name: str, wind_code: str):
         """缓存新的Wind代码到映射表"""
-        # 添加到内存中的映射表
+        issuer_name = str(issuer_name).strip()
+        wind_code = str(wind_code).strip()
+        self.mapping = self.mapping[self.mapping['发行人'] != issuer_name].copy()
         new_row = pd.DataFrame([[issuer_name, wind_code]], columns=['发行人', 'wind代码'])
         self.mapping = pd.concat([self.mapping, new_row], ignore_index=True)
         
@@ -248,23 +315,35 @@ class WindCodeResolver:
             logger.info("没有缺失的Wind代码需要解析")
             return 0
         
-        logger.info(f"批量解析缺失的Wind代码: {len(self.missing_issuers)} 个")
+        requested_issuers = list(dict.fromkeys(self.missing_issuers))
+        logger.info(f"批量解析缺失的Wind代码: {len(requested_issuers)} 个")
         
         # 使用Excel辅助工具（所有平台）
         if self.excel_helper:
             try:
                 logger.info("使用Excel To_WindCode函数批量获取...")
-                df_result = self.excel_helper.batch_get_wind_codes(self.missing_issuers)
+                df_result = self.excel_helper.batch_get_wind_codes(requested_issuers)
                 
                 # 合并到映射表
                 success_count = 0
+                resolved_issuers = set()
                 for _, row in df_result.iterrows():
-                    if pd.notna(row['Wind代码']):
-                        self._cache_code(row['发行人名称'], row['Wind代码'])
+                    issuer_name = str(row['发行人名称']).strip()
+                    wind_code = row['Wind代码']
+                    if issuer_name in requested_issuers and self._is_successful_wind_result(wind_code):
+                        wind_code_text = self._clean_wind_code(wind_code)
+                        self.session_codes[issuer_name] = wind_code_text
+                        if self._is_cacheable_wind_code(wind_code_text):
+                            self._cache_code(issuer_name, wind_code_text)
                         success_count += 1
+                        resolved_issuers.add(issuer_name)
                 
-                logger.info(f"✓ Excel批量获取成功: {success_count}/{len(self.missing_issuers)}")
-                self.missing_issuers.clear()
+                self.missing_issuers = [
+                    issuer for issuer in requested_issuers
+                    if issuer not in resolved_issuers
+                ]
+                logger.info(f"✓ Excel批量获取成功: {success_count}/{len(requested_issuers)}")
+                self._save_missing_issuers()
                 return success_count
                 
             except Exception as e:
@@ -273,17 +352,7 @@ class WindCodeResolver:
                 logger.debug(traceback.format_exc())
         
         # 保存缺失列表供后续处理（所有环境）
-        if self.missing_issuers:
-            missing_file = Path("temp/missing_wind_codes.txt")
-            missing_file.parent.mkdir(exist_ok=True, parents=True)
-            with open(missing_file, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(sorted(set(self.missing_issuers))))
-            
-            logger.warning(f"⚠️  {len(self.missing_issuers)} 个Wind代码未找到")
-            logger.warning(f"   缺失列表已保存: {missing_file.absolute()}")
-            
-            if self.system != 'Windows':
-                logger.info(f"   💡 Windows环境部署时将自动使用Excel获取")
+        self._save_missing_issuers()
         
         return 0
     
