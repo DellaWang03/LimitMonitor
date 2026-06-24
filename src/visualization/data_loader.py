@@ -440,7 +440,7 @@ class DataLoader:
 
         来源切换至 ``archive_meta.alert_warning_threshold`` /
         ``alert_overlimit_threshold``，由 ``daily_archive.py``
-        从 ``settings.yaml`` 拷贝写入。
+        从 ``限额配置_当前.xlsx / 系统参数`` 拷贝写入。
         """
         meta = self._get_archive_meta_or_raise()
         return {
