@@ -270,6 +270,30 @@ def _format_legacy_percent_columns(df: pd.DataFrame, columns: list[str]) -> pd.D
     return df
 
 
+def _apply_high_yield_display_status(
+    df: pd.DataFrame,
+    *,
+    position_col: str = "PR后规模(万)",
+    limit_col: str = "限额(万)",
+    status_col: str = "是否超限",
+    warning_ratio: float = 0.8,
+) -> pd.DataFrame:
+    if any(col not in df.columns for col in [position_col, limit_col, status_col]):
+        return df
+
+    out = df.copy()
+    position = pd.to_numeric(out[position_col], errors="coerce")
+    limit = pd.to_numeric(out[limit_col], errors="coerce")
+    valid_limit = limit > 0
+
+    status = out[status_col].copy()
+    status.loc[valid_limit & (position > limit)] = "是"
+    status.loc[valid_limit & (position <= limit) & (position >= limit * warning_ratio)] = "预警"
+    status.loc[valid_limit & (position < limit * warning_ratio)] = "否"
+    out[status_col] = status
+    return out
+
+
 def project_page9_full_regulatory_main_table(df: pd.DataFrame) -> pd.DataFrame:
     """
     page9 主表统一口径（用于页面展示与黄金快照复用）：
@@ -860,6 +884,7 @@ def build_page7_high_yield_views(data_loader, filters: dict | None = None) -> di
             "高收益单债是否超限": "是否超限",
         }
     )
+    asset_summary = _apply_high_yield_display_status(asset_summary)
     asset_summary = asset_summary.sort_values("PR后规模(万)", ascending=False)
 
     issuer_summary = hy_latest.drop_duplicates(["日期", "债务主体"]).copy()
@@ -877,6 +902,7 @@ def build_page7_high_yield_views(data_loader, filters: dict | None = None) -> di
             "高收益主体是否超限": "是否超限",
         }
     )
+    issuer_summary = _apply_high_yield_display_status(issuer_summary)
     issuer_summary = issuer_summary.sort_values("PR后规模(万)", ascending=False)
 
     return {
