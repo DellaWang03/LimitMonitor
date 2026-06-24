@@ -16,6 +16,25 @@ class WindCodeExcelHelper:
         self.temp_dir = temp_dir or Path("temp")
         self.temp_dir.mkdir(exist_ok=True)
         self.system = platform.system()
+
+    @staticmethod
+    def _is_successful_wind_result(value: object) -> bool:
+        if pd.isna(value):
+            return False
+        text = str(value).strip()
+        if text.lower() in {"", "nan", "none", "null", "na", "n/a"}:
+            return False
+        if text.startswith("="):
+            return False
+        return text.upper() not in {
+            "#N/A",
+            "#NAME?",
+            "#VALUE!",
+            "#REF!",
+            "#DIV/0!",
+            "#NULL!",
+            "#NUM!",
+        }
     
     def batch_get_wind_codes(self, issuer_names: list, use_xlwings: bool = None) -> pd.DataFrame:
         """
@@ -113,7 +132,7 @@ class WindCodeExcelHelper:
             logger.info(f"✓ 结果已保存: {temp_file}")
             
             # 统计成功率
-            success_count = df['Wind代码'].notna().sum()
+            success_count = df['Wind代码'].apply(self._is_successful_wind_result).sum()
             logger.info(f"✓ 成功获取: {success_count}/{len(issuer_names)} ({success_count/len(issuer_names)*100:.1f}%)")
             
             return df
@@ -172,13 +191,8 @@ class WindCodeExcelHelper:
                 df_result.rename(columns={wind_col: 'Wind代码'}, inplace=True)
                 # 只保留属于本次缺失主体的行，避免合并到其它批次的旧数据
                 df_result = df_result[df_result['发行人名称'].astype(str).str.strip().isin(issuer_set)]
-                # 只返回有效的Wind代码（非空、非错误值）
-                df_valid = df_result[
-                    df_result['Wind代码'].notna() &
-                    (df_result['Wind代码'].astype(str).str.strip() != '') &
-                    (df_result['Wind代码'].astype(str) != '#N/A') &
-                    (df_result['Wind代码'].astype(str) != '#NAME?')
-                ].copy()
+                # 只返回成功拉取的Wind结果；0 表示 Excel 已返回结果，但不由长期缓存复用。
+                df_valid = df_result[df_result['Wind代码'].apply(self._is_successful_wind_result)].copy()
                 
                 n_total = len(df_valid)
                 logger.info(f"✓ 有效Wind代码: {n_total} 个（均属于本次 {len(issuer_names)} 个缺失主体）")

@@ -62,6 +62,18 @@ class Stage0Processor:
         logger.info("阶段0处理器初始化完成")
         if self.target_date:
             logger.info(f"  🔁 目标日期模式: accdb 将取 {self.target_date} 的数据")
+
+    def _raise_if_wind_codes_missing(self) -> None:
+        missing_issuers = list(dict.fromkeys(self.wind_resolver.missing_issuers))
+        if not missing_issuers:
+            return
+
+        sample = "、".join(missing_issuers[:20])
+        suffix = "" if len(missing_issuers) <= 20 else f" 等共 {len(missing_issuers)} 个"
+        raise RuntimeError(
+            "Wind代码未完全获得，阶段0已停止；"
+            f"请先补齐 temp/missing_wind_codes.txt 后重跑。缺失主体: {sample}{suffix}"
+        )
     
     def _data_file_path(self, file_name: str) -> Path:
         """按当前 profile 返回数据源文件路径；无 config 时使用 data_dir / file_name。"""
@@ -137,21 +149,25 @@ class Stage0Processor:
             # 尝试批量解析（Windows会自动使用Excel，macOS保存列表）
             try:
                 resolved = self.wind_resolver.batch_resolve_missing()
-                
-                if resolved > 0:
-                    logger.info(f"✓ Excel自动补充成功: {resolved} 个Wind代码")
-                    
-                    # 重新处理风控部债券池_主体（使用新的Wind代码）
-                    logger.info("重新处理风控部债券池_主体...")
-                    df_updated = self.query_issuer_pool()
-                    results['风控部债券池_主体'] = df_updated
-                    
-                    output_file = self.output_dir / "风控部债券池_主体.xlsx"
-                    df_updated.to_excel(output_file, index=False)
-                    logger.info(f"✓ 已覆盖更新: {output_file.name}")
-                    
             except Exception as e:
-                logger.debug(f"批量解析过程信息: {e}")
+                logger.error(f"Wind代码批量补充失败: {e}")
+                raise RuntimeError("Wind代码批量补充失败，阶段0已停止") from e
+
+            self._raise_if_wind_codes_missing()
+
+            if resolved > 0:
+                logger.info(f"✓ Excel自动补充成功: {resolved} 个Wind代码")
+
+                # 重新处理风控部债券池_主体（使用新的Wind代码）
+                logger.info("重新处理风控部债券池_主体...")
+                df_updated = self.query_issuer_pool()
+                results['风控部债券池_主体'] = df_updated
+
+                output_file = self.output_dir / "风控部债券池_主体.xlsx"
+                df_updated.to_excel(output_file, index=False)
+                logger.info(f"✓ 已覆盖更新: {output_file.name}")
+
+                self._raise_if_wind_codes_missing()
         else:
             logger.info("没有缺失的Wind代码需要解析")
         
@@ -572,7 +588,9 @@ class Stage0Processor:
         )
         
         # 统计覆盖率
-        covered = df['发行人wind代码'].notna().sum()
+        covered = df['发行人wind代码'].apply(
+            self.wind_resolver._is_valid_wind_code
+        ).sum()
         total = len(df)
         logger.info(f"  Wind代码覆盖率: {covered}/{total} ({covered/total*100:.1f}%)")
         
