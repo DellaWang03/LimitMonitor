@@ -3,8 +3,8 @@
 
 职责：
     扫描 ``data/current/`` 下的 16 张产物 Excel（4 张 Stage0 必需中间表
-    + 12 张 Stage1/Stage2 业务结果表），加上从 ``settings.yaml`` 拷贝的
-    展示阈值 / 高收益年度限额，先完成 schema 预同步，再在 **单个数据事务**
+    + 12 张 Stage1/Stage2 业务结果表），加上从 ``限额配置_当前.xlsx`` 拷贝的
+    系统参数阈值 / 高收益年度限额，先完成 schema 预同步，再在 **单个数据事务**
     内写入 MySQL 的 16 张业务表 + ``archive_meta`` 并切换 ``is_current=1``。
 
 非职责（已从旧版本移除）：
@@ -30,7 +30,6 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
-import yaml
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
@@ -44,7 +43,6 @@ from src.utils.limit_config_loader import load_limit_config  # noqa: E402
 # 路径常量（相对项目根）
 # ---------------------------------------------------------------------------
 CURRENT_DIR = _PROJECT_ROOT / "data" / "current"
-SETTINGS_PATH = _PROJECT_ROOT / "config" / "settings.yaml"
 
 # 4 张 Stage0 必需中间表（被 Stage1/2 直接消费）
 REQUIRED_STAGE0_FILES: dict[str, Path] = {
@@ -75,57 +73,36 @@ BUSINESS_RESULT_FILES: dict[str, Path] = {
 # ---------------------------------------------------------------------------
 def _read_alert_thresholds() -> tuple[float, float]:
     """
-    从 ``settings.yaml`` 读取展示阈值。
+    从当前生效的 ``限额配置_当前.xlsx / 系统参数`` 读取展示阈值。
 
-    优先读 ``alerts.thresholds_default``（当前推荐字段，专门给
-    ``daily_archive.py`` 拷贝到 ``archive_meta`` 用）；若该段不存在，可
-    暂时兼容旧的 ``alerts.thresholds`` 段并打印警告。任一键缺失都直接失败，
-    避免把配置问题静默写成默认阈值。
+    该值需要写入 ``archive_meta``，保证 current/history 展示都按归档当日
+    配置回放，而不是前端运行时再读取当前 Excel。
     """
-    if not SETTINGS_PATH.exists():
-        raise FileNotFoundError(
-            f"settings.yaml 不存在: {SETTINGS_PATH}；无法读取告警阈值并归档到 DB。"
-        )
-
-    with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f) or {}
-
-    alerts = cfg.get("alerts", {}) or {}
-    section_name = "alerts.thresholds_default"
-    section = alerts.get("thresholds_default")
-    if section is None:
-        legacy = alerts.get("thresholds")
-        if legacy is not None:
-            print(
-                "⚠️  settings.yaml 仍在使用旧字段 alerts.thresholds，"
-                "请尽快迁移到 alerts.thresholds_default"
-            )
-            section = legacy
-            section_name = "alerts.thresholds"
-        else:
-            raise KeyError(
-                "settings.yaml 缺少 alerts.thresholds_default；"
-                "兼容旧字段 alerts.thresholds 也不存在，无法归档告警阈值。"
-            )
-
-    missing_keys = [
-        key for key in ("warning", "overlimit")
-        if key not in section or section.get(key) is None
-    ]
-    if missing_keys:
+    cfg = load_limit_config(
+        sheet_name="系统参数",
+        config=ConfigLoader(),
+        inject_date=False,
+    )
+    required_columns = {"参数名", "值"}
+    missing_columns = required_columns - set(cfg.columns)
+    if missing_columns:
         raise KeyError(
-            f"{section_name} 缺少必需键: {', '.join(missing_keys)}"
+            "系统参数 sheet 缺少必需列: " + ", ".join(sorted(missing_columns))
         )
 
-    try:
-        warning = float(section["warning"])
-        overlimit = float(section["overlimit"])
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"{section_name} 中 warning/overlimit 必须为可转 float 的数值"
-        ) from exc
+    params = cfg.copy()
+    params["_参数名_标准"] = params["参数名"].astype(str).str.strip()
 
-    return warning, overlimit
+    def require_param(name: str) -> float:
+        matches = params.loc[params["_参数名_标准"] == name, "值"]
+        if matches.empty:
+            raise KeyError(f"系统参数 sheet 缺少参数：{name}")
+        value = pd.to_numeric(matches, errors="coerce").iloc[0]
+        if pd.isna(value):
+            raise ValueError(f"系统参数 sheet 中 {name} 为空或非法")
+        return float(value)
+
+    return require_param("告警阈值_预警"), require_param("告警阈值_超限")
 
 
 def _read_data_date(stage_tables: dict[str, pd.DataFrame]) -> Optional[str]:

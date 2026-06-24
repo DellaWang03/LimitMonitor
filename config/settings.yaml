@@ -132,8 +132,8 @@ validation:
 alerts:
   enabled: true
   
-  # 告警阈值默认值（两档）—— 由 daily_archive.py 拷贝到 archive_meta，看板运行时从 DB 读取
-  # 修改此处后，下次 daily_archive.py 写库时生效；历史日期阈值不受影响
+  # 兼容保留的告警阈值默认值；归档写库以 限额配置_当前.xlsx / 系统参数 为准。
+  # 修改系统参数后，下次 daily_archive.py 写库时生效；历史日期阈值不受影响。
   thresholds_default:
     warning: 0.80   # 使用率 ≥ 80% 时进入警戒区间（黄色）
     overlimit: 1.00  # 使用率 ≥ 100% 时超限（红色）
