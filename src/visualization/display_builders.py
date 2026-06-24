@@ -249,6 +249,27 @@ def _format_ratio_as_pct(value: Any) -> str:
     return f"{num:.2f}%"
 
 
+def _fill_legacy_alias_column(df: pd.DataFrame, target_col: str, source_col: str) -> pd.DataFrame:
+    if source_col not in df.columns:
+        return df
+    if target_col not in df.columns:
+        df[target_col] = df[source_col]
+        return df
+
+    missing_mask = df[target_col].isna()
+    if df[target_col].dtype == object:
+        missing_mask = missing_mask | df[target_col].astype(str).str.strip().eq("")
+    df.loc[missing_mask, target_col] = df.loc[missing_mask, source_col]
+    return df
+
+
+def _format_legacy_percent_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    for col in columns:
+        if col in df.columns:
+            df[col] = df[col].apply(_format_ratio_as_pct)
+    return df
+
+
 def project_page9_full_regulatory_main_table(df: pd.DataFrame) -> pd.DataFrame:
     """
     page9 主表统一口径（用于页面展示与黄金快照复用）：
@@ -469,7 +490,12 @@ def export_legacy_page1_single_credit_table(data_loader, filters: dict | None = 
 
     raw = _apply_filters(data_loader.load_stage1_credit_1_2(), filters or {})
     raw, _ = _aggregate_by_asset_and_account(raw)
-    base = _merge_on_keys(base, raw, key_cols, ["资产代码", "部门", "是否新老划断"])
+    base = _merge_on_keys(
+        base,
+        raw,
+        key_cols,
+        ["资产代码", "部门", "是否新老划断", "债券余额(亿)", "单一债券集中度总额度"],
+    )
 
     legacy = base.rename(columns={
         "PR后规模(万)": "库存数量(万)_PR",
@@ -479,6 +505,10 @@ def export_legacy_page1_single_credit_table(data_loader, filters: dict | None = 
         "单一主体规模限额指标值": "单一主体规模限额(万)",
         "单一实控人规模限额指标值": "单一实控人规模限额",
     })
+    legacy = _format_legacy_percent_columns(
+        legacy,
+        ["单一债券集中度限额", "单一债券集中度"],
+    )
 
     expected_cols = [
         "是否超限", "是否新老划断", "部门", "内部证券账户名称", "资产代码", "资产名称", "库存数量(万)_PR",
@@ -538,6 +568,38 @@ def export_legacy_page3_category_credit_table(data_loader, filters: dict | None 
     legacy = _merge_on_keys(legacy, tables.get("tab2_province", pd.DataFrame()), key_cols, ["高风险省份是否超限"])
     legacy = _merge_on_keys(legacy, tables.get("tab3_regional", pd.DataFrame()), key_cols, ["地域集中度是否超限"])
     legacy = _merge_on_keys(legacy, tables.get("tab4_citybond", pd.DataFrame()), key_cols, ["城投集中度是否超限"])
+
+    legacy = _fill_legacy_alias_column(
+        legacy,
+        "高风险行业之和集中度限额",
+        "高风险行业之和集中度限额指标值",
+    )
+    legacy = _fill_legacy_alias_column(
+        legacy,
+        "高风险省份之和集中度限额",
+        "高风险省份之和集中度限额指标值",
+    )
+    legacy = _fill_legacy_alias_column(
+        legacy,
+        "地域集中度限额",
+        "指标值_地域集中度限额",
+    )
+    legacy = _fill_legacy_alias_column(
+        legacy,
+        "城投集中度限额指标值 ",
+        "指标值_城投集中度限额",
+    )
+    legacy = _format_legacy_percent_columns(
+        legacy,
+        [
+            "高风险行业之和集中度限额",
+            "高风险行业集中度",
+            "高风险省份之和集中度限额",
+            "高风险省份集中度",
+            "地域集中度",
+            "城投地域集中度",
+        ],
+    )
 
     expected_cols = [
         "是否超限", "部门", "内部证券账户名称", "资产代码", "资产名称", "库存数量(万)_PR", "债务主体",

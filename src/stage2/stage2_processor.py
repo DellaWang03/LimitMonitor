@@ -1088,8 +1088,8 @@ class Stage2Processor:
         df_high_industry_pos = self.cache.get('高风险行业总持仓')
         if df_high_industry_pos is not None:
             df = df.merge(
-                df_high_industry_pos[['日期', '高风险行业总持仓_PR', '高风险行业集中度']],
-                on='日期',
+                df_high_industry_pos[['日期', '行业类别', '高风险行业总持仓_PR', '高风险行业集中度']],
+                on=['日期', '行业类别'],
                 how='left'
             )
         
@@ -1097,8 +1097,8 @@ class Stage2Processor:
         df_high_province_pos = self.cache.get('高风险省份总持仓')
         if df_high_province_pos is not None:
             df = df.merge(
-                df_high_province_pos[['日期', '高风险省份总持仓_PR', '高风险省份集中度']],
-                on='日期',
+                df_high_province_pos[['日期', '省份类别', '高风险省份总持仓_PR', '高风险省份集中度']],
+                on=['日期', '省份类别'],
                 how='left'
             )
         
