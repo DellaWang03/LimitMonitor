@@ -25,6 +25,7 @@ class StagedLegacyLocalLimitConfig:
     directory: Path
     size: int
     sha256: str
+    created_by_runner: bool
 
 
 def stage_legacy_local_limit_config(
@@ -44,7 +45,28 @@ def stage_legacy_local_limit_config(
     directory = project / _LOCAL_DIRECTORY
     target = directory / _FILE_NAME
     if directory.exists() or directory.is_symlink():
-        raise LegacyLocalCompatibilityError(f"本地兼容目录已存在: {directory}")
+        if (
+            directory.is_symlink()
+            or not directory.is_dir()
+            or target.is_symlink()
+            or not target.is_file()
+            or target.resolve(strict=True) != source.resolve(strict=True)
+        ):
+            raise LegacyLocalCompatibilityError(f"本地兼容目录已存在: {directory}")
+        if (
+            target.stat().st_size != expected.size
+            or _sha256_file(target) != expected.sha256
+        ):
+            raise LegacyLocalCompatibilityError(
+                f"既有冻结限额配置与清单不一致: {target}"
+            )
+        return StagedLegacyLocalLimitConfig(
+            path=target,
+            directory=directory,
+            size=expected.size,
+            sha256=expected.sha256,
+            created_by_runner=False,
+        )
     try:
         directory.mkdir(mode=0o700, parents=False, exist_ok=False)
         _copy_verified(
@@ -66,6 +88,7 @@ def stage_legacy_local_limit_config(
         directory=directory,
         size=expected.size,
         sha256=expected.sha256,
+        created_by_runner=True,
     )
 
 
@@ -80,6 +103,19 @@ def cleanup_legacy_local_limit_config(
         raise LegacyLocalCompatibilityError(
             f"本地兼容目录在清理前发生变化: {directory}"
         )
+    if not staged.created_by_runner:
+        if target.is_symlink() or not target.is_file():
+            raise LegacyLocalCompatibilityError(
+                f"既有冻结限额配置在运行期间发生变化: {target}"
+            )
+        if (
+            target.stat().st_size != staged.size
+            or _sha256_file(target) != staged.sha256
+        ):
+            raise LegacyLocalCompatibilityError(
+                f"既有冻结限额配置在运行期间发生变化: {target}"
+            )
+        return
     entries = tuple(directory.iterdir())
     if entries != (target,):
         raise LegacyLocalCompatibilityError(

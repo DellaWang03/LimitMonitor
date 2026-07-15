@@ -13,7 +13,10 @@ from src.testing.legacy_local_compat import (
 
 
 def _manifest(tmp_path: Path) -> ValidatedInputManifest:
-    source = tmp_path / "source"
+    return _manifest_at(tmp_path / "source")
+
+
+def _manifest_at(source: Path) -> ValidatedInputManifest:
     source.mkdir()
     payload = b"frozen-limit-config"
     name = "限额配置_当前.xlsx"
@@ -43,6 +46,7 @@ def test_stage_and_cleanup_deployed_local_compatibility_path(tmp_path: Path) -> 
 
     expected = project_root / "data_source_0123/限额配置_当前.xlsx"
     assert staged.path == expected
+    assert staged.created_by_runner is True
     assert staged.path.read_bytes() == source_before
     assert staged.sha256 == manifest.files[0].sha256
     assert source.read_bytes() == source_before
@@ -52,6 +56,38 @@ def test_stage_and_cleanup_deployed_local_compatibility_path(tmp_path: Path) -> 
     assert not expected.exists()
     assert not expected.parent.exists()
     assert source.read_bytes() == source_before
+
+
+def test_reuses_frozen_input_when_it_is_the_deployed_local_path(
+    tmp_path: Path,
+) -> None:
+    manifest = _manifest_at(tmp_path / "data_source_0123")
+    source = manifest.input_root / "限额配置_当前.xlsx"
+    companion = manifest.input_root / "other-input.xlsx"
+    companion.write_bytes(b"preserve")
+    source_before = source.read_bytes()
+
+    staged = stage_legacy_local_limit_config(manifest, tmp_path)
+
+    assert staged.path == source
+    assert staged.created_by_runner is False
+
+    cleanup_legacy_local_limit_config(staged)
+
+    assert source.read_bytes() == source_before
+    assert companion.read_bytes() == b"preserve"
+
+
+def test_reused_frozen_input_is_validated_but_never_deleted(tmp_path: Path) -> None:
+    manifest = _manifest_at(tmp_path / "data_source_0123")
+    source = manifest.input_root / "限额配置_当前.xlsx"
+    staged = stage_legacy_local_limit_config(manifest, tmp_path)
+    source.write_bytes(b"changed")
+
+    with pytest.raises(LegacyLocalCompatibilityError, match="发生变化"):
+        cleanup_legacy_local_limit_config(staged)
+
+    assert source.read_bytes() == b"changed"
 
 
 def test_stage_refuses_existing_local_compatibility_directory(tmp_path: Path) -> None:

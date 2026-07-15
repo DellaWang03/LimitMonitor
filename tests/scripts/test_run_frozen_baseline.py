@@ -96,7 +96,8 @@ def test_parent_launches_only_the_sandboxed_child(
     source, manifest = _write_tiny_manifest(tmp_path)
     allow = tmp_path / "allow"
     allow.mkdir()
-    project_root = Path(__file__).resolve().parents[2]
+    project_root = tmp_path / "project"
+    project_root.mkdir()
     monkeypatch.setenv("ENV", "test")
     monkeypatch.setenv("LIMIT_MONITOR_PROFILE", "local")
     monkeypatch.setattr(runner, "_git_is_clean", lambda root: True)
@@ -150,7 +151,8 @@ def test_parent_propagates_nonzero_sandbox_exit(
     source, manifest = _write_tiny_manifest(tmp_path)
     allow = tmp_path / "allow"
     allow.mkdir()
-    project_root = Path(__file__).resolve().parents[2]
+    project_root = tmp_path / "project"
+    project_root.mkdir()
     monkeypatch.setenv("ENV", "test")
     monkeypatch.setenv("LIMIT_MONITOR_PROFILE", "local")
     monkeypatch.setattr(runner, "_git_is_clean", lambda root: True)
