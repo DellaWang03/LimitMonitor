@@ -1,0 +1,66 @@
+{
+  "manifest_id": "data_source_0123-20260710-v1",
+  "expected_business_date": "2026-07-10",
+  "files": [
+    {
+      "name": "债券持仓表.xlsx",
+      "size": 66647566,
+      "sha256": "a45641ca4588d9501c2828e223b65ba223a7ece50abc6be14d53f2be9b7eed44"
+    },
+    {
+      "name": "净资产.xlsx",
+      "size": 15891,
+      "sha256": "b8a26866781d60cb5fa0da08294865d53616a7365a8d7e7d69c1a87f74f9bb7f"
+    },
+    {
+      "name": "发行人类型调整表.xlsx",
+      "size": 11721,
+      "sha256": "ef509169d5c737c87b0a1f7302fadd8ed6b2d4e898493b641a46fdd9637a1edd"
+    },
+    {
+      "name": "德勤-主体评级列表.xlsx",
+      "size": 1026501,
+      "sha256": "3767bba6af1affd2b2720e2918a699c511ecbec6b6e997d08fc5651a2f6b8e34"
+    },
+    {
+      "name": "标准日期表.xlsx",
+      "size": 2158468,
+      "sha256": "2b90877b544707e387a2cc2038bc35d09b09177e41b07e8c422441b49ac30049"
+    },
+    {
+      "name": "统计报表底稿1_债券.xlsx",
+      "size": 9593195,
+      "sha256": "dd5e34f661fe4168204795ae0c44504225f6e3584781df7bcf2fbe3e738d0944"
+    },
+    {
+      "name": "统计报表底稿2_债券SPPI.xlsx",
+      "size": 3475349,
+      "sha256": "5c655f3b4cac75e12470dd055a4a6d4b21b7f55db399a00a0e47eef2cc4c6dde"
+    },
+    {
+      "name": "金融工具池设置.xlsx",
+      "size": 220604,
+      "sha256": "7251130cf375644dc7d43dd8d130e2b7bac76feae731e45c599bb3c1a611f39d"
+    },
+    {
+      "name": "限额监控_阶段0_指标设置.xlsx",
+      "size": 4544549,
+      "sha256": "039057aa5aef0faab355374705c14f590f9fd220b1bc2fc57d69b77b0a66e6b2"
+    },
+    {
+      "name": "限额配置_当前.xlsx",
+      "size": 29504,
+      "sha256": "3b8afc3a84cca30c7a6966ec5e8892c44055ecc64c693ded89ab67509e318560"
+    },
+    {
+      "name": "风控部债券池.accdb",
+      "size": 283623424,
+      "sha256": "d2ce9da9e193503d5e42c3e254e5494147e7fc322a89e522fd2713501c681348"
+    },
+    {
+      "name": "风控部债券池_主体_虚拟添加.xlsx",
+      "size": 26291,
+      "sha256": "4253e258e03764765bb93a1a21e018bb95fa4904f494f4118a2f5caa068e2157"
+    }
+  ]
+}
