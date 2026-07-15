@@ -307,17 +307,24 @@ Expected: 事务、`DEV`/`PROD` 隔离、日期不匹配拒绝、缺块拒绝和
 - Consumes: 已执行完的 `Stage1Processor.cache`、`Stage2Processor.cache`、两个处理器的业务日期和 Stage1 实际解析的监管集中度参数。
 - Produces: `capture_production_kernel_input(stage1, stage2) -> ProductionKernelInput` 和 `DailyRuntimeResult(stage0, stage1, stage2)`；Task 5 不得重新打开 Excel/ACCDB/配置文件来补这 27 项输入。
 
+> 实施更正（2026-07-15）：冻结 `data_source_0123` 的同进程诊断证明，Stage2 会从 Stage1 Excel 导出重新读取共享上下文，造成 `债券持仓明细表_信用债` 的二进制浮点尾差；`穿透高收益债券` 也会经历 Stage1 清洗后再读的边界。为保证共同内核严格复用 Stage1 实际计算输入，所有共享外部输入改由 Stage1 缓存作为唯一来源，不再要求两个缓存逐帧相等。以此重放时 Stage1 35 表和 Stage2 限额计算结果严格一致；仅两张命名的 Stage2 原始上下文展示表按权威规格第 4.1 节作 `1e-12` 绝对尾差验证，业务计算和状态判断不使用容差。
+
 - [ ] **Step 1: 写失败测试，固定来源与重叠验证**
 
-使用带精确中文表名的假 Stage1/Stage2 缓存测试：每个 27 输入键只能从指定运行缓存取得；`债券持仓明细表`、各 Stage1 限额表、债券/主体池和调整表从 Stage1；`高风险限额`、地域限额、核算系统持仓、高收益投资本金、净资产和高收益限额从 Stage2；双方均有的 `债券持仓明细表_信用债`、`金融工具池设置`、`穿透高收益债券`、`ISIN码映射` 必须逐帧相等才可捕获。
+使用带精确中文表名的假 Stage1/Stage2 缓存测试：每个 27 输入键只能从指定运行缓存取得；`债券持仓明细表`、各 Stage1 限额表、债券/主体池、调整表及全部共享输入从 Stage1；`高风险限额`、地域限额、核算系统持仓、高收益投资本金、净资产和高收益限额从 Stage2。Stage2 的 Excel 重读副本不得成为共同内核输入来源。
 
-测试任一必需键缺失、重复来源不相等、两个业务日期不相等、监管参数未被 Stage1 记录都失败；捕获结果的 27 帧与缓存脱离，随后修改缓存不改变 `ProductionKernelInput`。
+测试任一必需键缺失、两个业务日期不相等、监管参数未被 Stage1 记录都失败；捕获结果的 27 帧与缓存脱离，随后修改缓存不改变 `ProductionKernelInput`。
 
 ```python
-def test_capture_refuses_different_overlap_values(stage1_runtime, stage2_runtime) -> None:
-    stage2_runtime.cache["金融工具池设置"] = pd.DataFrame({"代码": ["different"]})
-    with pytest.raises(PretradeCaptureError, match="同次运行重叠输入不一致"):
-        capture_production_kernel_input(stage1_runtime, stage2_runtime)
+def test_capture_uses_stage1_canonical_frame_when_legacy_stage2_rereads_differ(
+    stage1_runtime, stage2_runtime
+) -> None:
+    stage2_runtime.cache["债券持仓明细表_信用债"] = pd.DataFrame({"代码": ["stage2-reread"]})
+    captured = capture_production_kernel_input(stage1_runtime, stage2_runtime)
+    assert_frame_equal(
+        captured.frames["债券持仓明细表_信用债"],
+        stage1_runtime.cache["债券持仓明细表_信用债"],
+    )
 ```
 
 - [ ] **Step 2: 最小化记录实际监管参数**
@@ -332,7 +339,7 @@ self._runtime_regulatory_concentration_limit = float(regulatory_limit)
 
 - [ ] **Step 3: 实现捕获器与单进程日常运行时对象**
 
-在 `context_capture.py` 固定 `FRAME_SOURCE` 映射，列出全部 27 代码和唯一来源；共同键先比较 `assert_frame_equal`，再使用 Stage1 副本。验证 `stage1._business_date == stage2._business_date` 后构造 `ProductionKernelInput`。
+在 `context_capture.py` 固定 `FRAME_SOURCE` 映射，列出全部 27 代码和唯一来源；共享输入固定使用 Stage1 实际内存帧，Stage2 仅提供其专属 6 项输入。验证 `stage1._business_date == stage2._business_date` 后构造 `ProductionKernelInput`。
 
 `daily_runtime.py` 不重新实现业务逻辑。它顺序实例化既有 `Stage0Processor`、`Stage1Processor`、`Stage2Processor`，调用各自 `process_all()`，保留对象和返回表：
 

@@ -13,16 +13,17 @@ import subprocess
 import sys
 from typing import Sequence
 
-import pandas.testing as pdt
-
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.pipeline.daily_runtime import run_daily_runtime
 from src.pipeline.paths import PipelinePaths
-from src.pretrade.context_build import build_ready_context, replay_kernel_from_snapshot
+from src.pretrade.context_build import (
+    assert_replay_matches_runtime,
+    build_ready_context,
+    replay_kernel_from_snapshot,
+)
 from src.pretrade.context_capture import capture_production_kernel_input
 from src.pretrade.context_store import PretradeContextStore
 from src.pretrade.frame_codec import serialize_frame
@@ -124,7 +125,7 @@ def _run(args: argparse.Namespace) -> int:
         code_commit=_git_commit(),
     )
     replayed = replay_kernel_from_snapshot(store, snapshot_id)
-    _assert_replay_matches_runtime(replayed, runtime)
+    assert_replay_matches_runtime(replayed, runtime)
 
     inputs = capture_production_kernel_input(
         runtime.stage1_processor, runtime.stage2_processor
@@ -198,27 +199,6 @@ def _git_commit() -> str:
         ).strip()
     except (OSError, subprocess.SubprocessError):
         return ""
-
-
-def _assert_replay_matches_runtime(replayed, runtime) -> None:
-    _assert_stage_tables_equal("Stage1", replayed.stage1_tables, runtime.stage1_results)
-    _assert_stage_tables_equal("Stage2", replayed.stage2_tables, runtime.stage2_results)
-
-
-def _assert_stage_tables_equal(name: str, actual, expected) -> None:
-    if tuple(sorted(actual)) != tuple(sorted(expected)):
-        raise RuntimeError(f"{name} 数据库重放表集合与实际运行不一致")
-    for table_name in sorted(expected):
-        try:
-            pdt.assert_frame_equal(
-                actual[table_name],
-                expected[table_name],
-                check_dtype=True,
-                check_exact=True,
-                check_names=True,
-            )
-        except AssertionError as exc:
-            raise RuntimeError(f"{name} 数据库重放不一致: {table_name}") from exc
 
 
 if __name__ == "__main__":

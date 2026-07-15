@@ -11,12 +11,15 @@ from sqlalchemy import create_engine
 
 from src.pretrade import context_build
 from src.pretrade.context_build import (
+    PretradeContextBuildError,
+    assert_replay_matches_runtime,
     build_ready_context,
     replay_kernel_from_snapshot,
 )
 from src.pretrade.context_capture import FRAME_SOURCE, capture_production_kernel_input
 from src.pretrade.context_store import PretradeContextStore
 from src.pretrade.input_contract import KERNEL_INPUT_DATASETS
+from src.risk_core import ProductionKernelResult
 
 
 def _runtime() -> SimpleNamespace:
@@ -24,9 +27,9 @@ def _runtime() -> SimpleNamespace:
     stage2_cache: dict[str, pd.DataFrame] = {}
     for dataset_code, source in FRAME_SOURCE.items():
         frame = pd.DataFrame({"数据集": [dataset_code], "值": [len(dataset_code)]})
-        if source in {"stage1", "overlap"}:
+        if source == "stage1":
             stage1_cache[dataset_code] = frame
-        if source in {"stage2", "overlap"}:
+        else:
             stage2_cache[dataset_code] = frame.copy(deep=True)
     return SimpleNamespace(
         stage1_processor=SimpleNamespace(
@@ -103,3 +106,66 @@ def test_replay_kernel_is_explicit_and_uses_only_rehydrated_input(monkeypatch) -
         ("stage1", sentinel_inputs),
         ("stage2", sentinel_inputs, sentinel_stage1),
     ]
+
+
+def test_runtime_replay_allows_only_the_named_excel_round_trip_tail() -> None:
+    stage1 = {
+        "债券持仓明细表_信用债": pd.DataFrame({"库存数量(万)_PR": [8_000.0]}),
+        "债券持仓明细表_信用债_合并风险限额相关": pd.DataFrame(
+            {"库存数量(万)_PR": [8_000.0]}
+        ),
+    }
+    replayed = ProductionKernelResult(
+        stage1,
+        {
+            "债券持仓明细表_信用债": stage1["债券持仓明细表_信用债"],
+            "债券持仓明细表_信用债_合并风险限额相关": stage1[
+                "债券持仓明细表_信用债_合并风险限额相关"
+            ],
+            "限额明细": pd.DataFrame({"剩余额度": [2_000.0]}),
+        },
+    )
+    runtime = SimpleNamespace(
+        stage1_results=stage1,
+        stage2_results={
+            "债券持仓明细表_信用债": pd.DataFrame({"库存数量(万)_PR": [8_000.0 + 5e-13]}),
+            "债券持仓明细表_信用债_合并风险限额相关": pd.DataFrame(
+                {"库存数量(万)_PR": [8_000.0 + 5e-13]}
+            ),
+            "限额明细": pd.DataFrame({"剩余额度": [2_000.0]}),
+        },
+    )
+
+    assert_replay_matches_runtime(replayed, runtime)
+
+
+def test_runtime_replay_rejects_difference_outside_excel_round_trip_boundary() -> None:
+    stage1 = {
+        "债券持仓明细表_信用债": pd.DataFrame({"库存数量(万)_PR": [8_000.0]}),
+        "债券持仓明细表_信用债_合并风险限额相关": pd.DataFrame(
+            {"库存数量(万)_PR": [8_000.0]}
+        ),
+    }
+    replayed = ProductionKernelResult(
+        stage1,
+        {
+            "债券持仓明细表_信用债": stage1["债券持仓明细表_信用债"],
+            "债券持仓明细表_信用债_合并风险限额相关": stage1[
+                "债券持仓明细表_信用债_合并风险限额相关"
+            ],
+            "限额明细": pd.DataFrame({"剩余额度": [1_999.0]}),
+        },
+    )
+    runtime = SimpleNamespace(
+        stage1_results=stage1,
+        stage2_results={
+            "债券持仓明细表_信用债": stage1["债券持仓明细表_信用债"],
+            "债券持仓明细表_信用债_合并风险限额相关": stage1[
+                "债券持仓明细表_信用债_合并风险限额相关"
+            ],
+            "限额明细": pd.DataFrame({"剩余额度": [2_000.0]}),
+        },
+    )
+
+    with pytest.raises(PretradeContextBuildError, match="Stage2 数据库重放不一致"):
+        assert_replay_matches_runtime(replayed, runtime)

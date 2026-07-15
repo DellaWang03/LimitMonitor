@@ -29,11 +29,8 @@ def _runtime_pair() -> tuple[SimpleNamespace, SimpleNamespace]:
     for dataset_code, source in FRAME_SOURCE.items():
         if source == "stage1":
             stage1_cache[dataset_code] = _frame(dataset_code)
-        elif source == "stage2":
-            stage2_cache[dataset_code] = _frame(dataset_code)
         else:
-            stage1_cache[dataset_code] = _frame(dataset_code)
-            stage2_cache[dataset_code] = stage1_cache[dataset_code].copy(deep=True)
+            stage2_cache[dataset_code] = _frame(dataset_code)
 
     return (
         SimpleNamespace(
@@ -72,12 +69,18 @@ def test_capture_rejects_missing_runtime_frame() -> None:
         capture_production_kernel_input(stage1, stage2)
 
 
-def test_capture_refuses_different_overlap_values() -> None:
+def test_capture_uses_stage1_canonical_frame_when_legacy_stage2_rereads_differ() -> None:
     stage1, stage2 = _runtime_pair()
-    stage2.cache["金融工具池设置"] = pd.DataFrame({"代码": ["different"]})
+    stage1.cache["债券持仓明细表_信用债"] = pd.DataFrame({"代码": ["stage1"]})
+    stage2.cache["债券持仓明细表_信用债"] = pd.DataFrame({"代码": ["stage2-reread"]})
 
-    with pytest.raises(PretradeCaptureError, match="同次运行重叠输入不一致"):
-        capture_production_kernel_input(stage1, stage2)
+    captured = capture_production_kernel_input(stage1, stage2)
+
+    assert FRAME_SOURCE["债券持仓明细表_信用债"] == "stage1"
+    pdt.assert_frame_equal(
+        captured.frames["债券持仓明细表_信用债"],
+        stage1.cache["债券持仓明细表_信用债"],
+    )
 
 
 def test_capture_refuses_mismatched_business_date() -> None:

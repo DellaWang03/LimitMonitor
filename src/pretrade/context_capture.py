@@ -6,29 +6,30 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 import pandas as pd
-from pandas.testing import assert_frame_equal
 
 from src.risk_core import ProductionKernelInput, ProductionKernelParameters
 
 from .input_contract import KERNEL_INPUT_DATASETS
 
 
-FrameSource = Literal["stage1", "stage2", "overlap"]
+FrameSource = Literal["stage1", "stage2"]
 
 # 每个键只允许从本次运行中已经实际用于上线计算的缓存取得。
+# Stage2 会从 Stage1 的导出 Excel 重读部分共享表；共同内核以 Stage1 的
+# 同次内存输入为唯一来源，避免把 Excel 二进制浮点往返误差带入交易前快照。
 FRAME_SOURCE: dict[str, FrameSource] = {
     "债券持仓明细表": "stage1",
-    "债券持仓明细表_信用债": "overlap",
+    "债券持仓明细表_信用债": "stage1",
     "债券持仓明细表_全量债券监管集中度": "stage1",
-    "穿透高收益债券": "overlap",
-    "金融工具池设置": "overlap",
+    "穿透高收益债券": "stage1",
+    "金融工具池设置": "stage1",
     "中债隐含评级AAA&AAA+": "stage1",
     "风控部债券池": "stage1",
     "风控部主体池": "stage1",
     "发行人类型调整表": "stage1",
     "调整实控人名单": "stage1",
-    "高风险行业": "overlap",
-    "高风险省份": "overlap",
+    "高风险行业": "stage1",
+    "高风险省份": "stage1",
     "单一债券集中度限额": "stage1",
     "单一债券规模限额": "stage1",
     "特批单一债券限额": "stage1",
@@ -37,7 +38,7 @@ FRAME_SOURCE: dict[str, FrameSource] = {
     "特定主体限额": "stage1",
     "特定实控人限额": "stage1",
     "单一担保公司规模限额": "stage1",
-    "ISIN码映射": "overlap",
+    "ISIN码映射": "stage1",
     "高风险限额": "stage2",
     "地域集中度限额(含城投)": "stage2",
     "债券持仓表_核算系统": "stage2",
@@ -114,30 +115,10 @@ def capture_production_kernel_input(
             frames[dataset_code] = _require_frame(
                 stage1_cache, dataset_code=dataset_code, stage_name="Stage1"
             )
-        elif source == "stage2":
+        else:
             frames[dataset_code] = _require_frame(
                 stage2_cache, dataset_code=dataset_code, stage_name="Stage2"
             )
-        else:
-            stage1_frame = _require_frame(
-                stage1_cache, dataset_code=dataset_code, stage_name="Stage1"
-            )
-            stage2_frame = _require_frame(
-                stage2_cache, dataset_code=dataset_code, stage_name="Stage2"
-            )
-            try:
-                assert_frame_equal(
-                    stage1_frame,
-                    stage2_frame,
-                    check_dtype=True,
-                    check_names=True,
-                    check_exact=True,
-                )
-            except AssertionError as exc:
-                raise PretradeCaptureError(
-                    f"同次运行重叠输入不一致: {dataset_code}"
-                ) from exc
-            frames[dataset_code] = stage1_frame
 
     return ProductionKernelInput(
         business_date=stage1_date,
