@@ -5,6 +5,8 @@
 上线代码基线：`579af695fb8727dec8249f66d07a8b0e723da137`  
 GitHub 分支：`DellaWang03/LimitMonitor / main`
 
+文档治理：`docs/PRETRADE_DOCUMENT_STATUS.md`。其中标记为 `SUPERSEDED` 的材料仅作历史记录，不得作为开发或验收依据。
+
 ## 1. 目标
 
 新增以下两个交易前功能：
