@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import pandas as pd
+import pandas.testing as pdt
 
+import src.stage1.stage1_processor as stage1_processor_module
+from src.risk_core.stage1_limits import Stage1LimitEngine
 from src.stage1.stage1_limit_detail import LimitDetailCalculator
 
 
@@ -21,6 +24,29 @@ PRODUCTION_LIMIT_METHODS = {
 
 def test_stage1_limit_public_surface_is_frozen():
     assert PRODUCTION_LIMIT_METHODS <= set(dir(LimitDetailCalculator))
+    assert PRODUCTION_LIMIT_METHODS <= set(dir(Stage1LimitEngine))
+
+
+def test_stage1_adapter_resolves_regulatory_parameter_before_building_engine(
+    stage1_processor, monkeypatch
+):
+    constructor_values: list[float | None] = []
+
+    class FakeCalculator:
+        def __init__(self, cache, regulatory_concentration_limit=None):
+            constructor_values.append(regulatory_concentration_limit)
+
+        def _load_regulatory_concentration_limit(self):
+            return 0.16
+
+    monkeypatch.setattr(
+        stage1_processor_module, "LimitDetailCalculator", FakeCalculator
+    )
+
+    calculator = stage1_processor._build_limit_calculator()
+
+    assert isinstance(calculator, FakeCalculator)
+    assert constructor_values == [None, 0.16]
 
 
 def _one_row_1_2_cache(row: dict, business_date: pd.Timestamp, position: float) -> dict:
@@ -121,6 +147,33 @@ def test_1_2_freezes_special_scale_only_and_strict_zero_negative_boundary(
     ).calculate_limit_detail_1_2().iloc[0]
     assert negative["单一债券规模剩余额度(万)"] < 0
     assert negative["单一债券是否超限"] == "是"
+
+
+def test_shared_limit_engine_matches_adapter_and_detaches_input_cache(
+    credit_row, business_date
+):
+    row = credit_row(**{"库存数量(万)_PR": 100.0, "债券余额(亿)": 20.0})
+    cache = _one_row_1_2_cache(row, business_date, 100.0)
+    before = {name: frame.copy(deep=True) for name, frame in cache.items()}
+
+    engine = Stage1LimitEngine(cache, regulatory_concentration_limit=0.16)
+    adapter = LimitDetailCalculator(cache, regulatory_concentration_limit=0.16)
+    pdt.assert_frame_equal(
+        engine.calculate_limit_detail_1_2(),
+        adapter.calculate_limit_detail_1_2(),
+        check_exact=True,
+    )
+
+    for name, frame in cache.items():
+        pdt.assert_frame_equal(frame, before[name], check_exact=True)
+        frame.drop(index=frame.index, inplace=True)
+
+    pdt.assert_frame_equal(
+        engine.calculate_limit_detail_1_2(),
+        LimitDetailCalculator(before, regulatory_concentration_limit=0.16)
+        .calculate_limit_detail_1_2(),
+        check_exact=True,
+    )
 
 
 def test_1_2_excludes_general_special_issuer_but_keeps_exact_xixian_exception(

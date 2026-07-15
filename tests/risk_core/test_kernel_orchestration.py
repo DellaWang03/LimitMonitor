@@ -46,13 +46,31 @@ def _frames(names: tuple[str, ...]) -> dict[str, pd.DataFrame]:
         "高风险省份": ["日期", "省份名称", "省份类别"],
         "特定主体限额": ["日期", "主体wind代码", "指标名称", "指标值"],
         "特定实控人限额": ["日期", "实控人名称", "指标名称", "指标值"],
+        "单一债券集中度限额": ["日期", "指标名称", "指标值"],
+        "单一债券规模限额": ["日期", "指标名称", "指标值"],
+        "特批单一债券限额": [
+            "日期", "主证券代码", "主证券代码_标准", "规模指标值", "集中度指标值"
+        ],
         "单一主体规模限额": ["日期", "指标名称", "指标值"],
-        "单一担保公司规模限额": ["日期", "指标名称", "是否准入"],
+        "单一实控人规模限额": ["日期", "指标名称", "指标值"],
+        "单一担保公司规模限额": [
+            "日期", "指标名称", "是否准入", "指标值", "统一社会信用代码", "授信担保公司名称"
+        ],
     }
     frames = {name: pd.DataFrame(columns=schemas.get(name, ["日期", "值"])) for name in names}
     if "特定实控人限额" in frames:
         # Empty merged production context materializes the controller fallback as float64.
         frames["特定实控人限额"]["实控人名称"] = pd.Series(dtype="float64")
+    if "单一担保公司规模限额" in frames:
+        frames["单一担保公司规模限额"]["是否准入"] = pd.Series(dtype="float64")
+    for name in (
+        "单一债券集中度限额",
+        "单一债券规模限额",
+        "单一主体规模限额",
+        "单一实控人规模限额",
+    ):
+        if name in frames:
+            frames[name]["指标名称"] = pd.Series(dtype="float64")
     for frame in frames.values():
         if "日期" in frame.columns:
             frame["日期"] = pd.to_datetime(frame["日期"])
@@ -94,6 +112,18 @@ def test_stage1_shell_is_deterministic_and_does_not_mutate_inputs(business_date)
         "特定主体总持仓",
         "单一实控人总持仓",
         "特定实控人总持仓",
+        "限额明细_特定主体",
+        "限额明细_特定实控人",
+        "单一担保人总持仓",
+        "单一担保人总持仓_不剔除",
+        "限额明细_债券持仓明细表_信用债1_2",
+        "限额明细_单一债券",
+        "限额明细_单一主体",
+        "限额明细_单一实控人",
+        "限额明细_单一实控人_取最高额度",
+        "限额明细_单一担保人",
+        "限额明细_债券持仓明细表_信用债1_1",
+        "限额明细_全量债券监管集中度",
     ]
     for name in first:
         pdt.assert_frame_equal(first[name], second[name], check_exact=True)

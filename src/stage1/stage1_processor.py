@@ -79,6 +79,15 @@ class Stage1Processor:
             self.cache.get('金融工具池设置'),
         )
 
+    def _build_limit_calculator(self) -> LimitDetailCalculator:
+        """Resolve the legacy configuration outside the shared calculation engine."""
+        resolver = LimitDetailCalculator(self.cache)
+        regulatory_limit = resolver._load_regulatory_concentration_limit()
+        return LimitDetailCalculator(
+            self.cache,
+            regulatory_concentration_limit=regulatory_limit,
+        )
+
     def _ensure_source_row_id(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
         """为信用债源持仓生成运行内唯一行号，用于保护真实重复持仓。"""
         return ensure_source_row_id(df, table_name)
@@ -314,7 +323,7 @@ class Stage1Processor:
         logger.info("=" * 80)
         
         # 创建限额明细计算器
-        limit_calculator = LimitDetailCalculator(self.cache)
+        limit_calculator = self._build_limit_calculator()
         
         # 重要：先计算限额明细_特定主体和_特定实控人，因为限额明细1_2需要用它们来筛选和关联
         logger.info("\n执行查询: 限额明细_特定主体")

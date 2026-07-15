@@ -22,7 +22,10 @@ from .stage1_aggregates import (
     calculate_single_issuer_total_position,
     calculate_specific_controller_total_position,
     calculate_specific_issuer_total_position,
+    calculate_single_guarantee_total_position,
+    calculate_single_guarantee_total_position_unfiltered,
 )
+from .stage1_limits import Stage1LimitEngine
 
 
 class ProductionRiskKernel:
@@ -66,6 +69,82 @@ class ProductionRiskKernel:
             frames["特定实控人限额"],
             frames["穿透高收益债券"],
             frames["金融工具池设置"],
+        )
+
+        engine_frames = dict(frames)
+        engine_frames.update(results)
+        limit_engine = Stage1LimitEngine(
+            engine_frames,
+            regulatory_concentration_limit=(
+                inputs.parameters.regulatory_concentration_limit
+            ),
+        )
+
+        def register(name: str, frame: pd.DataFrame) -> pd.DataFrame:
+            results[name] = frame
+            limit_engine.cache[name] = _copy_frame(frame)
+            return frame
+
+        register(
+            "限额明细_特定主体",
+            limit_engine.calculate_limit_detail_specific_issuer(),
+        )
+        register(
+            "限额明细_特定实控人",
+            limit_engine.calculate_limit_detail_specific_controller(),
+        )
+        register(
+            "单一担保人总持仓",
+            calculate_single_guarantee_total_position(
+                limit_engine.cache["债券持仓明细表_信用债_合并风险限额相关"],
+                limit_engine.cache.get("限额明细_特定主体"),
+                limit_engine.cache.get("限额明细_特定实控人"),
+                limit_engine.cache.get("单一主体规模限额"),
+                limit_engine.cache.get("单一担保公司规模限额"),
+                limit_engine.cache.get("穿透高收益债券"),
+                limit_engine.cache.get("金融工具池设置"),
+            ),
+        )
+        register(
+            "单一担保人总持仓_不剔除",
+            calculate_single_guarantee_total_position_unfiltered(
+                limit_engine.cache.get("单一担保公司规模限额"),
+                limit_engine.cache.get(
+                    "债券持仓明细表_信用债_合并风险限额相关"
+                ),
+            ),
+        )
+        register(
+            "限额明细_债券持仓明细表_信用债1_2",
+            limit_engine.calculate_limit_detail_1_2(),
+        )
+        register(
+            "限额明细_单一债券",
+            limit_engine.calculate_limit_detail_single_bond(),
+        )
+        register(
+            "限额明细_单一主体",
+            limit_engine.calculate_limit_detail_single_issuer(),
+        )
+        register(
+            "限额明细_单一实控人",
+            limit_engine.calculate_limit_detail_single_controller(),
+        )
+        register(
+            "限额明细_单一实控人_取最高额度",
+            limit_engine.calculate_limit_detail_single_controller_max(),
+        )
+        register(
+            "限额明细_单一担保人",
+            limit_engine.calculate_limit_detail_single_guarantee(),
+        )
+        register(
+            "限额明细_债券持仓明细表_信用债1_1",
+            limit_engine.calculate_limit_detail_1_1(),
+        )
+        register(
+            "限额明细_全量债券监管集中度",
+            limit_engine.calculate_limit_detail_full_regulatory_concentration(),
         )
         return results
 
