@@ -133,9 +133,10 @@ def test_static_resolver_must_equal_sealed_mapping_and_zero_source(tmp_path: Pat
                 "row_count": 1,
             },
             "zero_result_source": {
-                "sha256": hashlib.sha256(zero_source.read_bytes()).hexdigest(),
-                "size": zero_source.stat().st_size,
+                "sha256": "different-physical-export-is-allowed",
+                "size": zero_source.stat().st_size + 1,
                 "zero_result_count": 1,
+                "issuer_names": ["无代码公司"],
             },
         }
     }
@@ -143,6 +144,13 @@ def test_static_resolver_must_equal_sealed_mapping_and_zero_source(tmp_path: Pat
     runner._validate_resolver_against_evidence(resolver, evidence)
     evidence["current_issuer_resolver"]["mapping"]["sha256"] = "wrong"
     with pytest.raises(UnsafeTestEnvironment, match="静态主体映射"):
+        runner._validate_resolver_against_evidence(resolver, evidence)
+
+    evidence["current_issuer_resolver"]["mapping"]["sha256"] = hashlib.sha256(
+        mapping.read_bytes()
+    ).hexdigest()
+    evidence["current_issuer_resolver"]["zero_result_source"]["issuer_names"] = ["其他公司"]
+    with pytest.raises(UnsafeTestEnvironment, match="显式零代码"):
         runner._validate_resolver_against_evidence(resolver, evidence)
 
 

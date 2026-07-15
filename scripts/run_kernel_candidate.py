@@ -359,14 +359,12 @@ def _validate_resolver_against_evidence(
 
     zero_source = sealed.get("zero_result_source", {})
     actual_zero = (
-        resolver.zero_result_source_sha256,
-        resolver.zero_result_source_size,
         len(resolver.zero_results),
+        tuple(name for name, _ in resolver.zero_results),
     )
     expected_zero = (
-        zero_source.get("sha256"),
-        zero_source.get("size"),
         zero_source.get("zero_result_count"),
+        tuple(zero_source.get("issuer_names", [])),
     )
     if actual_zero != expected_zero:
         raise UnsafeTestEnvironment("显式零代码来源与封存证据不一致")
