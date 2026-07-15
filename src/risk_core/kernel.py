@@ -7,6 +7,8 @@ import pandas as pd
 from .contracts import (
     STAGE1_REQUIRED_FRAMES,
     STAGE2_REQUIRED_FRAMES,
+    STAGE2_REQUIRED_STAGE1_TABLES,
+    MissingKernelFramesError,
     ProductionKernelInput,
     _copy_frame,
 )
@@ -177,7 +179,15 @@ class ProductionRiskKernel:
         for name, frame in stage1_tables.items():
             if not isinstance(name, str) or not isinstance(frame, pd.DataFrame):
                 raise TypeError("stage1_tables must map string keys to pandas DataFrame values")
-            frames[name] = _copy_frame(frame)
+        missing_handoff = [
+            name for name in STAGE2_REQUIRED_STAGE1_TABLES if name not in stage1_tables
+        ]
+        if missing_handoff:
+            raise MissingKernelFramesError(
+                f"Stage2 缺少 Stage1 必需交接表: {missing_handoff}"
+            )
+        for name in STAGE2_REQUIRED_STAGE1_TABLES:
+            frames[name] = _copy_frame(stage1_tables[name])
 
         engine = Stage2RiskEngine(frames)
         results: dict[str, pd.DataFrame] = {

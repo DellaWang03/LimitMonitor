@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 from numbers import Real
 from types import MappingProxyType
@@ -36,8 +36,6 @@ STAGE1_REQUIRED_FRAMES: tuple[str, ...] = (
 
 
 STAGE2_REQUIRED_FRAMES: tuple[str, ...] = (
-    "债券持仓明细表_信用债",
-    "债券持仓明细表_信用债_合并风险限额相关",
     "高风险行业",
     "高风险省份",
     "高风险限额",
@@ -49,6 +47,12 @@ STAGE2_REQUIRED_FRAMES: tuple[str, ...] = (
     "穿透高收益_投资本金规模",
     "公司净资产_手工_每日",
     "高收益限额",
+)
+
+
+STAGE2_REQUIRED_STAGE1_TABLES: tuple[str, ...] = (
+    "债券持仓明细表_信用债",
+    "债券持仓明细表_信用债_合并风险限额相关",
 )
 
 
@@ -101,14 +105,18 @@ class ProductionKernelParameters:
         object.__setattr__(self, "regulatory_concentration_limit", numeric)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class ProductionKernelInput:
     business_date: pd.Timestamp
-    frames: Mapping[str, pd.DataFrame]
     parameters: ProductionKernelParameters
+    _frames: Mapping[str, pd.DataFrame] = field(repr=False)
 
-    def __post_init__(self) -> None:
-        business_date = self.business_date
+    def __init__(
+        self,
+        business_date: pd.Timestamp,
+        frames: Mapping[str, pd.DataFrame],
+        parameters: ProductionKernelParameters,
+    ) -> None:
         if not isinstance(business_date, pd.Timestamp):
             raise TypeError("business_date must be a pandas Timestamp")
         if pd.isna(business_date):
@@ -117,39 +125,57 @@ class ProductionKernelInput:
             raise ValueError("business_date must be timezone-naive")
         if business_date != business_date.normalize():
             raise ValueError("business_date must contain a date without a time component")
-        if not isinstance(self.parameters, ProductionKernelParameters):
+        if not isinstance(parameters, ProductionKernelParameters):
             raise TypeError("parameters must be ProductionKernelParameters")
-        object.__setattr__(self, "frames", _freeze_frames(self.frames, field_name="frames"))
+        object.__setattr__(self, "business_date", business_date)
+        object.__setattr__(self, "parameters", parameters)
+        object.__setattr__(self, "_frames", _freeze_frames(frames, field_name="frames"))
+
+    @property
+    def frames(self) -> Mapping[str, pd.DataFrame]:
+        return MappingProxyType(_detached_frames(self._frames))
 
     def detached_frames(self) -> dict[str, pd.DataFrame]:
-        return _detached_frames(self.frames)
+        return _detached_frames(self._frames)
 
     def require_frames(self, required: Sequence[str]) -> dict[str, pd.DataFrame]:
-        missing = [name for name in required if name not in self.frames]
+        missing = [name for name in required if name not in self._frames]
         if missing:
             raise MissingKernelFramesError(f"共同内核缺少必需输入表: {missing}")
-        return {name: _copy_frame(self.frames[name]) for name in required}
+        return {name: _copy_frame(self._frames[name]) for name in required}
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class ProductionKernelResult:
-    stage1_tables: Mapping[str, pd.DataFrame]
-    stage2_tables: Mapping[str, pd.DataFrame]
+    _stage1_tables: Mapping[str, pd.DataFrame] = field(repr=False)
+    _stage2_tables: Mapping[str, pd.DataFrame] = field(repr=False)
 
-    def __post_init__(self) -> None:
+    def __init__(
+        self,
+        stage1_tables: Mapping[str, pd.DataFrame],
+        stage2_tables: Mapping[str, pd.DataFrame],
+    ) -> None:
         object.__setattr__(
             self,
-            "stage1_tables",
-            _freeze_frames(self.stage1_tables, field_name="stage1_tables"),
+            "_stage1_tables",
+            _freeze_frames(stage1_tables, field_name="stage1_tables"),
         )
         object.__setattr__(
             self,
-            "stage2_tables",
-            _freeze_frames(self.stage2_tables, field_name="stage2_tables"),
+            "_stage2_tables",
+            _freeze_frames(stage2_tables, field_name="stage2_tables"),
         )
+
+    @property
+    def stage1_tables(self) -> Mapping[str, pd.DataFrame]:
+        return MappingProxyType(_detached_frames(self._stage1_tables))
+
+    @property
+    def stage2_tables(self) -> Mapping[str, pd.DataFrame]:
+        return MappingProxyType(_detached_frames(self._stage2_tables))
 
     def detached_stage1_tables(self) -> dict[str, pd.DataFrame]:
-        return _detached_frames(self.stage1_tables)
+        return _detached_frames(self._stage1_tables)
 
     def detached_stage2_tables(self) -> dict[str, pd.DataFrame]:
-        return _detached_frames(self.stage2_tables)
+        return _detached_frames(self._stage2_tables)

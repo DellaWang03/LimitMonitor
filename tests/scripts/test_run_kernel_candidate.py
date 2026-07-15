@@ -57,6 +57,9 @@ def test_source_diff_accepts_only_planned_kernel_extraction_paths() -> None:
     entries = runner._validate_source_diff_entries(
         (
             ("A", "src/risk_core/kernel.py"),
+            ("M", "src/common/__init__.py"),
+            ("M", "src/common/financial_tool_pool.py"),
+            ("A", "src/common/financial_tool_pool_rules.py"),
             ("M", "src/stage1/stage1_processor.py"),
             ("M", "src/stage1/stage1_limit_detail.py"),
             ("M", "src/stage2/stage2_processor.py"),
@@ -64,6 +67,9 @@ def test_source_diff_accepts_only_planned_kernel_extraction_paths() -> None:
     )
 
     assert [entry["path"] for entry in entries] == [
+        "src/common/__init__.py",
+        "src/common/financial_tool_pool.py",
+        "src/common/financial_tool_pool_rules.py",
         "src/risk_core/kernel.py",
         "src/stage1/stage1_limit_detail.py",
         "src/stage1/stage1_processor.py",

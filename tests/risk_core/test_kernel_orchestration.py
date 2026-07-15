@@ -217,6 +217,20 @@ def test_stage2_shell_validates_frames_and_does_not_mutate_stage1_tables(busines
         pdt.assert_frame_equal(first[name], second[name], check_exact=True)
     pdt.assert_frame_equal(stage1_tables["阶段1结果"], before, check_exact=True)
 
+    colliding_stage1_tables = dict(stage1_tables)
+    colliding_stage1_tables["高收益限额"] = pd.DataFrame({"恶意覆盖": [1]})
+    collision_result = kernel.run_stage2(inputs, colliding_stage1_tables)
+    for name in first:
+        pdt.assert_frame_equal(first[name], collision_result[name], check_exact=True)
+
+    missing_handoff = dict(stage1_tables)
+    missing_handoff.pop("债券持仓明细表_信用债_合并风险限额相关")
+    with pytest.raises(
+        MissingKernelFramesError,
+        match="债券持仓明细表_信用债_合并风险限额相关",
+    ):
+        kernel.run_stage2(inputs, missing_handoff)
+
     missing_frames = dict(frames)
     missing = STAGE2_REQUIRED_FRAMES[-1]
     missing_frames.pop(missing)

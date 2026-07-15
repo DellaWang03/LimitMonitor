@@ -4,7 +4,7 @@ import json
 import pandas as pd
 import numpy as np
 from typing import Dict, Any
-from ..common.financial_tool_pool import (
+from ..common.financial_tool_pool_rules import (
     build_financial_tool_pool_sets,
     row_in_financial_tool_pool,
 )
@@ -102,17 +102,17 @@ class Stage2RiskEngine:
         df = self.cache.get('债券持仓明细表_信用债')
         if df is None:
             raise ValueError("债券持仓明细表_信用债未找到")
-        
+
         # 按日期分组，求和
         result = df.groupby('日期').agg({
             '库存数量(万)_PR': 'sum'
         }).reset_index()
-        
+
         result = result.rename(columns={'库存数量(万)_PR': '信用债总持仓_PR'})
-        
+
         logger.info(f"  信用债总持仓: {len(result)} 行")
         return result
-    
+
     def query_single_region_total_position(self) -> pd.DataFrame:
         """
         单一地域总持仓
@@ -121,30 +121,30 @@ class Stage2RiskEngine:
         df = self.cache.get('债券持仓明细表_信用债')
         if df is None:
             raise ValueError("债券持仓明细表_信用债未找到")
-        
+
         # 按日期、省份分组，求和
         result = df.groupby(['日期', '省份']).agg({
             '库存数量(万)_PR': 'sum'
         }).reset_index()
-        
+
         result = result.rename(columns={'库存数量(万)_PR': '单一地域总持仓_PR'})
-        
+
         # 关联公司净资产（用于后续计算集中度）
         df_net_asset = _copy_frame(self.cache['公司净资产_手工_每日'])
         df_net_asset['日期'] = pd.to_datetime(df_net_asset['日期'])
-        
+
         result = result.merge(
             df_net_asset[['日期', '公司净资产(万)']],
             on='日期',
             how='left'
         )
-        
+
         # 计算地域集中度
         result['地域集中度'] = result['单一地域总持仓_PR'] / (result['公司净资产(万)'] * 1.2)
-        
+
         logger.info(f"  单一地域总持仓: {len(result)} 行")
         return result
-    
+
     def query_single_region_citybond_position(self) -> pd.DataFrame:
         """
         单一地域城投总持仓
@@ -153,33 +153,33 @@ class Stage2RiskEngine:
         df = self.cache.get('债券持仓明细表_信用债')
         if df is None:
             raise ValueError("债券持仓明细表_信用债未找到")
-        
+
         # 筛选城投债
         df_citybond = df[df['债券类别'] == '城投债'].copy()
-        
+
         # 按日期、省份分组，求和
         result = df_citybond.groupby(['日期', '省份']).agg({
             '库存数量(万)_PR': 'sum'
         }).reset_index()
-        
+
         result = result.rename(columns={'库存数量(万)_PR': '单一地域城投总持仓_PR'})
-        
+
         # 关联公司净资产
         df_net_asset = _copy_frame(self.cache['公司净资产_手工_每日'])
         df_net_asset['日期'] = pd.to_datetime(df_net_asset['日期'])
-        
+
         result = result.merge(
             df_net_asset[['日期', '公司净资产(万)']],
             on='日期',
             how='left'
         )
-        
+
         # 计算城投地域集中度
         result['城投地域集中度'] = result['单一地域城投总持仓_PR'] / result['公司净资产(万)']
-        
+
         logger.info(f"  单一地域城投总持仓: {len(result)} 行")
         return result
-    
+
     def query_high_risk_industry_position(self) -> pd.DataFrame:
         """
         高风险行业总持仓
@@ -188,17 +188,17 @@ class Stage2RiskEngine:
         df = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
         if df is None:
             raise ValueError("债券持仓明细表_信用债_合并风险限额相关未找到")
-        
+
         # 筛选高风险行业
         df_high_risk = df[df['行业类别'] == '高风险行业'].copy()
-        
+
         # 按日期、行业类别分组，求和
         result = df_high_risk.groupby(['日期', '行业类别']).agg({
             '库存数量(万)_PR': 'sum'
         }).reset_index()
-        
+
         result = result.rename(columns={'库存数量(万)_PR': '高风险行业总持仓_PR'})
-        
+
         # 关联信用债总持仓
         df_total_credit = self.cache.get('信用债总持仓')
         if df_total_credit is not None:
@@ -207,14 +207,14 @@ class Stage2RiskEngine:
                 on='日期',
                 how='left'
             )
-        
+
         # 计算高风险行业集中度
         if '信用债总持仓_PR' in result.columns:
             result['高风险行业集中度'] = result['高风险行业总持仓_PR'] / result['信用债总持仓_PR']
-        
+
         logger.info(f"  高风险行业总持仓: {len(result)} 行")
         return result
-    
+
     def query_high_risk_industry_position_detail(self) -> pd.DataFrame:
         """
         高风险行业总持仓_2（明细）
@@ -223,20 +223,20 @@ class Stage2RiskEngine:
         df = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
         if df is None:
             raise ValueError("债券持仓明细表_信用债_合并风险限额相关未找到")
-        
+
         # 筛选高风险行业
         df_high_risk = df[df['行业类别'] == '高风险行业'].copy()
-        
+
         # 按日期、wind行业分组，求和
         result = df_high_risk.groupby(['日期', 'wind行业']).agg({
             '库存数量(万)_PR': 'sum'
         }).reset_index()
-        
+
         result = result.rename(columns={'库存数量(万)_PR': '高风险行业总持仓_PR'})
-        
+
         logger.info(f"  高风险行业总持仓_2: {len(result)} 行")
         return result
-    
+
     def query_high_risk_province_position(self) -> pd.DataFrame:
         """
         高风险省份总持仓
@@ -245,33 +245,33 @@ class Stage2RiskEngine:
         df = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
         if df is None:
             raise ValueError("债券持仓明细表_信用债_合并风险限额相关未找到")
-        
+
         # 筛选高风险省份
         df_high_risk = df[df['省份类别'] == '高风险省份'].copy()
-        
+
         # 按日期、省份类别分组，求和
         result = df_high_risk.groupby(['日期', '省份类别']).agg({
             '库存数量(万)_PR': 'sum'
         }).reset_index()
-        
+
         result = result.rename(columns={'库存数量(万)_PR': '高风险省份总持仓_PR'})
-        
+
         # 关联公司净资产
         df_net_asset = _copy_frame(self.cache['公司净资产_手工_每日'])
         df_net_asset['日期'] = pd.to_datetime(df_net_asset['日期'])
-        
+
         result = result.merge(
             df_net_asset[['日期', '公司净资产(万)']],
             on='日期',
             how='left'
         )
-        
+
         # 计算高风险省份集中度（分母 = 公司净资产 * 1.2）
         result['高风险省份集中度'] = result['高风险省份总持仓_PR'] / (result['公司净资产(万)'] * 1.2)
-        
+
         logger.info(f"  高风险省份总持仓: {len(result)} 行")
         return result
-    
+
     def query_high_risk_province_position_detail(self) -> pd.DataFrame:
         """
         高风险省份总持仓_2（明细）
@@ -280,24 +280,24 @@ class Stage2RiskEngine:
         df = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
         if df is None:
             raise ValueError("债券持仓明细表_信用债_合并风险限额相关未找到")
-        
+
         # 筛选高风险省份
         df_high_risk = df[df['省份类别'] == '高风险省份'].copy()
-        
+
         # 按日期、省份分组，求和
         result = df_high_risk.groupby(['日期', '省份']).agg({
             '库存数量(万)_PR': 'sum'
         }).reset_index()
-        
+
         result = result.rename(columns={'库存数量(万)_PR': '高风险省份总持仓_PR'})
-        
+
         logger.info(f"  高风险省份总持仓_2: {len(result)} 行")
         return result
-    
+
     # ========================================================================
     # 输出表生成方法（待实现）
     # ========================================================================
-    
+
     def query_credit_bond_detail_2(self) -> pd.DataFrame:
         """
         限额明细_债券持仓明细表_信用债2
@@ -305,17 +305,17 @@ class Stage2RiskEngine:
         注意：使用Stage1的债券持仓明细表_信用债（保留原始重复记录），以匹配Excel逻辑
         """
         logger.info(f"  开始生成信用债2明细表...")
-        
+
         # 1. 使用显式输入的Stage1债券持仓明细表_信用债（保留原始重复记录）
         df = _copy_frame(self.cache['债券持仓明细表_信用债'])
-        
+
         # 确保日期字段
         if '日期' in df.columns:
             df['日期'] = pd.to_datetime(df['日期'])
         self._validate_source_row_id(df, '债券持仓明细表_信用债')
-        
+
         logger.info(f"    Stage1信用债: {len(df)} 行（保留原始重复记录）")
-        
+
         # 2. 筛选账户（排除特定账户）
         # 注意：与原Excel保持一致，排除"做市交易部做市业务"账户
         # 高风险省份汇总表使用Stage1数据（包含做市业务），明细表排除做市业务
@@ -324,7 +324,7 @@ class Stage2RiskEngine:
             (df['内部证券账户名称'] != '做市交易部做市业务')
         ].copy()
         logger.info(f"    筛选后: {len(df)} 行")
-        
+
         # 3. 关联Stage1合并风险限额相关的计算字段（通过源行号关联）
         df_stage1_merged = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
         if df_stage1_merged is None:
@@ -342,7 +342,7 @@ class Stage2RiskEngine:
                 '中债隐含评级', '实际控制人名称_修正', '调整后实际控制人', '担保公司是否准入'
             ]
             existing_stage1_cols = [col for col in stage1_calc_cols if col in df_stage1_merged.columns]
-            
+
             df = df.merge(
                 df_stage1_merged[existing_stage1_cols],
                 on=SOURCE_ROW_ID_COL,
@@ -391,15 +391,15 @@ class Stage2RiskEngine:
                 df = df.drop(columns=[calc_col])
             if mismatches:
                 raise ValueError(f"Stage2 源行号血缘校验失败: {mismatches}")
-            
+
             # 用Stage1的计算字段覆盖原有字段
             for col in stage1_calc_cols:
                 if col not in [SOURCE_ROW_ID_COL] + lineage_check_cols and f'{col}_s1calc' in df.columns:
                     df[col] = df[f'{col}_s1calc']
                     df = df.drop(columns=[f'{col}_s1calc'])
-            
+
             logger.info(f"    ✓ 按{SOURCE_ROW_ID_COL}关联Stage1计算字段")
-        
+
         # 2. 关联高风险行业配置（获取指标值）
         df_high_industry = self.cache.get('高风险行业')
         if df_high_industry is not None:
@@ -411,7 +411,7 @@ class Stage2RiskEngine:
             )
             df = df.drop(columns=['行业名称'], errors='ignore')
             df = df.rename(columns={'指标值': '高风险行业之和集中度限额指标值'})
-        
+
         # 3. 关联高风险省份配置（获取指标值）
         df_high_province = self.cache.get('高风险省份')
         if df_high_province is not None:
@@ -423,7 +423,7 @@ class Stage2RiskEngine:
             )
             df = df.drop(columns=['省份名称'], errors='ignore')
             df = df.rename(columns={'指标值': '高风险省份之和集中度限额指标值'})
-        
+
         # 4. 关联地域集中度限额
         df_region_limit = self.cache.get('地域集中度限额(含城投)')
         if df_region_limit is not None:
@@ -436,14 +436,14 @@ class Stage2RiskEngine:
             df = df.drop(columns=['指标名称'], errors='ignore')
             # 重命名城投集中度限额
             df = df.rename(columns={'指标值_城投集中度限额': '指标值_城投集中度限额2'})
-            
+
             # 根据是否城投债设置城投集中度限额
             df['指标值_城投集中度限额'] = df.apply(
                 lambda row: row.get('指标值_城投集中度限额2') if row.get('是否城投债') == '是' else None,
                 axis=1
             )
             df = df.drop(columns=['指标值_城投集中度限额2'], errors='ignore')
-        
+
         # 5. 关联单一地域总持仓
         df_region_pos = self.cache.get('单一地域总持仓')
         if df_region_pos is not None:
@@ -452,7 +452,7 @@ class Stage2RiskEngine:
                 on=['日期', '省份'],
                 how='left'
             )
-        
+
         # 6. 关联单一地域城投总持仓（只对城投债赋值）
         df_citybond_pos = self.cache.get('单一地域城投总持仓')
         if df_citybond_pos is not None:
@@ -462,13 +462,13 @@ class Stage2RiskEngine:
                 on=['日期', '省份'],
                 how='left'
             )
-            
+
             # 只对"债券类别"=='城投债'的记录保留城投地域集中度，其他设为NaN
             # 注意：只用"债券类别"判断，不使用"是否城投债"
             is_citybond = (df['债券类别'] == '城投债')
             df.loc[~is_citybond, '城投地域集中度'] = None
             df.loc[~is_citybond, '单一地域城投总持仓_PR'] = None
-        
+
         # 7. 关联信用债总持仓
         df_total_credit = self.cache.get('信用债总持仓')
         if df_total_credit is not None:
@@ -477,7 +477,7 @@ class Stage2RiskEngine:
                 on='日期',
                 how='left'
             )
-        
+
         # 8. 关联公司净资产
         df_net_asset = _copy_frame(self.cache['公司净资产_手工_每日'])
         df_net_asset['日期'] = pd.to_datetime(df_net_asset['日期'])
@@ -486,7 +486,7 @@ class Stage2RiskEngine:
             on='日期',
             how='left'
         )
-        
+
         # 9. 关联高风险行业总持仓和集中度
         df_high_industry_pos = self.cache.get('高风险行业总持仓')
         if df_high_industry_pos is not None:
@@ -495,7 +495,7 @@ class Stage2RiskEngine:
                 on=['日期', '行业类别'],
                 how='left'
             )
-        
+
         # 10. 关联高风险省份总持仓和集中度
         df_high_province_pos = self.cache.get('高风险省份总持仓')
         if df_high_province_pos is not None:
@@ -504,7 +504,7 @@ class Stage2RiskEngine:
                 on=['日期', '省份类别'],
                 how='left'
             )
-        
+
         # 11. 计算剩余额度
         # 地域集中度剩余额度
         # M 代码: (指标值_地域集中度限额 - 地域集中度) * 信用债总持仓_PR
@@ -512,51 +512,51 @@ class Stage2RiskEngine:
             df['地域集中度剩余额度(万)'] = (
                 (df['指标值_地域集中度限额'] - df['地域集中度']) * df['信用债总持仓_PR']
             )
-        
+
         # 城投集中度剩余额度
         if all(col in df.columns for col in ['公司净资产(万)', '指标值_城投集中度限额', '单一地域城投总持仓_PR']):
             df['城投集中度剩余额度(万)'] = (
                 df['公司净资产(万)'] * df['指标值_城投集中度限额'] - df['单一地域城投总持仓_PR']
             )
-        
+
         # 高风险行业集中度剩余额度
         if all(col in df.columns for col in ['信用债总持仓_PR', '高风险行业之和集中度限额指标值', '高风险行业总持仓_PR']):
             df['高风险行业集中度剩余额度(万)'] = (
                 df['信用债总持仓_PR'] * df['高风险行业之和集中度限额指标值'] - df['高风险行业总持仓_PR']
             )
-        
+
         # 高风险省份集中度剩余额度
         # M 代码: (高风险省份之和集中度限额指标值 - 高风险省份集中度) * 信用债总持仓_PR
         if all(col in df.columns for col in ['高风险省份集中度', '高风险省份之和集中度限额指标值', '信用债总持仓_PR']):
             df['高风险省份集中度剩余额度(万)'] = (
                 (df['高风险省份之和集中度限额指标值'] - df['高风险省份集中度']) * df['信用债总持仓_PR']
             )
-        
+
         # 12. 判断是否超限
         df['高风险行业是否超限'] = df.apply(
-            lambda row: '是' if pd.notna(row.get('高风险行业集中度剩余额度(万)')) and 
+            lambda row: '是' if pd.notna(row.get('高风险行业集中度剩余额度(万)')) and
                                 row.get('高风险行业集中度剩余额度(万)') < 0 else '否',
             axis=1
         )
-        
+
         df['高风险省份是否超限'] = df.apply(
-            lambda row: '是' if pd.notna(row.get('高风险省份集中度剩余额度(万)')) and 
+            lambda row: '是' if pd.notna(row.get('高风险省份集中度剩余额度(万)')) and
                                 row.get('高风险省份集中度剩余额度(万)') < 0 else '否',
             axis=1
         )
-        
+
         df['地域集中度是否超限'] = df.apply(
-            lambda row: '是' if pd.notna(row.get('地域集中度剩余额度(万)')) and 
+            lambda row: '是' if pd.notna(row.get('地域集中度剩余额度(万)')) and
                                 row.get('地域集中度剩余额度(万)') < 0 else '否',
             axis=1
         )
-        
+
         df['城投集中度是否超限'] = df.apply(
-            lambda row: '是' if pd.notna(row.get('城投集中度剩余额度(万)')) and 
+            lambda row: '是' if pd.notna(row.get('城投集中度剩余额度(万)')) and
                                 row.get('城投集中度剩余额度(万)') < 0 else '否',
             axis=1
         )
-        
+
         # 综合判断是否超限
         df['是否超限'] = df.apply(
             lambda row: '是' if '是' in [
@@ -567,7 +567,7 @@ class Stage2RiskEngine:
             ] else '否',
             axis=1
         )
-        
+
         # 12. 添加ISIN码（从SPPI表关联）
         df_isin = self.cache.get('ISIN码映射')
         if df_isin is not None and 'ISIN码' not in df.columns:
@@ -577,7 +577,7 @@ class Stage2RiskEngine:
                 how='left'
             )
             logger.info(f"    ✓ 关联ISIN码: {df['ISIN码'].notna().sum()} 个非空")
-        
+
         # 13. 选择输出列（根据Excel参考，字段名已与参考文件完全一致）
         output_cols = [
             '日期', 'ISIN码', '金融资产会计属性', '部门', '内部证券账户名称',
@@ -596,14 +596,14 @@ class Stage2RiskEngine:
             '高风险行业是否超限', '高风险省份是否超限',
             '地域集中度是否超限', '城投集中度是否超限', '是否超限'
         ]
-        
+
         # 只选择存在的列
         existing_cols = [col for col in output_cols if col in df.columns]
         df = df[existing_cols]
-        
+
         # 14. 浮点数精度处理（修复与Excel的浮点数比较差异）
         numeric_cols = [
-            '库存数量(万)_PR', '债券余额(亿)', '单一地域总持仓_PR', 
+            '库存数量(万)_PR', '债券余额(亿)', '单一地域总持仓_PR',
             '地域集中度', '单一地域城投总持仓_PR', '城投地域集中度',
             '信用债总持仓_PR', '公司净资产(万)',
             '高风险行业总持仓_PR', '高风险行业集中度',
@@ -613,14 +613,14 @@ class Stage2RiskEngine:
             '高风险行业之和集中度限额指标值', '高风险省份之和集中度限额指标值',
             '指标值_地域集中度限额', '指标值_城投集中度限额'
         ]
-        
+
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = df[col].round(4)  # 保留4位小数，与Excel一致
-        
+
         logger.info(f"  信用债2明细表: {len(df)} 行 × {len(df.columns)} 列")
         return df
-    
+
     def query_high_risk_industry_detail(self) -> pd.DataFrame:
         """
         限额明细_高风险行业（汇总表）
@@ -628,40 +628,40 @@ class Stage2RiskEngine:
         """
         df_high_risk = self.cache.get('高风险行业')
         df_high_industry_pos = self.cache.get('高风险行业总持仓')
-        
+
         if df_high_risk is None or df_high_industry_pos is None:
             return pd.DataFrame()
-        
+
         # 从总持仓表获取最新日期
         latest_date = df_high_industry_pos['日期'].max()
         df_pos = df_high_industry_pos[df_high_industry_pos['日期'] == latest_date].copy()
-        
+
         # 从配置表获取对应日期的指标值
         df = df_high_risk[['行业类别', '指标值', '日期']].drop_duplicates()
-        
+
         # 关联总持仓数据
         df = df.merge(
             df_pos[['日期', '高风险行业总持仓_PR', '信用债总持仓_PR', '高风险行业集中度']],
             on='日期',
             how='inner'
         )
-        
+
         # 如果inner join为空，使用配置表最新日期的指标值
         if len(df) == 0:
             df_config_latest = df_high_risk[df_high_risk['日期'] == df_high_risk['日期'].max()][['行业类别', '指标值']].drop_duplicates()
             df = df_pos.merge(df_config_latest, on='行业类别', how='left')
-        
+
         # 计算限额和剩余额度
         df['高风险行业总持仓限额(万)'] = df['信用债总持仓_PR'] * df['指标值']
         df['高风险行业总持仓剩余额度(万)'] = df['高风险行业总持仓限额(万)'] - df['高风险行业总持仓_PR']
-        
+
         # 添加"集中度"和"剩余额度"字段（与Power BI截图字段名一致）
         df['集中度'] = df['高风险行业集中度']
         df['剩余额度'] = df['高风险行业总持仓剩余额度(万)']
-        
+
         logger.info(f"  限额明细_高风险行业: {len(df)} 行")
         return df
-    
+
     def query_high_risk_industry_detail_2(self) -> pd.DataFrame:
         """
         限额明细_高风险行业_2（明细表）
@@ -669,10 +669,10 @@ class Stage2RiskEngine:
         """
         df_high_risk = self.cache.get('高风险行业')
         df_high_industry_pos_2 = self.cache.get('高风险行业总持仓_2')
-        
+
         if df_high_risk is None or df_high_industry_pos_2 is None:
             return pd.DataFrame()
-        
+
         # 关联
         df = df_high_risk.merge(
             df_high_industry_pos_2,
@@ -680,17 +680,17 @@ class Stage2RiskEngine:
             right_on=['wind行业', '日期'],
             how='inner'
         )
-        
+
         # 选择输出列
         df = df[['日期', 'wind行业', '行业类别', '高风险行业总持仓_PR']]
         df = df.rename(columns={'wind行业': '行业名称'})
-        
+
         # 排序
         df = df.sort_values(['日期', '高风险行业总持仓_PR'], ascending=[True, False])
-        
+
         logger.info(f"  限额明细_高风险行业_2: {len(df)} 行")
         return df
-    
+
     def query_high_risk_province_detail(self) -> pd.DataFrame:
         """
         限额明细_高风险省份（汇总表）
@@ -698,46 +698,46 @@ class Stage2RiskEngine:
         """
         df_high_risk = self.cache.get('高风险省份')
         df_high_province_pos = self.cache.get('高风险省份总持仓')
-        
+
         if df_high_risk is None or df_high_province_pos is None:
             return pd.DataFrame()
-        
+
         # 从总持仓表获取最新日期
         latest_date = df_high_province_pos['日期'].max()
         df_pos = df_high_province_pos[df_high_province_pos['日期'] == latest_date].copy()
-        
+
         # 从配置表获取对应日期的指标值
         df = df_high_risk[['省份类别', '指标值', '日期']].drop_duplicates()
-        
+
         # 关联总持仓数据
         df = df.merge(
             df_pos[['日期', '高风险省份总持仓_PR', '公司净资产(万)', '高风险省份集中度']],
             on='日期',
             how='inner'
         )
-        
+
         # 如果inner join为空，使用配置表最新日期的指标值
         if len(df) == 0:
             df_config_latest = df_high_risk[df_high_risk['日期'] == df_high_risk['日期'].max()][['省份类别', '指标值']].drop_duplicates()
             df = df_pos.merge(df_config_latest, on='省份类别', how='left')
-        
+
         # 重新排列列顺序
-        output_cols = ['日期', '省份类别', '指标值', '高风险省份总持仓_PR', '公司净资产(万)', 
+        output_cols = ['日期', '省份类别', '指标值', '高风险省份总持仓_PR', '公司净资产(万)',
                        '高风险省份集中度']
         existing_cols = [col for col in output_cols if col in df.columns]
         df = df[existing_cols]
-        
+
         # 计算限额和剩余额度（修正：分母=公司净资产*1.2）
         df['高风险省份总持仓限额(万)'] = df['公司净资产(万)'] * 1.2 * df['指标值']
         df['高风险省份总持仓剩余额度(万)'] = df['高风险省份总持仓限额(万)'] - df['高风险省份总持仓_PR']
-        
+
         # 添加"集中度"和"剩余额度"字段（与Power BI截图字段名一致）
         df['集中度'] = df['高风险省份集中度']
         df['剩余额度'] = df['高风险省份总持仓剩余额度(万)']
-        
+
         logger.info(f"  限额明细_高风险省份: {len(df)} 行")
         return df
-    
+
     def query_high_risk_province_detail_2(self) -> pd.DataFrame:
         """
         限额明细_高风险省份2（明细表）
@@ -745,10 +745,10 @@ class Stage2RiskEngine:
         """
         df_high_risk = self.cache.get('高风险省份')
         df_high_province_pos_2 = self.cache.get('高风险省份总持仓_2')
-        
+
         if df_high_risk is None or df_high_province_pos_2 is None:
             return pd.DataFrame()
-        
+
         # 关联
         df = df_high_risk.merge(
             df_high_province_pos_2,
@@ -756,17 +756,17 @@ class Stage2RiskEngine:
             right_on=['省份', '日期'],
             how='inner'
         )
-        
+
         # 选择输出列
         df = df[['日期', '省份', '高风险省份总持仓_PR']]
         df = df.rename(columns={'省份': '省份名称'})
-        
+
         # 排序
         df = df.sort_values(['日期', '高风险省份总持仓_PR'], ascending=[True, False])
-        
+
         logger.info(f"  限额明细_高风险省份2: {len(df)} 行")
         return df
-    
+
     def query_region_concentration_detail(self) -> pd.DataFrame:
         """
         限额明细_地域集中度限额(含城投)
@@ -775,30 +775,30 @@ class Stage2RiskEngine:
         df_region_limit = self.cache.get('地域集中度限额(含城投)')
         df_region_pos = self.cache.get('单一地域总持仓')
         df_citybond_pos = self.cache.get('单一地域城投总持仓')
-        
+
         if df_region_limit is None or df_region_pos is None:
             return pd.DataFrame()
-        
+
         # 使用单一地域总持仓的最新日期（实际业务日期）
         latest_date = df_region_pos['日期'].max()
-        
+
         # 从地域集中度限额中选择<=该日期的最新配置
         df_limit_valid = df_region_limit[df_region_limit['日期'] <= latest_date]
         if len(df_limit_valid) == 0:
             # 如果没有历史配置，使用配置表中最早的配置
             logger.warning(f"  ⚠️ 未找到{latest_date}之前的地域限额配置，使用最早配置")
             df_limit_valid = df_region_limit
-        
+
         limit_date = df_limit_valid['日期'].max()
         df = df_limit_valid[df_limit_valid['日期'] == limit_date].copy()
-        
+
         # 关联单一地域总持仓（使用left join保留配置表中的所有省份）
         # 只选择业务最新日期的持仓数据
         df_region_pos_latest = df_region_pos[df_region_pos['日期'] == latest_date].copy()
-        
+
         # 添加业务日期列用于后续关联
         df['业务日期'] = latest_date
-        
+
         df = df.merge(
             df_region_pos_latest[['日期', '省份', '单一地域总持仓_PR', '公司净资产(万)', '地域集中度']],
             left_on=['业务日期', '指标名称'],
@@ -806,30 +806,30 @@ class Stage2RiskEngine:
             how='left',  # Left join保留配置表中的所有省份
             suffixes=('', '_持仓')
         )
-        
+
         # 重命名日期列：配置日期保留为"日期"，业务日期用于计算
         if '日期_持仓' in df.columns:
             df = df.drop(columns=['日期_持仓'])
         df = df.drop(columns=['省份'], errors='ignore')
-        
+
         # 对于没有实际持仓的省份，填充0
         df['单一地域总持仓_PR'] = df['单一地域总持仓_PR'].fillna(0)
         df['地域集中度'] = df['地域集中度'].fillna(0)
-        
+
         # 计算单一地域总持仓上限和剩余额度
         df['单一地域总持仓上限'] = df['公司净资产(万)'] * 1.2 * df['指标值_地域集中度限额']
         df['单一地域总持仓剩余额度'] = df['单一地域总持仓上限'] - df['单一地域总持仓_PR']
         df['地域集中度是否超限'] = df['单一地域总持仓剩余额度'].apply(
             lambda x: '是' if pd.notna(x) and x < 0 else '否'
         )
-        
+
         # 关联单一地域城投总持仓（保留日期.1字段）
         if df_citybond_pos is not None:
             # 只选择业务最新日期的城投持仓数据
             df_citybond_latest = df_citybond_pos[df_citybond_pos['日期'] == latest_date].copy()
             # 重命名城投数据的日期列为日期.1
             df_citybond_latest = df_citybond_latest.rename(columns={'日期': '日期.1'})
-            
+
             df = df.merge(
                 df_citybond_latest[['日期.1', '省份', '单一地域城投总持仓_PR', '城投地域集中度']],
                 left_on=['业务日期', '指标名称'],
@@ -838,43 +838,43 @@ class Stage2RiskEngine:
             )
             df = df.drop(columns=['省份'], errors='ignore')
             # 日期.1字段已保留
-            
+
             # 对于没有城投债持仓的省份，填充0
             df['单一地域城投总持仓_PR'] = df['单一地域城投总持仓_PR'].fillna(0)
             df['城投地域集中度'] = df['城投地域集中度'].fillna(0)
-        
+
         # 计算单一地域城投总持仓上限和剩余额度
         df['单一地域城投总持仓上限'] = df['公司净资产(万)'] * df['指标值_城投集中度限额']
         df['单一地域城投持仓剩余额度'] = df['单一地域城投总持仓上限'] - df['单一地域城投总持仓_PR']
         df['城投集中度是否超限'] = df['单一地域城投持仓剩余额度'].apply(
             lambda x: '是' if pd.notna(x) and x < 0 else '否'
         )
-        
+
         # 删除临时业务日期列
         df = df.drop(columns=['业务日期'], errors='ignore')
-        
+
         # 重新排列列顺序（包含日期.1字段）
         output_cols = [
             '指标名称', '指标值_地域集中度限额', '日期', '单一地域总持仓_PR', '地域集中度',
             '单一地域总持仓上限', '单一地域总持仓剩余额度', '地域集中度是否超限',
-            '指标值_城投集中度限额', '日期.1', '公司净资产(万)', 
+            '指标值_城投集中度限额', '日期.1', '公司净资产(万)',
             '单一地域城投总持仓_PR', '城投地域集中度',
             '单一地域城投总持仓上限', '单一地域城投持仓剩余额度', '城投集中度是否超限'
         ]
         existing_cols = [col for col in output_cols if col in df.columns]
         df = df[existing_cols]
-        
+
         # 排序
         df = df.sort_values(['日期', '单一地域总持仓_PR'], ascending=[True, False])
-        
+
         logger.info(f"  限额明细_地域集中度限额(含城投): {len(df)} 行")
         return df
-    
+
     def query_high_yield_detail(self) -> pd.DataFrame:
         """
         限额明细_高收益
         M-code: 高收益债券持仓明细
-        
+
         高收益识别规则：
         1. 优先级最高：资产代码/主证券代码/资产名称/主证券名称命中金融工具池 → 纳入（可转债白名单）
         2. 账户包含"高收益" → 全部纳入
@@ -883,11 +883,11 @@ class Stage2RiskEngine:
         df_credit = self.cache.get('债券持仓明细表_信用债')
         if df_credit is None:
             return pd.DataFrame()
-        
+
         df = df_credit.copy()
-        
+
         # ===== 准备匹配数据 =====
-        
+
         # 1. 获取金融工具池设置（可转债白名单，代码或简称命中即纳入）
         df_tool_pool = self.cache.get('金融工具池设置')
         tool_pool_names, tool_pool_codes = build_financial_tool_pool_sets(df_tool_pool)
@@ -895,23 +895,23 @@ class Stage2RiskEngine:
             f"    ✓ 金融工具池白名单（可转债代码/简称）: "
             f"{len(tool_pool_codes)}/{len(tool_pool_names)} 个"
         )
-        
+
         # 2. 获取穿透高收益债券表，构建ISIN码→类型的映射；重复 ISIN 保留后面的配置
         df_penetrate = self.cache.get('穿透高收益债券')
         penetrate_isin_dict = _build_penetrate_isin_type_map_keep_last(df_penetrate)
         if df_penetrate is not None and '类型' not in df_penetrate.columns:
             logger.warning(f"    ⚠️  穿透高收益债券表缺少'类型'列")
         logger.info(f"    ✓ 穿透高收益债券表（ISIN→类型映射）: {len(penetrate_isin_dict)} 个")
-        
+
         # ===== 高收益识别逻辑（增强版：同时支持简称和代码匹配）=====
-        
+
         # 用于调试：记录每个规则匹配的数量
         match_stats = {
             'rule1_tool_pool': 0,  # 代码或简称在白名单
             'rule2_account': 0,  # 账户包含"高收益"
             'rule3_isin': 0   # ISIN码匹配穿透表
         }
-        
+
         def is_high_yield(row):
             account = str(row.get('内部证券账户名称', ''))
 
@@ -940,24 +940,24 @@ class Stage2RiskEngine:
 
             # 所有条件不满足，返回"否"
             return '否'
-        
+
         df['是否高收益'] = df.apply(is_high_yield, axis=1)
-        
+
         # 统计识别结果（调试用）
         high_yield_count = (df['是否高收益'] == '是').sum()
         logger.info(f"    ✓ 识别为高收益的债券: {high_yield_count} 条")
         logger.info(f"      规则1-金融工具池代码/简称匹配: {match_stats['rule1_tool_pool']} 条")
         logger.info(f"      规则2-账户高收益: {match_stats['rule2_account']} 条")
         logger.info(f"      规则3-ISIN穿透表: {match_stats['rule3_isin']} 条")
-        
+
         # 筛选高收益债券
         df = df[df['是否高收益'] == '是'].copy()
-        
+
         # 打印一些样本用于调试
         if len(df) > 0 and '资产名称' in df.columns:
             sample_names = df['资产名称'].head(10).tolist()
             logger.info(f"    前10个高收益债券: {sample_names}")
-        
+
         # 单债口径统一按主证券代码归并，缺失时兜底 ISIN，再兜底资产代码。
         if '主证券代码_标准' not in df.columns:
             if '主证券代码' in df.columns:
@@ -1063,7 +1063,7 @@ class Stage2RiskEngine:
 
         logger.info(f"  限额明细_高收益: {len(df)} 行")
         return df
-    
+
     def query_high_yield_capital(self) -> pd.DataFrame:
         """
         限额明细_高收益_投资本金规模
@@ -1075,11 +1075,11 @@ class Stage2RiskEngine:
         if df_src is None or len(df_src) == 0:
             logger.warning("    ⚠️  未找到债券持仓表_核算系统，请确保已加载")
             return pd.DataFrame()
-        
+
         df_src = df_src.copy()
         if '日期' in df_src.columns:
             df_src['日期'] = pd.to_datetime(df_src['日期'], errors='coerce')
-        
+
         # 列名与 M 一致：账户、简称、代码、持仓面额(元)、全价成本(元)（核算系统表已有）
         if '账户' not in df_src.columns and '内部证券账户名称' in df_src.columns:
             df_src['账户'] = df_src['内部证券账户名称']
@@ -1094,7 +1094,7 @@ class Stage2RiskEngine:
         if missing_src:
             logger.warning(f"    债券持仓表_核算系统缺少列: {missing_src}")
             return pd.DataFrame()
-        
+
         tool_pool_names, tool_pool_codes = build_financial_tool_pool_sets(
             self.cache.get('金融工具池设置')
         )
@@ -1109,19 +1109,19 @@ class Stage2RiskEngine:
             )
         else:
             df_src['高收益量化可转债'] = pd.NA
-        
+
         # 筛选：账户包含"高收益" or 高收益量化可转债 <> null（M: Table.SelectRows）
         account_contains = df_src['账户'].astype(str).str.contains('高收益', na=False)
         has_convertible = df_src['高收益量化可转债'].notna()
         df_src = df_src[account_contains | has_convertible].copy()
         df_src = df_src[need_src]
-        
+
         part_accounting = df_src.drop_duplicates()
-        
+
         part_penetrate = _copy_frame(
             self.cache.get('穿透高收益_投资本金规模', pd.DataFrame())
         )
-        
+
         out_cols = ['日期', '账户', '简称', '代码', '持仓面额(元)', '全价成本(元)']
         part_accounting = part_accounting[[c for c in out_cols if c in part_accounting.columns]]
         if len(part_penetrate) > 0:
@@ -1129,7 +1129,7 @@ class Stage2RiskEngine:
             df = pd.concat([part_accounting, part_penetrate], ignore_index=True)
         else:
             df = part_accounting
-        
+
         if '代码' in df.columns:
             df['代码'] = df['代码'].astype(str).str.split('.').str[0]
 

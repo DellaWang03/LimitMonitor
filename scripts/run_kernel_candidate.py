@@ -52,6 +52,9 @@ EXPECTED_STAGE_COUNTS = (("stage0", 10), ("stage1", 35), ("stage2", 22))
 SOURCE_AUDIT_SCOPE = (*baseline.PRODUCTION_SCOPE, "src/risk_core")
 _ALLOWED_EXACT_SOURCE_PATHS = frozenset(
     {
+        "src/common/__init__.py",
+        "src/common/financial_tool_pool.py",
+        "src/common/financial_tool_pool_rules.py",
         "src/stage1/stage1_processor.py",
         "src/stage1/stage1_limit_detail.py",
         "src/stage2/stage2_processor.py",

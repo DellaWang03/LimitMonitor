@@ -7,6 +7,7 @@ configuration and processor adapters intentionally live outside this package.
 from .contracts import (
     STAGE1_REQUIRED_FRAMES,
     STAGE2_REQUIRED_FRAMES,
+    STAGE2_REQUIRED_STAGE1_TABLES,
     MissingKernelFramesError,
     ProductionKernelInput,
     ProductionKernelParameters,
@@ -17,6 +18,7 @@ from .kernel import ProductionRiskKernel
 __all__ = [
     "STAGE1_REQUIRED_FRAMES",
     "STAGE2_REQUIRED_FRAMES",
+    "STAGE2_REQUIRED_STAGE1_TABLES",
     "MissingKernelFramesError",
     "ProductionKernelInput",
     "ProductionKernelParameters",

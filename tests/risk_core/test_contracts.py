@@ -76,6 +76,12 @@ def test_input_frames_are_deeply_detached_and_mapping_is_read_only(business_date
     second = inputs.detached_frames()
     assert second["输入"].loc[0, "值"] == 1
     assert second["输入"].loc[0, "对象"] == ["a"]
+
+    published = inputs.frames
+    published["输入"].loc[0, "值"] = 77
+    published["输入"].loc[0, "对象"].append("published")
+    assert inputs.frames["输入"].loc[0, "值"] == 1
+    assert inputs.frames["输入"].loc[0, "对象"] == ["a"]
     with pytest.raises(TypeError):
         inputs.frames["新增"] = pd.DataFrame()
 
@@ -93,6 +99,16 @@ def test_result_tables_are_deeply_detached_and_mapping_is_read_only():
     detached = result.detached_stage1_tables()
     assert detached["阶段1"].loc[0, "值"] == 1
     assert detached["阶段1"].loc[0, "对象"] == ["a"]
+
+    published_stage1 = result.stage1_tables
+    published_stage1["阶段1"].loc[0, "值"] = 8
+    published_stage1["阶段1"].loc[0, "对象"].append("published")
+    published_stage2 = result.stage2_tables
+    published_stage2["阶段2"].loc[0, "值"] = 7
+
+    assert result.stage1_tables["阶段1"].loc[0, "值"] == 1
+    assert result.stage1_tables["阶段1"].loc[0, "对象"] == ["a"]
+    assert result.stage2_tables["阶段2"].loc[0, "值"] == 2
     with pytest.raises(TypeError):
         result.stage1_tables["新增"] = pd.DataFrame()
 

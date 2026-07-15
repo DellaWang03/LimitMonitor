@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+import subprocess
+import sys
 
 
 RISK_CORE = Path(__file__).parents[2] / "src" / "risk_core"
+REPOSITORY_ROOT = Path(__file__).parents[2]
 FORBIDDEN_IMPORT_ROOTS = {
     "pathlib",
     "os",
@@ -71,3 +74,30 @@ def test_risk_core_has_no_file_database_network_config_or_processor_io():
                     violations.append(f"{path.name}:{node.lineno}: call .{node.func.attr}")
 
     assert violations == []
+
+
+def test_importing_risk_core_does_not_transitively_load_io_modules():
+    forbidden_modules = (
+        "src.common.access_reader",
+        "src.common.wind_code_resolver",
+        "src.common.wind_code_excel_helper",
+        "src.common.financial_tool_pool",
+    )
+    code = f"""
+import sys
+import src.risk_core
+
+forbidden = {forbidden_modules!r}
+loaded = sorted(name for name in forbidden if name in sys.modules)
+if loaded:
+    raise SystemExit("transitive I/O imports: " + ", ".join(loaded))
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr or completed.stdout
