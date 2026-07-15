@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "sealed_at": "2026-07-15",
+  "authority": {
+    "specification": "docs/PRETRADE_SHARED_CORE_SPEC.md",
+    "implementation_plan": "docs/superpowers/plans/2026-07-15-production-shared-kernel-extraction.md",
+    "production_baseline_git_sha": "579af695fb8727dec8249f66d07a8b0e723da137",
+    "candidate_git_sha": "970ef6daa82dfb9fa4e458dd1da30f496ab26447",
+    "baseline_evidence": {
+      "path": "docs/evidence/pretrade-baseline-20260710.json",
+      "sha256": "dc204646749846fbfa354585577188c265861e043af7472f57e36969d7ccb894"
+    },
+    "input_manifest": {
+      "id": "data_source_0123-20260710-v1",
+      "business_date": "2026-07-10",
+      "file_count": 12,
+      "manifest_sha256": "6b8b03ce8cba24e9871c8d1845f82634c0601892f39a4f735f9f2e322e792d00",
+      "input_root": "/Users/dellawang/Desktop/LimitMonitorAutomation/data_source_0123"
+    },
+    "static_issuer_resolver": {
+      "name": "issuer_wind_code_mapping.csv",
+      "purpose": "stage0_issuer_wind_code_resolution_only",
+      "row_count": 11063,
+      "sha256": "202a477df0be7f174c37a70d775d57629f802bf866ba3cba229d89859c329f02",
+      "size": 584260,
+      "confirmed_zero_result_source": {
+        "name": "风控部债券池_主体.xlsx",
+        "zero_result_count": 22,
+        "sha256": "00c4453b65dcffb07f2b8570eedc25326951d7a016a608543a03f4ff7fd6ee5e"
+      }
+    }
+  },
+  "source_allowlist_diff": {
+    "patch_sha256": "78a09d1a51ac03ff4afc152cdcbae4942391cfef55c5073152bf68a18775b49e",
+    "changed_files": [
+      {"path": "src/common/__init__.py", "status": "M"},
+      {"path": "src/common/financial_tool_pool.py", "status": "M"},
+      {"path": "src/common/financial_tool_pool_rules.py", "status": "A"},
+      {"path": "src/risk_core/__init__.py", "status": "A"},
+      {"path": "src/risk_core/contracts.py", "status": "A"},
+      {"path": "src/risk_core/kernel.py", "status": "A"},
+      {"path": "src/risk_core/position_context.py", "status": "A"},
+      {"path": "src/risk_core/stage1_aggregates.py", "status": "A"},
+      {"path": "src/risk_core/stage1_limits.py", "status": "A"},
+      {"path": "src/risk_core/stage2_limits.py", "status": "A"},
+      {"path": "src/stage1/stage1_limit_detail.py", "status": "M"},
+      {"path": "src/stage1/stage1_processor.py", "status": "M"},
+      {"path": "src/stage2/stage2_processor.py", "status": "M"}
+    ]
+  },
+  "runtime": {
+    "environment": "test",
+    "profile": "local",
+    "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "python_executable": "/opt/homebrew/bin/python3",
+    "python_version": "3.14.3",
+    "dependencies": {
+      "PyYAML": "6.0.3",
+      "loguru": "0.7.3",
+      "numpy": "2.4.2",
+      "openpyxl": "3.1.5",
+      "pandas": "3.0.1"
+    },
+    "mdb_export": {
+      "version": "mdbtools v1.0.1",
+      "binary_sha256": "378d637294fc7d0202f9441776bd6f548e47ac4970bdc4bc3664297167b6780a"
+    }
+  },
+  "verification": {
+    "repository_tests": {
+      "command": "PYTHONPATH=. pytest -q",
+      "passed": 233,
+      "skipped": 4,
+      "failed": 0
+    },
+    "risk_core_tests": {
+      "command": "PYTHONPATH=. pytest -q tests/risk_core",
+      "passed": 50,
+      "skipped": 0,
+      "failed": 0
+    },
+    "io_firewall": {
+      "ast_import_and_call_firewall_passed": true,
+      "transitive_project_io_import_firewall_passed": true,
+      "inside_write": "allowed",
+      "outside_write": "denied",
+      "loopback_bind": "denied"
+    },
+    "protected_inventory": {
+      "before_sha256": "4d9e4867ec94bf38c63ad895320905845ce5f2eb5aaa61f3169b7dbb5f17ff55",
+      "canonicalization": "jq -S -c '.protected_before' candidate_evidence.json | shasum -a 256",
+      "unchanged_in_both_runs": true,
+      "roots": [
+        "worktree/data",
+        "worktree/data_source_0123/限额配置_当前.xlsx",
+        "pretrade-baseline-20260710-main1",
+        "/Users/dellawang/Desktop/LimitMonitorAutomation/data_source_0123"
+      ]
+    },
+    "independent_code_review": {
+      "candidate_git_sha": "970ef6daa82dfb9fa4e458dd1da30f496ab26447",
+      "status": "passed",
+      "critical_findings": 0,
+      "important_findings": 0,
+      "resolved_minor_findings": [
+        "protected inventory JSON pointer corrected from .protected.before to .protected_before"
+      ]
+    }
+  },
+  "expected_output": {
+    "logical_sha256": "2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85",
+    "stage_counts": {"stage0": 10, "stage1": 35, "stage2": 22},
+    "stage_logical_sha256": {
+      "stage0": "d97010754d2214c7b4edf2e89808e698a6577631a802765711dc851f5c326565",
+      "stage1": "9f5c5c1528159bd07e1949c6f74222bba0803c9df496f07b99cf31dfb707b2ed",
+      "stage2": "1d8793c341c76672dad46d289f32a6f66d48ff555c9e2cfd9b1441f52f4b3b8a"
+    }
+  },
+  "independent_candidates": [
+    {
+      "name": "kernel-final-rerun-1",
+      "candidate_evidence_sha256": "5d658f5588bd08ec701cd44701d9dcd66be3675044c204eabbc089c6fdb3cc27",
+      "status": "success",
+      "logical_sha256": "2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85",
+      "stage_counts": [10, 35, 22],
+      "protected_unchanged": true
+    },
+    {
+      "name": "kernel-final-rerun-2",
+      "candidate_evidence_sha256": "915388e3bb9c197f04abdff76d73d5928305c273390e83d0ba398863d6f46d13",
+      "status": "success",
+      "logical_sha256": "2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85",
+      "stage_counts": [10, 35, 22],
+      "protected_unchanged": true
+    }
+  ],
+  "zero_difference_summary": {
+    "artifact_differences": 0,
+    "sheet_differences": 0,
+    "schema_differences": 0,
+    "added_rows": 0,
+    "deleted_rows": 0,
+    "row_order_differences": 0,
+    "field_differences": 0,
+    "float_serialization_differences": 0,
+    "logical_fingerprint_differences": 0
+  },
+  "io_exclusions": {
+    "database_accessed": false,
+    "wind_accessed": false,
+    "data_current_used_as_input": false,
+    "archive_written": false
+  },
+  "scope_exclusions": {
+    "immutable_database_snapshot_and_full_archival": "not_implemented_next_phase",
+    "database_only_replay": "not_implemented_next_phase",
+    "wind_master_data_ingestion": "not_implemented",
+    "single_bond_service": "not_implemented_on_shared_kernel",
+    "basket_service": "not_implemented_on_shared_kernel",
+    "pretrade_ui": "not_finally_accepted"
+  }
+}
