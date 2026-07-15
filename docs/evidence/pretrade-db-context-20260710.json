@@ -1,0 +1,14 @@
+{
+  "baseline_commit": "579af695fb8727dec8249f66d07a8b0e723da137",
+  "kernel_commit": "970ef6daa82dfb9fa4e458dd1da30f496ab26447",
+  "manifest_id": "data_source_0123-20260710-v1",
+  "business_date": "2026-07-10",
+  "usage": "DEV",
+  "snapshot_id": "15b9eec7-c20f-41d9-908c-2c07c240b112",
+  "dataset_count": 27,
+  "stage1_table_count": 35,
+  "stage2_table_count": 22,
+  "logical_fingerprint": "2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85",
+  "legacy_archive_dml": false,
+  "prod_pointer_changed": false
+}
