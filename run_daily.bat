@@ -1,11 +1,9 @@
 @echo off
 chcp 65001 > nul
-REM 每日数据更新脚本 - 支持历史数据备份和环境区分
+REM 每日生产入口：由同一 Python 进程完成运行期上下文、归档、发布与展示快照。
 
-REM 切换到脚本所在目录
 cd /d "%~dp0"
 set PROJECT_ROOT=%cd%
-
 set LIMIT_MONITOR_PROFILE=windows
 set LIMIT_MONITOR_ENV=production
 if exist "config\local_env.bat" call "config\local_env.bat"
@@ -19,16 +17,6 @@ if exist ".venv\Scripts\python.exe" (
 %PYTHON_BIN% --version > nul 2>&1
 if errorlevel 1 (
     echo 错误: 未找到可用的 Python 解释器
-    echo 请先安装 Python，或在项目根目录创建 .venv
-    pause
-    exit /b 1
-)
-
-%PYTHON_BIN% -c "import pandas, pymysql, streamlit" > nul 2>&1
-if errorlevel 1 (
-    echo 错误: 当前 Python 环境缺少运行依赖
-    echo 请先执行: %PYTHON_BIN% -m pip install -r requirements.txt
-    pause
     exit /b 1
 )
 
@@ -36,155 +24,21 @@ for %%V in (DB_HOST DB_PORT DB_USER DB_PASSWORD DB_NAME) do (
     if not defined %%V (
         echo 错误: 缺少数据库环境变量 %%V
         echo 请配置系统环境变量，或创建 config\local_env.bat
-        pause
         exit /b 1
     )
 )
+
+for /f "tokens=1-3 delims=/ " %%a in ('date /t') do set TODAY=%%a-%%b-%%c
 
 echo =========================================
 echo 限额监控系统 - 每日数据更新
-if "%LIMIT_MONITOR_ENV%"=="production" (
-    echo 运行模式: 生产环境
-) else (
-    echo 运行模式: 测试环境
-)
-echo 启动时间: %date% %time%
+echo 运行模式: %LIMIT_MONITOR_ENV%
 echo =========================================
 
-REM 获取今天的日期 (格式: YYYY-MM-DD)
-for /f "tokens=1-3 delims=/ " %%a in ('date /t') do (
-    set TODAY=%%a-%%b-%%c
-)
-
-REM 1. 运行Stage0
-echo.
-echo [1/5] 运行Stage0 - Wind代码处理...
-%PYTHON_BIN% run_stage0.py
+%PYTHON_BIN% scripts\run_daily_pipeline.py --archive-date %TODAY%
 if errorlevel 1 (
-    echo ❌ Stage0运行失败
-    pause
+    echo ❌ 每日生产编排失败
     exit /b 1
 )
-echo ✅ Stage0完成
 
-REM 2. 运行Stage1
-echo.
-echo [2/5] 运行Stage1 - 限额明细计算...
-%PYTHON_BIN% run_stage1.py
-if errorlevel 1 (
-    echo ❌ Stage1运行失败
-    pause
-    exit /b 1
-)
-echo ✅ Stage1完成
-
-REM 3. 运行Stage2
-echo.
-echo [3/5] 运行Stage2 - 集中度指标计算...
-%PYTHON_BIN% run_stage2.py
-if errorlevel 1 (
-    echo ❌ Stage2运行失败
-    pause
-    exit /b 1
-)
-echo ✅ Stage2完成
-
-REM 4. 检查数据完整性并决定是否归档
-echo.
-echo [4/5] 数据归档检查...
-
-set CURRENT_DIR=%PROJECT_ROOT%\data\current
-set WARNING_FILE=%CURRENT_DIR%\.INCOMPLETE_DATA_WARNING
-set SNAPSHOT_DIR=%CURRENT_DIR%\display_snapshots
-
-REM 检查数据完整性警告文件
-if exist "%WARNING_FILE%" (
-    echo.
-    echo ⚠️  检测到数据不完整警告
-    echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    type "%WARNING_FILE%"
-    echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    if "%LIMIT_MONITOR_ENV%"=="production" (
-        echo.
-        echo ❌ 生产环境不允许归档不完整数据
-        echo    请更新数据源后重新运行
-        pause
-        exit /b 1
-    ) else (
-        echo.
-        echo ⚠️  【测试模式】数据不完整，跳过 DB 归档与展示层快照生成
-        echo    数据已保存到 data\current\ 可用于:
-        echo      - 数据校验 (validation\)
-        echo      - 配置调试
-        echo.
-        echo 💡 当前 Streamlit / display_snapshots 已切 DB 单源，若未归档成功，将继续显示上一次成功归档的数据
-        echo 💡 如需保留此次测试结果，请手动备份 data\current\ 文件夹
-        set ARCHIVED=false
-        if exist "%SNAPSHOT_DIR%" (
-            rmdir /s /q "%SNAPSHOT_DIR%"
-            echo 🧹 已清理旧的 display_snapshots，避免误用历史快照
-        )
-    )
-) else (
-    REM 数据完整，先写 DB，再基于 current 快照生成展示层快照
-    echo ✅ 数据完整性检查通过，开始归档到 DB...
-    
-    if exist "%CURRENT_DIR%\stage0_output" (
-        if exist "%CURRENT_DIR%\stage1_output" (
-            if exist "%CURRENT_DIR%\stage2_output" (
-                %PYTHON_BIN% scripts/daily_archive.py
-                if not errorlevel 1 (
-                    set ARCHIVED=true
-                    echo ✅ 数据已写入 DB current 快照
-                    echo    archive_date: %TODAY%
-                ) else (
-                    echo ❌ 归档失败
-                    set ARCHIVED=false
-                    pause
-                    exit /b 1
-                )
-            ) else (
-                echo ⚠️  数据目录不完整，跳过归档
-                set ARCHIVED=false
-            )
-        ) else (
-            echo ⚠️  数据目录不完整，跳过归档
-            set ARCHIVED=false
-        )
-    ) else (
-        echo ⚠️  数据目录不完整，跳过归档
-        set ARCHIVED=false
-    )
-)
-
-REM 5. 基于 DB current 快照生成展示层快照
-if "%ARCHIVED%"=="true" (
-    echo.
-    echo [5/5] 生成展示层 CSV 快照...
-    %PYTHON_BIN% scripts/generate_display_snapshot.py
-    if errorlevel 1 (
-        echo ⚠️  展示层快照生成失败（DB 已归档成功，请单独检查 generate_display_snapshot.py）
-    ) else (
-        echo ✅ 展示层快照生成完成
-    )
-)
-
-echo.
-echo =========================================
-echo ✅ 每日数据更新完成！
-echo 完成时间: %date% %time%
-echo =========================================
-echo.
-echo 📁 数据位置:
-echo   - 最新数据: data\current\
-if "%ARCHIVED%"=="true" (
-    echo   - 当前快照: DB archive_meta.is_current=1
-    echo   - 展示快照: data\current\display_snapshots\
-) else (
-    echo   - 当前快照: 未更新（数据不完整，仍沿用上一次成功归档结果）
-)
-echo.
-echo 🚀 启动Web界面: start_web.bat
-echo.
-pause
+echo ✅ 每日生产编排完成
