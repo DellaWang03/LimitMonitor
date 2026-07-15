@@ -29,7 +29,11 @@
 
 | 文档 | 状态 | 用途 |
 |---|---|---|
-| `docs/superpowers/plans/2026-07-15-pretrade-safe-baseline.md` | 执行中 | 在零生产逻辑修改下生成 `data_source_0123` 的可重复金样；已按权威规格 2.1 纳入静态主体代码解析依赖 |
+| `docs/superpowers/plans/2026-07-15-pretrade-safe-baseline.md` | 已完成 | 已在零生产逻辑修改下生成 `data_source_0123` 的双跑可重复金样；已按权威规格 2.1 纳入静态主体代码解析依赖 |
+
+完成证据：`docs/evidence/pretrade-baseline-20260710.json`。正式双跑总逻辑指纹均为
+`2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85`，Stage0/1/2
+分别输出 10、35、22 张表；生产计算范围相对上线基线保持零差异。
 
 该计划完成前：
 

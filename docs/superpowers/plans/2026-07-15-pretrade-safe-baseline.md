@@ -72,7 +72,7 @@
 - Create: src/testing/frozen_manifest.py
 - Test: tests/testing/test_frozen_manifest.py
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Tests cover:
 
@@ -96,7 +96,7 @@ def test_validate_rejects_symlinked_manifest_file(tmp_path: Path) -> None:
         FrozenInputManifest.load(manifest).validate(source)
 ~~~
 
-- [ ] **Step 2: Confirm red**
+- [x] **Step 2: Confirm red**
 
 ~~~bash
 /opt/homebrew/bin/python3 -m pytest -q tests/testing/test_frozen_manifest.py
@@ -104,7 +104,7 @@ def test_validate_rejects_symlinked_manifest_file(tmp_path: Path) -> None:
 
 Expected: import or implementation failure.
 
-- [ ] **Step 3: Add the exact JSON manifest**
+- [x] **Step 3: Add the exact JSON manifest**
 
 The files array must contain these exact name, size and SHA-256 tuples:
 
@@ -123,7 +123,7 @@ The files array must contain these exact name, size and SHA-256 tuples:
 风控部债券池_主体_虚拟添加.xlsx|26291|4253e258e03764765bb93a1a21e018bb95fa4904f494f4118a2f5caa068e2157
 ~~~
 
-- [ ] **Step 4: Implement immutable validation**
+- [x] **Step 4: Implement immutable validation**
 
 ~~~python
 @dataclass(frozen=True)
@@ -156,7 +156,7 @@ Validation order:
 7. stream SHA-256 in binary chunks;
 8. return only after all 12 succeed.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ~~~bash
 /opt/homebrew/bin/python3 -m pytest -q tests/testing/test_frozen_manifest.py
@@ -174,7 +174,7 @@ git commit -m "test: freeze pretrade baseline inputs"
 - Test: tests/testing/test_safe_paths.py
 - Test: tests/testing/test_test_environment.py
 
-- [ ] **Step 1: Write failing path tests**
+- [x] **Step 1: Write failing path tests**
 
 Tests reject:
 
@@ -207,7 +207,7 @@ def test_output_rejects_symlink_escape(
         )
 ~~~
 
-- [ ] **Step 2: Write failing environment tests**
+- [x] **Step 2: Write failing environment tests**
 
 ~~~python
 @pytest.mark.parametrize(
@@ -219,7 +219,7 @@ def test_environment_requires_test_and_local(env_name, profile_name) -> None:
         assert_test_environment(env_name, profile_name)
 ~~~
 
-- [ ] **Step 3: Confirm red**
+- [x] **Step 3: Confirm red**
 
 ~~~bash
 /opt/homebrew/bin/python3 -m pytest -q \
@@ -227,7 +227,7 @@ def test_environment_requires_test_and_local(env_name, profile_name) -> None:
   tests/testing/test_test_environment.py
 ~~~
 
-- [ ] **Step 4: Implement guards**
+- [x] **Step 4: Implement guards**
 
 create_unique_test_output must:
 
@@ -253,7 +253,7 @@ def assert_test_environment(
         raise UnsafeTestEnvironment("LIMIT_MONITOR_PROFILE 必须为 local")
 ~~~
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ~~~bash
 /opt/homebrew/bin/python3 -m pytest -q \
@@ -274,7 +274,7 @@ git commit -m "test: fail closed on unsafe baseline environment"
 - Test: tests/testing/test_frozen_config.py
 - Test: tests/pipeline/test_paths.py
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 FrozenInputConfig tests prove:
 
@@ -291,7 +291,7 @@ PipelinePaths tests prove:
 - exact children stage0, stage1, stage2, logs, access_export, tmp and home are created once;
 - repeated creation and non-empty root fail.
 
-- [ ] **Step 2: Confirm red**
+- [x] **Step 2: Confirm red**
 
 ~~~bash
 /opt/homebrew/bin/python3 -m pytest -q \
@@ -299,7 +299,7 @@ PipelinePaths tests prove:
   tests/pipeline/test_paths.py
 ~~~
 
-- [ ] **Step 3: Implement explicit paths**
+- [x] **Step 3: Implement explicit paths**
 
 ~~~python
 @dataclass(frozen=True)
@@ -350,7 +350,7 @@ class FrozenInputConfig:
 
 It resolves `pipeline_root` and `access_export_dir`, requires `access_export_dir.is_relative_to(pipeline_root)`, and exposes the same immutable manifest instance through `manifest`.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ~~~bash
 /opt/homebrew/bin/python3 -m pytest -q \
@@ -373,7 +373,7 @@ git commit -m "test: inject frozen pretrade pipeline paths"
 - Consumes: `ValidatedInputManifest`, `FrozenInputConfig` and `PipelinePaths` from Tasks 1–3.
 - Produces: `BaselineRunRequest`, `StageRunResult`, `BaselineRunResult` and `run_frozen_pipeline(request)`.
 
-- [ ] **Step 1: Write failing constructor and order tests**
+- [x] **Step 1: Write failing constructor and order tests**
 
 Patch only the processor classes in the test module. Assert the exact constructor arguments and call order:
 
@@ -424,7 +424,7 @@ def test_run_uses_production_processors_in_exact_order(
 
 `write_fake_result` writes one real `name.xlsx` and returns `{name: pd.DataFrame()}`. This intentionally proves that a legal empty table passes.
 
-- [ ] **Step 2: Write failing result-contract tests**
+- [x] **Step 2: Write failing result-contract tests**
 
 Each stage must fail closed when:
 
@@ -447,7 +447,7 @@ def test_missing_workbook_rejects_stage0_swallowed_failure(request, monkeypatch)
         run_frozen_pipeline(request)
 ~~~
 
-- [ ] **Step 3: Confirm red**
+- [x] **Step 3: Confirm red**
 
 ~~~bash
 /opt/homebrew/bin/python3 -m pytest -q tests/pipeline/test_execution.py
@@ -455,7 +455,7 @@ def test_missing_workbook_rejects_stage0_swallowed_failure(request, monkeypatch)
 
 Expected: import or implementation failure.
 
-- [ ] **Step 4: Implement the request and result contracts**
+- [x] **Step 4: Implement the request and result contracts**
 
 ~~~python
 @dataclass(frozen=True)
@@ -507,7 +507,7 @@ stage2 = Stage2Processor(
 
 After each `process_all()`, validate the mapping and workbook contract before constructing the next processor. Do not import or call `ArchiveDB`, `daily_archive`, `run_daily`, pretrade code, Wind clients or UI code.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ~~~bash
 /opt/homebrew/bin/python3 -m pytest -q tests/pipeline/test_execution.py
@@ -530,7 +530,7 @@ git commit -m "test: orchestrate frozen production baseline"
 - Produces: `canonical_scalar(value)`, `fingerprint_file(path, *, relative_to)`, `fingerprint_tree(root)` and `inventory_tree(root)`.
 - The runner in Task 6 serializes these return values directly to JSON.
 
-- [ ] **Step 1: Write failing canonical-value tests**
+- [x] **Step 1: Write failing canonical-value tests**
 
 Cover distinct encodings for all supported values:
 
@@ -551,7 +551,7 @@ def test_canonical_scalar_preserves_semantic_type() -> None:
     assert canonical_scalar(True) == "bool:true"
 ~~~
 
-- [ ] **Step 2: Write failing workbook and tree tests**
+- [x] **Step 2: Write failing workbook and tree tests**
 
 Tests prove:
 
@@ -576,7 +576,7 @@ def test_tree_logical_hash_excludes_physical_xlsx_size(tmp_path: Path) -> None:
     assert left_fp["logical_sha256"] == right_fp["logical_sha256"]
 ~~~
 
-- [ ] **Step 3: Write failing protected-inventory tests**
+- [x] **Step 3: Write failing protected-inventory tests**
 
 `inventory_tree(root)` must record, in sorted relative-path order:
 
@@ -588,7 +588,7 @@ def test_tree_logical_hash_excludes_physical_xlsx_size(tmp_path: Path) -> None:
 
 The before/after JSON objects must compare equal when untouched and unequal for content, mode, entry, symlink-target or existence changes.
 
-- [ ] **Step 4: Confirm red**
+- [x] **Step 4: Confirm red**
 
 ~~~bash
 /opt/homebrew/bin/python3 -m pytest -q \
@@ -596,7 +596,7 @@ The before/after JSON objects must compare equal when untouched and unequal for 
   tests/testing/test_protected_inventory.py
 ~~~
 
-- [ ] **Step 5: Implement canonical logical serialization**
+- [x] **Step 5: Implement canonical logical serialization**
 
 `canonical_scalar` returns a tagged UTF-8 string. Use ISO-8601 for temporal values, `Decimal.normalize()` for decimals and `format(float(value), ".17g")` for finite floats. Normalize floating negative zero to `float:0`. Null detection must occur only after explicit temporal handling so `pd.NaT` becomes `null` rather than a timestamp.
 
@@ -628,11 +628,11 @@ Return shape:
 
 `fingerprint_tree` rejects symlinks and unrecognized non-file entries. Its `logical_sha256` hashes only `relative_path`, `kind` and per-file `logical_sha256` in sorted path order.
 
-- [ ] **Step 6: Implement non-following protected inventories**
+- [x] **Step 6: Implement non-following protected inventories**
 
 Use `Path.lstat()` and `os.scandir()` with `follow_symlinks=False`. Never traverse a symlink. A missing root is a valid recorded state so a newly created protected directory is detectable after the run.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 ~~~bash
 /opt/homebrew/bin/python3 -m pytest -q \
@@ -658,7 +658,7 @@ git commit -m "test: fingerprint frozen baseline outputs"
 - Parent creates the unique output root and invokes the same script with private `--sandboxed-child` arguments.
 - Child writes `<output-root>/baseline_evidence.json` atomically and returns 0 only after all contracts pass.
 
-- [ ] **Step 1: Add the static sandbox policy**
+- [x] **Step 1: Add the static sandbox policy**
 
 ~~~scheme
 (version 1)
@@ -672,7 +672,7 @@ git commit -m "test: fingerprint frozen baseline outputs"
 
 The profile allows process execution and read access required by Python libraries and `mdb-export`; `sysctl-read` is the minimum macOS permission required by NumPy's import-time `os.uname()` call. The real Xcode Git binary requires `/dev/null`, a non-persistent device, for read/write; no other external write path is allowed. All persistent file writes remain limited to the unique output root. Because no network rule is allowed, all network operations remain denied by default.
 
-- [ ] **Step 2: Write failing parent-launcher tests**
+- [x] **Step 2: Write failing parent-launcher tests**
 
 Patch `subprocess.run` and assert that the parent:
 
@@ -703,7 +703,7 @@ def test_parent_launches_only_the_sandboxed_child(monkeypatch, cli_fixture):
     assert "--sandboxed-child" in argv
 ~~~
 
-- [ ] **Step 3: Write failing child and evidence tests**
+- [x] **Step 3: Write failing child and evidence tests**
 
 The child rejects direct execution outside the sandbox by performing live probes before reading business input:
 
@@ -750,7 +750,7 @@ Evidence tests require this complete structure:
 
 Each evidence `stages` entry contains only stage name, sorted table names, table count, per-table row/column summaries and logical fingerprint. It must not contain the absolute output directory, so two fresh runs can compare exactly.
 
-- [ ] **Step 4: Confirm red**
+- [x] **Step 4: Confirm red**
 
 ~~~bash
 /opt/homebrew/bin/python3 -m pytest -q \
@@ -758,7 +758,7 @@ Each evidence `stages` entry contains only stage name, sorted table names, table
   tests/scripts/test_frozen_baseline_sandbox.py
 ~~~
 
-- [ ] **Step 5: Implement the parent path**
+- [x] **Step 5: Implement the parent path**
 
 The parent performs only validation, output creation and sandbox launch. The Git clean check is:
 
@@ -781,7 +781,7 @@ Create the output root before `sandbox-exec`; pass all resolved roots to the chi
 
 If the outside-write probe unexpectedly succeeds, delete only that uniquely named probe immediately and then fail the run. This probe occurs before protected inventories and may never delete or modify any pre-existing path.
 
-- [ ] **Step 6: Implement the sandboxed child path**
+- [x] **Step 6: Implement the sandboxed child path**
 
 Child order is fixed:
 
@@ -800,7 +800,7 @@ Child order is fixed:
 
 On failure, atomically write `baseline_failure.json` inside output with exception class, message and completed guard states, then return non-zero. Never serialize environment variables or secrets.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 ~~~bash
 /opt/homebrew/bin/python3 -m pytest -q \
@@ -885,12 +885,19 @@ git diff --exit-code 579af695fb8727dec8249f66d07a8b0e723da137 -- \
 
 ### Task 7: Run and independently seal the 2026-07-10 production gold sample
 
+Execution record: the formal repeatability pair is `pretrade-baseline-20260710-compat3`
+and `pretrade-baseline-20260710-compat4`, both produced from Git HEAD
+`b10fd6e115d5963bb91cb9513703e5cc7d5fec5f`. `compat2` is retained as a failed
+diagnostic run: all three processors completed, but the original protected inventory
+correctly refused to seal evidence after macOS rewrote `.DS_Store`. The inventory now
+excludes only that platform metadata file and continues to hash every business artifact.
+
 **Files:**
 
 - Create: `docs/evidence/pretrade-baseline-20260710.json`
 - Verify only: `src/stage0/**`, `src/stage1/**`, `src/stage2/**`, `src/common/**`, `src/utils/**`, `config/settings.yaml`, `scripts/daily_archive.py`
 
-- [ ] **Step 1: Verify ancestry and zero production-scope drift**
+- [x] **Step 1: Verify ancestry and zero production-scope drift**
 
 ~~~bash
 git merge-base --is-ancestor 579af695fb8727dec8249f66d07a8b0e723da137 HEAD
@@ -902,7 +909,7 @@ git status --short
 
 Expected: both Git checks exit 0; the production-scope diff and status are empty. If either fails, stop. Do not bless the output.
 
-- [ ] **Step 2: Run all tests before the full calculation**
+- [x] **Step 2: Run all tests before the full calculation**
 
 ~~~bash
 ENV=test LIMIT_MONITOR_PROFILE=local \
@@ -911,7 +918,7 @@ ENV=test LIMIT_MONITOR_PROFILE=local \
 
 Expected: all tests pass; only documented dependency/platform skips are permitted.
 
-- [ ] **Step 3: Create the external allow-root and run once**
+- [x] **Step 3: Create the external allow-root and run once**
 
 ~~~bash
 mkdir -p /Users/dellawang/Desktop/LimitMonitorAutomation-test-output
@@ -922,7 +929,7 @@ ENV=test LIMIT_MONITOR_PROFILE=local \
   --issuer-mapping-file /Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/issuer_wind_code_mapping.csv \
   --zero-result-source /Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/风控部债券池_主体.xlsx \
   --allow-output-root /Users/dellawang/Desktop/LimitMonitorAutomation-test-output \
-  --output-name pretrade-baseline-20260710-compat1 \
+  --output-name pretrade-baseline-20260710-compat3 \
   --project-root "$PWD" \
   --protected-root /Users/dellawang/Desktop/LimitMonitorAutomation/data/current \
   --protected-root /Users/dellawang/Desktop/LimitMonitorAutomation/data/archive \
@@ -932,14 +939,14 @@ ENV=test LIMIT_MONITOR_PROFILE=local \
 
 Expected: exit 0 and exactly one new output root. No database service, Wind service or existing archive is needed.
 
-- [ ] **Step 4: Audit the generated evidence before copying it**
+- [x] **Step 4: Audit the generated evidence before copying it**
 
 ~~~bash
 /opt/homebrew/bin/python3 - <<'PY'
 import json
 from pathlib import Path
 
-p = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-compat1/baseline_evidence.json")
+p = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-compat3/baseline_evidence.json")
 d = json.loads(p.read_text(encoding="utf-8"))
 assert d["status"] == "success"
 assert d["manifest"]["id"] == "data_source_0123-20260710-v1"
@@ -960,9 +967,9 @@ PY
 
 Expected: assertions pass and one logical SHA-256 is printed. Manually inspect `baseline_failure.json` only when the command fails; never convert a failed run into gold.
 
-- [ ] **Step 5: Prove repeatability with a second fresh output**
+- [x] **Step 5: Prove repeatability with a second fresh output**
 
-Repeat Step 3 with `--output-name pretrade-baseline-20260710-compat2`, then compare:
+Repeat Step 3 with `--output-name pretrade-baseline-20260710-compat4`, then compare:
 
 ~~~bash
 /opt/homebrew/bin/python3 - <<'PY'
@@ -970,17 +977,33 @@ import json
 from pathlib import Path
 
 root = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output")
-a = json.loads((root / "pretrade-baseline-20260710-compat1/baseline_evidence.json").read_text(encoding="utf-8"))
-b = json.loads((root / "pretrade-baseline-20260710-compat2/baseline_evidence.json").read_text(encoding="utf-8"))
-assert a["output_fingerprint"]["logical_sha256"] == b["output_fingerprint"]["logical_sha256"]
-assert a["stages"] == b["stages"]
+a = json.loads((root / "pretrade-baseline-20260710-compat3/baseline_evidence.json").read_text(encoding="utf-8"))
+b = json.loads((root / "pretrade-baseline-20260710-compat4/baseline_evidence.json").read_text(encoding="utf-8"))
+
+def logical_stage(stage):
+    return {
+        "stage": stage["stage"],
+        "table_count": stage["table_count"],
+        "tables": stage["tables"],
+        "logical_sha256": stage["logical_fingerprint"]["logical_sha256"],
+        "entries": [
+            {key: entry[key] for key in ("relative_path", "kind", "logical_sha256")}
+            for entry in stage["logical_fingerprint"]["entries"]
+        ],
+    }
+
+assert a["git"]["head"] == b["git"]["head"]
+assert a["output_fingerprint"] == b["output_fingerprint"]
+assert [logical_stage(stage) for stage in a["stages"]] == [
+    logical_stage(stage) for stage in b["stages"]
+]
 print("repeatable")
 PY
 ~~~
 
 Expected: `repeatable`. Physical `.xlsx` SHA or size may differ and is not a failure when logical fingerprints match.
 
-- [ ] **Step 6: Copy only compact evidence and independently review it**
+- [x] **Step 6: Copy only compact evidence and independently review it**
 
 Copy run1's evidence JSON to `docs/evidence/pretrade-baseline-20260710.json`. Replace absolute output-root fields with the literal `<external-output-root>` only; do not change hashes, row counts, schema, runtime facts or guard results.
 
@@ -989,7 +1012,7 @@ Copy run1's evidence JSON to `docs/evidence/pretrade-baseline-20260710.json`. Re
 import json
 from pathlib import Path
 
-source_root = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-compat1")
+source_root = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-compat3")
 source = source_root / "baseline_evidence.json"
 target = Path("docs/evidence/pretrade-baseline-20260710.json")
 
@@ -1022,7 +1045,7 @@ Review checklist:
 - no DB URL, credentials, environment dump or personal secret appears;
 - Stage0/1/2 output directories remain outside Git and are not committed.
 
-- [ ] **Step 7: Run the final verification and commit**
+- [x] **Step 7: Run the final verification and commit**
 
 ~~~bash
 ENV=test LIMIT_MONITOR_PROFILE=local \
@@ -1045,7 +1068,8 @@ This plan is complete only when all of the following are true:
 - Stage0 → Stage1 → Stage2 run through the deployed processor classes without archive/database/Wind/UI code.
 - A real macOS sandbox proves writes are restricted to the unique output and network is denied.
 - Legal empty tables are accepted; swallowed failures and missing workbooks fail closed.
-- Input, current, archive and worktree protected inventories are byte-for-byte unchanged.
+- Input, current, archive and worktree business-artifact inventories are byte-for-byte
+  unchanged; macOS `.DS_Store` metadata is explicitly excluded.
 - Two fresh runs have identical logical fingerprints and stage summaries.
 - Compact evidence is independently reviewed and committed.
 - Only after this gate may the shared business kernel implementation plan begin.
