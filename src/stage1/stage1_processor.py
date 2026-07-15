@@ -83,6 +83,7 @@ class Stage1Processor:
         """Resolve the legacy configuration outside the shared calculation engine."""
         resolver = LimitDetailCalculator(self.cache)
         regulatory_limit = resolver._load_regulatory_concentration_limit()
+        self._runtime_regulatory_concentration_limit = float(regulatory_limit)
         return LimitDetailCalculator(
             self.cache,
             regulatory_concentration_limit=regulatory_limit,

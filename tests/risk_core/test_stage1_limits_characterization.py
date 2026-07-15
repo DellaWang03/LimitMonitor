@@ -47,6 +47,7 @@ def test_stage1_adapter_resolves_regulatory_parameter_before_building_engine(
 
     assert isinstance(calculator, FakeCalculator)
     assert constructor_values == [None, 0.16]
+    assert stage1_processor._runtime_regulatory_concentration_limit == 0.16
 
 
 def _one_row_1_2_cache(row: dict, business_date: pd.Timestamp, position: float) -> dict:
