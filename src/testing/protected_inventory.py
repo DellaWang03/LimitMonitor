@@ -13,6 +13,9 @@ class InventoryError(RuntimeError):
     """A protected path could not be inventoried without ambiguity."""
 
 
+_IGNORED_PLATFORM_METADATA = frozenset({".DS_Store"})
+
+
 def inventory_tree(root: Path | str) -> dict[str, Any]:
     path = Path(root).absolute()
     try:
@@ -58,6 +61,8 @@ def _inventory_directory(root: Path, directory: Path, target: list[dict[str, Any
     except OSError as exc:
         raise InventoryError(f"无法遍历受保护目录: {directory}") from exc
     for child in children:
+        if child.name in _IGNORED_PLATFORM_METADATA:
+            continue
         path = Path(child.path)
         relative = path.relative_to(root).as_posix()
         try:

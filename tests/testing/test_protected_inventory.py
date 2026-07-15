@@ -71,3 +71,19 @@ def test_new_entry_or_root_creation_changes_inventory(tmp_path: Path) -> None:
     (root / "new.txt").write_text("new", encoding="utf-8")
 
     assert before != inventory_tree(root)
+
+
+def test_macos_ds_store_is_not_a_business_artifact(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    business_file = root / "business.xlsx"
+    business_file.write_bytes(b"business")
+    metadata_file = root / ".DS_Store"
+    metadata_file.write_bytes(b"finder-before")
+    before = inventory_tree(root)
+
+    metadata_file.write_bytes(b"finder-after")
+    after = inventory_tree(root)
+
+    assert before == after
+    assert [entry["path"] for entry in after["entries"]] == ["business.xlsx"]
