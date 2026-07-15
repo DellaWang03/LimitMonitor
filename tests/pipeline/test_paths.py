@@ -50,3 +50,16 @@ def test_create_rejects_symlink_root(tmp_path: Path) -> None:
 
     with pytest.raises(PipelinePathError, match="符号链接"):
         PipelinePaths.create(linked)
+
+
+def test_load_existing_requires_exact_children(tmp_path: Path) -> None:
+    root = tmp_path / "run"
+    root.mkdir()
+    created = PipelinePaths.create(root)
+
+    loaded = PipelinePaths.load_existing(root)
+
+    assert loaded == created
+    (root / "unexpected").mkdir()
+    with pytest.raises(PipelinePathError, match="目录集合"):
+        PipelinePaths.load_existing(root)

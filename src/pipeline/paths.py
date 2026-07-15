@@ -63,3 +63,34 @@ class PipelinePaths:
             raise
 
         return cls(root=resolved, **dict(zip(names, created, strict=True)))
+
+    @classmethod
+    def load_existing(cls, root: Path | str) -> "PipelinePaths":
+        raw_root = Path(root)
+        if raw_root.is_symlink():
+            raise PipelinePathError(f"流水线根目录不得为符号链接: {raw_root}")
+        try:
+            resolved = raw_root.resolve(strict=True)
+        except OSError as exc:
+            raise PipelinePathError(f"流水线根目录不存在: {raw_root}") from exc
+        if not resolved.is_dir():
+            raise PipelinePathError(f"流水线根路径不是目录: {resolved}")
+
+        names = ("stage0", "stage1", "stage2", "logs", "access_export", "tmp", "home")
+        expected = set(names)
+        actual = {entry.name for entry in resolved.iterdir()}
+        if actual != expected:
+            raise PipelinePathError(
+                "流水线根目录集合不正确; "
+                f"missing={sorted(expected - actual)}; unexpected={sorted(actual - expected)}"
+            )
+        children: list[Path] = []
+        for name in names:
+            path = resolved / name
+            if path.is_symlink() or not path.is_dir():
+                raise PipelinePathError(f"流水线子路径不是普通目录: {path}")
+            child = path.resolve(strict=True)
+            if child.parent != resolved:
+                raise PipelinePathError(f"流水线子路径逃逸根目录: {path}")
+            children.append(child)
+        return cls(root=resolved, **dict(zip(names, children, strict=True)))

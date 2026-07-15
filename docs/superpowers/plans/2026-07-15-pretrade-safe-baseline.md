@@ -659,10 +659,11 @@ git commit -m "test: fingerprint frozen baseline outputs"
 (deny default)
 (allow process*)
 (allow file-read*)
+(allow sysctl-read)
 (allow file-write* (subpath (param "OUTPUT_ROOT")))
 ~~~
 
-The profile allows process execution and read access required by Python libraries and `mdb-export`; all file writes are limited to the unique output root. Because no network rule is allowed, all network operations remain denied by default.
+The profile allows process execution and read access required by Python libraries and `mdb-export`; `sysctl-read` is the minimum macOS permission required by NumPy's import-time `os.uname()` call. All file writes are limited to the unique output root. Because no network rule is allowed, all network operations remain denied by default.
 
 - [ ] **Step 2: Write failing parent-launcher tests**
 
