@@ -46,6 +46,21 @@ def test_parquet_round_trip_preserves_an_empty_frame_schema() -> None:
     pdt.assert_frame_equal(restored, frame, check_dtype=True, check_exact=True)
 
 
+def test_parquet_round_trip_preserves_mixed_object_cells_without_pickle() -> None:
+    frame = pd.DataFrame(
+        {
+            "特殊条款": pd.Series(
+                ["含回售", 0, b"binary", Decimal("1.25"), None, pd.NA],
+                dtype="object",
+            )
+        }
+    )
+
+    restored = deserialize_frame(serialize_frame(frame))
+
+    pdt.assert_frame_equal(restored, frame, check_dtype=True, check_exact=True)
+
+
 def test_split_payload_honors_exact_eight_mebibyte_boundary() -> None:
     exact = b"x" * MAX_CHUNK_SIZE_BYTES
     over = exact + b"y"
