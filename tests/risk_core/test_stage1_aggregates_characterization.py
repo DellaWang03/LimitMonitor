@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pandas.testing as pdt
 
+import src.stage1.stage1_processor as stage1_processor_module
 from src.risk_core.stage1_aggregates import (
     calculate_single_bond_total_position,
     calculate_single_controller_total_position,
@@ -258,3 +259,21 @@ def test_specific_aggregate_missing_config_is_a_legal_empty_table(
         None,
         None,
     ).empty
+
+
+def test_stage1_adapter_retains_special_bond_code_normalization_dependency(
+    stage1_processor, business_date, monkeypatch
+):
+    raw = pd.DataFrame(
+        [{"主证券代码": "102480811.IB", "规模指标值": 1000.0}]
+    )
+    monkeypatch.setattr(
+        stage1_processor_module,
+        "load_limit_config",
+        lambda **_: raw.copy(deep=True),
+    )
+    stage1_processor._business_date = business_date
+
+    result = stage1_processor.query_special_single_bond_limit()
+
+    assert result["主证券代码_标准"].tolist() == ["102480811.IB"]

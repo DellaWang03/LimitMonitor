@@ -8,6 +8,7 @@ from pathlib import Path
 from loguru import logger
 from typing import Dict
 from .stage1_limit_detail import LimitDetailCalculator
+from ..common import normalize_security_code_series
 from ..common.financial_tool_pool import (
     load_financial_tool_pool,
 )
