@@ -4,22 +4,12 @@
 """
 
 import pandas as pd
-import numpy as np
 from pathlib import Path
 from loguru import logger
 from typing import Dict
 from .stage1_limit_detail import LimitDetailCalculator
-from ..common import (
-    SINGLE_BOND_GROUP_KEY_COL,
-    SINGLE_BOND_GROUP_KEY_SOURCE_COL,
-    ensure_single_bond_group_key,
-    normalize_security_code_series,
-)
 from ..common.financial_tool_pool import (
-    build_financial_tool_pool_sets,
     load_financial_tool_pool,
-    normalize_tool_pool_code,
-    row_in_financial_tool_pool,
 )
 from ..utils.limit_config_loader import load_limit_config
 from ..risk_core.position_context import (
@@ -31,6 +21,16 @@ from ..risk_core.position_context import (
     normalize_credit_position,
     normalize_regulatory_position,
     validate_source_row_id,
+)
+from ..risk_core.stage1_aggregates import (
+    calculate_single_bond_total_position,
+    calculate_single_controller_total_position,
+    calculate_single_guarantee_total_position,
+    calculate_single_guarantee_total_position_unfiltered,
+    calculate_single_issuer_total_position,
+    calculate_specific_controller_total_position,
+    calculate_specific_issuer_total_position,
+    filter_non_high_yield_credit_rows,
 )
 
 
@@ -70,69 +70,13 @@ class Stage1Processor:
             return self.config.get_data_file_path(file_name)
         return self.data_dir / file_name
 
-    def _coerce_numeric_columns(self, df: pd.DataFrame, columns) -> pd.DataFrame:
-        """将指定列安全转换为数值，异常值转为 NaN。"""
-        for col in columns:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-        return df
-
-    @staticmethod
-    def _first_non_null(series: pd.Series):
-        non_null = series.dropna()
-        return non_null.iloc[0] if not non_null.empty else None
-
-    def _build_penetration_high_yield_codes(self) -> set[str]:
-        df_high_yield = self.cache.get('穿透高收益债券')
-        if df_high_yield is None or df_high_yield.empty or '类型' not in df_high_yield.columns:
-            return set()
-
-        high_yield_rows = df_high_yield[
-            df_high_yield['类型'].astype(str).str.strip() == '高收益'
-        ]
-        code_columns = [
-            col
-            for col in ('债券代码', '资产代码', '主证券代码', '主证券代码_标准', '代码')
-            if col in high_yield_rows.columns
-        ]
-        codes: set[str] = set()
-        for col in code_columns:
-            codes.update(
-                code
-                for code in high_yield_rows[col].apply(normalize_tool_pool_code)
-                if code
-            )
-        return codes
-
     def _filter_non_high_yield_credit_rows(self, df: pd.DataFrame) -> pd.DataFrame:
-        """M-code 原本排除高收益的节点：仅替换为修正后的高收益识别规则。"""
-        result = df.copy()
-        high_yield_mask = pd.Series(False, index=result.index)
-
-        if '是否属于高收益' in result.columns:
-            high_yield_mask |= result['是否属于高收益'].astype(str).str.strip() == '是'
-
-        if '内部证券账户名称' in result.columns:
-            high_yield_mask |= result['内部证券账户名称'].astype(str).str.contains('高收益', na=False)
-
-        penetration_codes = self._build_penetration_high_yield_codes()
-        if penetration_codes:
-            for col in ('资产代码', '资产代码_标准', '主证券代码', '主证券代码_标准'):
-                if col in result.columns:
-                    high_yield_mask |= result[col].apply(normalize_tool_pool_code).isin(penetration_codes)
-
-        tool_pool_names, tool_pool_codes = build_financial_tool_pool_sets(
-            self.cache.get('金融工具池设置')
+        """Compatibility wrapper around the shared production filter."""
+        return filter_non_high_yield_credit_rows(
+            df,
+            self.cache.get('穿透高收益债券'),
+            self.cache.get('金融工具池设置'),
         )
-        if tool_pool_names or tool_pool_codes:
-            high_yield_mask |= result.apply(
-                row_in_financial_tool_pool,
-                axis=1,
-                tool_pool_names=tool_pool_names,
-                tool_pool_codes=tool_pool_codes,
-            )
-
-        return result[~high_yield_mask].copy()
 
     def _ensure_source_row_id(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
         """为信用债源持仓生成运行内唯一行号，用于保护真实重复持仓。"""
@@ -872,480 +816,86 @@ class Stage1Processor:
         return df
     
     def query_single_bond_total_position(self) -> pd.DataFrame:
-        """
-        查询: 单一债券总持仓
-        数据源: 债券持仓明细表_信用债
-        M代码逻辑:
-        1. 添加业务分类列
-        2. 筛选非利率债
-        3. 按日期、业务分类、单债归并键分组，计算总持仓和集中度
-           归并键优先级：主证券代码_标准 -> ISIN码 -> 资产代码_标准 -> 资产名称 -> 行级缺省键
-        """
-        df = self.cache.get('债券持仓明细表_信用债')
+        """委托共享内核计算单一债券总持仓。"""
+        df = self.cache.get("债券持仓明细表_信用债")
         if df is None:
             df = self.query_bond_position_credit()
-        df = df.copy()
-        
-        # 添加业务分类
-        df['业务分类'] = df['内部证券账户名称'].apply(
-            lambda x: '做市业务' if x == '做市交易部做市业务' else '自营业务'
-        )
-        
-        # 筛选非利率债
-        df = df[df['债券分类2'] != '利率债']
-
-        if '主证券代码_标准' not in df.columns and '主证券代码' in df.columns:
-            df['主证券代码_标准'] = normalize_security_code_series(df['主证券代码'])
-
-        df = ensure_single_bond_group_key(df)
-
-        if '主证券代码' in df.columns and '主证券代码_标准' in df.columns:
-            df['_主证券代码_已标准化'] = df['主证券代码'] == df['主证券代码_标准']
-            df = df.sort_values(
-                ['日期', '业务分类', SINGLE_BOND_GROUP_KEY_COL, '_主证券代码_已标准化'],
-                ascending=[True, True, True, False]
-            )
-
-        df = self._coerce_numeric_columns(
-            df,
-            ['库存数量(万)_PR', '债券余额(亿)']
-        )
-        
-        # 分组计算
-        aggregation_map = {
-            '库存数量(万)_PR': 'sum',
-            '债券余额(亿)': 'mean',
-        }
-        for col in [
-            '主证券代码', '主证券代码_标准', '主证券名称',
-            '资产代码', '资产代码_标准', '资产名称', 'ISIN码',
-            SINGLE_BOND_GROUP_KEY_SOURCE_COL,
-        ]:
-            if col in df.columns:
-                aggregation_map[col] = self._first_non_null
-
-        result = df.groupby(
-            ['日期', '业务分类', SINGLE_BOND_GROUP_KEY_COL],
-            as_index=False
-        ).agg(aggregation_map)
-        
-        result = result.rename(columns={'库存数量(万)_PR': '单一债券总持仓_PR'})
-        
-        # 计算单一债券集中度
-        result['单一债券集中度'] = result['单一债券总持仓_PR'] / result['债券余额(亿)'] * 0.0001
-        result['单一债券集中度'] = result['单一债券集中度'].replace([np.inf, -np.inf], None)
-        
-        # 删除债券余额列
-        result = result.drop(columns=['债券余额(亿)'])
-
-        result = result.drop(columns=['_主证券代码_已标准化'], errors='ignore')
-        
-        # 排序
-        result = result.sort_values('单一债券集中度', ascending=False)
-        
+        result = calculate_single_bond_total_position(df)
         logger.info(f"  单一债券总持仓: {len(result)} 行")
-        
         return result
-    
+
     def query_single_issuer_total_position(self) -> pd.DataFrame:
-        """
-        查询: 单一主体总持仓
-        数据源: 债券持仓明细表_信用债
-        M代码逻辑: 按日期、业务分类、债务主体分组
-        """
-        df = self.cache.get('债券持仓明细表_信用债')
+        """委托共享内核计算单一主体总持仓。"""
+        df = self.cache.get("债券持仓明细表_信用债")
         if df is None:
             df = self.query_bond_position_credit()
-        df = df.copy()
-        
-        # 添加业务分类
-        df['业务分类'] = df['内部证券账户名称'].apply(
-            lambda x: '做市业务' if x == '做市交易部做市业务' else '自营业务'
-        )
-        
-        # 分组计算
-        result = df.groupby(['日期', '业务分类', '债务主体wind代码', '债务主体'], as_index=False).agg({
-            '库存数量(万)_PR': 'sum'
-        })
-        
-        result = result.rename(columns={'库存数量(万)_PR': '单一主体总持仓_PR'})
-        
+        result = calculate_single_issuer_total_position(df)
         logger.info(f"  单一主体总持仓: {len(result)} 行")
-        
         return result
-    
+
     def query_specific_issuer_total_position(self) -> pd.DataFrame:
-        """
-        查询: 特定主体总持仓
-        数据源: 债券持仓明细表_信用债
-        M代码逻辑: 排除高收益和关注池，与特定主体限额关联后分组
-        """
-        df = self.cache.get('债券持仓明细表_信用债')
-        if df is None:
-            df = self.query_bond_position_credit()
-        df = self._filter_non_high_yield_credit_rows(df)
+        """委托共享内核计算特定主体总持仓。"""
+        result = calculate_specific_issuer_total_position(
+            self.cache.get("债券持仓明细表_信用债")
+            if self.cache.get("债券持仓明细表_信用债") is not None
+            else self.query_bond_position_credit(),
+            self.cache.get("特定主体限额"),
+            self.cache.get("穿透高收益债券"),
+            self.cache.get("金融工具池设置"),
+        )
+        logger.info(f"  特定主体总持仓: {len(result)} 行")
+        return result
 
-        # 筛选：排除高收益和关注池
-        df = df[~df['内部证券账户名称'].str.contains('关注池', na=False)]
-        
-        # 与特定主体限额关联
-        df_limit = self.cache.get('特定主体限额')
-        if df_limit is not None:
-            df = df.merge(
-                df_limit[['主体wind代码', '日期', '指标名称', '指标值']],
-                left_on=['债务主体wind代码', '日期'],
-                right_on=['主体wind代码', '日期'],
-                how='left'
-            )
-            df = df.drop(columns=['主体wind代码'], errors='ignore')
-            df = df.rename(columns={'指标名称': '限额名称'})
-            
-            # 筛选：限额名称不为空
-            df = df[df['限额名称'].notna()]
-            
-            # 添加业务分类
-            df['业务分类'] = df['内部证券账户名称'].apply(
-                lambda x: '做市业务' if x == '做市交易部做市业务' else '自营业务'
-            )
-            
-            # 分组计算
-            result = df.groupby(['日期', '业务分类', '限额名称'], as_index=False).agg({
-                '库存数量(万)_PR': 'sum'
-            })
-            
-            result = result.rename(columns={
-                '限额名称': '特定主体名称',
-                '库存数量(万)_PR': '特定主体总持仓'
-            })
-            
-            logger.info(f"  特定主体总持仓: {len(result)} 行")
-            
-            return result
-        else:
-            logger.warning(f"  特定主体限额未找到，返回空DataFrame")
-            return pd.DataFrame()
-    
     def query_single_controller_total_position(self) -> pd.DataFrame:
-        """
-        查询: 单一实控人总持仓
-        数据源: 债券持仓明细表_信用债_合并风险限额相关
-        M代码逻辑: 按实际控制人分组
-        """
-        df = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
+        """委托共享内核计算单一实控人总持仓。"""
+        df = self.cache.get("债券持仓明细表_信用债_合并风险限额相关")
         if df is None:
             df = self.query_bond_position_credit_merged()
-        
-        df = df.copy()
-        
-        # 添加业务分类
-        df['业务分类'] = df['内部证券账户名称'].apply(
-            lambda x: '做市业务' if x == '做市交易部做市业务' else '自营业务'
-        )
-        
-        # 分组计算
-        result = df.groupby(['日期', '业务分类', '实际控制人名称_修正'], as_index=False).agg({
-            '库存数量(万)_PR': 'sum'
-        })
-        
-        result = result.rename(columns={'库存数量(万)_PR': '单一实控人总持仓_PR'})
-        
-        # 筛选：实际控制人不为空
-        result = result[result['实际控制人名称_修正'].notna()]
-        
+        result = calculate_single_controller_total_position(df)
         logger.info(f"  单一实控人总持仓: {len(result)} 行")
-        
         return result
-    
+
     def query_specific_controller_total_position(self) -> pd.DataFrame:
-        """
-        查询: 特定实控人总持仓
-        数据源: 债券持仓明细表_信用债_合并风险限额相关
-        M代码逻辑: 排除高收益和关注池，与特定实控人限额关联后分组
-        """
-        df = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
+        """委托共享内核计算特定实控人总持仓。"""
+        df = self.cache.get("债券持仓明细表_信用债_合并风险限额相关")
         if df is None:
             df = self.query_bond_position_credit_merged()
-        
-        df = self._filter_non_high_yield_credit_rows(df)
-        
-        # 筛选：排除高收益和关注池
-        df = df[~df['内部证券账户名称'].str.contains('关注池', na=False)]
-        
-        # 与特定实控人限额关联
-        df_limit = self.cache.get('特定实控人限额')
-        if df_limit is not None:
-            df = df.merge(
-                df_limit[['实控人名称', '日期', '指标名称', '指标值']],
-                left_on=['实际控制人名称_修正', '日期'],
-                right_on=['实控人名称', '日期'],
-                how='left'
-            )
-            
-            # 筛选：指标名称不为空
-            df = df[(df['指标名称'].notna()) & (df['指标名称'] != '')]
-            
-            # 添加业务分类
-            df['业务分类'] = df['内部证券账户名称'].apply(
-                lambda x: '做市业务' if x == '做市交易部做市业务' else '自营业务'
-            )
-            
-            # 分组计算
-            result = df.groupby(['日期', '业务分类', '实控人名称'], as_index=False).agg({
-                '库存数量(万)_PR': 'sum'
-            })
-            
-            result = result.rename(columns={
-                '实控人名称': '特定实控人名称',
-                '库存数量(万)_PR': '特定实控人总持仓'
-            })
-            
-            logger.info(f"  特定实控人总持仓: {len(result)} 行")
-            
-            return result
-        else:
-            logger.warning(f"  特定实控人限额未找到，返回空DataFrame")
-            return pd.DataFrame()
-    
-    def query_single_guarantee_total_position(self) -> pd.DataFrame:
-        """
-        查询: 单一担保人总持仓
-        数据源: 债券持仓明细表_信用债_合并风险限额相关
-        按M代码完整实现：特定主体/实控人排除、债券类型1分支、担保限额关联
-        
-        M代码关键逻辑（第173-292行）:
-        1. 排除高收益和关注池
-        2. 与"限额明细_特定主体"左连接（按资产代码+日期）
-        3. 与"限额明细_特定实控人"左连接（按资产代码+日期）
-        4. 筛选：指标名称 和 指标名称.1 均为null（排除特定主体/实控人）
-        5. 使用债券类型1处理可转债/可交换债分支
-        6. 两次合并单一主体规模限额（类别+担保准入），比较后取较大值
-        7. 与单一担保公司规模限额三键关联（担保人wind代码+单一主体限额适用类别+日期）
-        8. 筛选：单一担保公司规模限额不为null
-        """
-        df = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
-        if df is None:
-            df = self.query_bond_position_credit_merged()
-        
-        df = self._filter_non_high_yield_credit_rows(df)
-        
-        # 【P1-4修复1】筛选：排除高收益和关注池（M代码第179-183行）
-        df = df[~df['内部证券账户名称'].str.contains('关注池', na=False)]
-        
-        # 步骤2: 只保留有担保人wind代码的记录
-        df = df[df['担保人wind代码'].notna()]
-        
-        # 【P1-4修复2】与"限额明细_特定主体"左连接，使用资产代码+日期（M代码第185-190行）
-        df_specific_issuer = self.cache.get('限额明细_特定主体')
-        if df_specific_issuer is not None and len(df_specific_issuer) > 0:
-            rows_before = len(df)
-            df = df.merge(
-                df_specific_issuer[['资产代码', '日期', '指标名称']],
-                on=['资产代码', '日期'],
-                how='left'
-            )
-            df = df.rename(columns={'指标名称': '特定主体指标名称'})
-            logger.info(f"    合并特定主体限额: {rows_before} -> {len(df)} 行")
-        else:
-            df['特定主体指标名称'] = None
-        
-        # 【P1-4修复3】与"限额明细_特定实控人"左连接，使用资产代码+日期（M代码第192-197行）
-        df_specific_controller = self.cache.get('限额明细_特定实控人')
-        if df_specific_controller is not None and len(df_specific_controller) > 0:
-            rows_before = len(df)
-            df = df.merge(
-                df_specific_controller[['资产代码', '日期', '指标名称']],
-                on=['资产代码', '日期'],
-                how='left',
-                suffixes=('', '_ctrl')
-            )
-            df = df.rename(columns={'指标名称': '特定实控人指标名称'})
-            logger.info(f"    合并特定实控人限额: {rows_before} -> {len(df)} 行")
-        else:
-            df['特定实控人指标名称'] = None
-        
-        # 【P1-4修复4】筛选：指标名称 和 指标名称.1 均为null（M代码第199-200行）
-        # 即：排除所有特定主体和特定实控人的记录（不保留任何例外）
-        rows_before = len(df)
-        df = df[
-            (df['特定主体指标名称'].isna()) &
-            (df['特定实控人指标名称'].isna())
-        ]
-        rows_after = len(df)
-        logger.info(f"    排除特定主体/实控人: {rows_before} -> {rows_after} 行 (排除{rows_before - rows_after}行)")
-        
-        # 删除临时列（M代码第202-203行）
-        df = df.drop(columns=['特定主体指标名称', '特定实控人指标名称'], errors='ignore')
-        
-        # 【P1-4修复5】使用债券类型1处理可转债/可交换债（M代码第205-208行）
-        def calc_custom_category(row):
-            bond_type1 = row.get('债券类型1', '')
-            if bond_type1 == '可转债':
-                return '可转债'
-            elif bond_type1 == '可交换债':
-                return '可交换债'
-            elif row.get('发行人类型') == '国企':
-                return '国企'
-            elif row.get('发行人类型') == '非国企':
-                return '非国企'
-            else:
-                return None
-        
-        df['自定义'] = df.apply(calc_custom_category, axis=1)
-        
-        # 复制债券池列（M代码第210-211行）
-        if '债券池' in df.columns:
-            df['债券池_复制'] = df['债券池']
-        
-        # 合并自定义和债券池（M代码第213-215行）
-        df['单一债券规模限额适用类别'] = df.apply(
-            lambda row: f"{row.get('自定义', '')}/{row.get('债券池_复制', '')}"
-            if pd.notna(row.get('自定义')) and pd.notna(row.get('债券池_复制'))
-            else row.get('自定义', ''),
-            axis=1
+        result = calculate_specific_controller_total_position(
+            df,
+            self.cache.get("特定实控人限额"),
+            self.cache.get("穿透高收益债券"),
+            self.cache.get("金融工具池设置"),
         )
-        
-        # 添加中债隐含评级前缀（M代码第220-221行）
-        df['中债隐含评级_带前缀'] = df['中债隐含评级'].apply(
-            lambda x: f"中债隐含评级{x}" if pd.notna(x) else None
-        )
-        
-        # 【P1-4修复6】计算单一主体限额适用类别（M代码第223-226行）
-        def calc_issuer_limit_category(row):
-            # 优先使用中债隐含评级AAA/AAA+
-            rating = row.get('中债隐含评级')
-            if rating == 'AAA':
-                return '中债隐含评级AAA'
-            elif rating == 'AAA+':
-                return '中债隐含评级AAA+'
-            else:
-                # 使用发行人类型和主体池拼接
-                issuer_type = row.get('发行人类型', '')
-                pool = row.get('主体池', '')
-                if pd.notna(issuer_type) and pd.notna(pool):
-                    return f"{issuer_type}/{pool}"
-                elif pd.notna(issuer_type):
-                    return issuer_type
-                else:
-                    return ''
-        
-        df['单一主体限额适用类别'] = df.apply(calc_issuer_limit_category, axis=1)
-        
-        # 第一次合并单一主体规模限额（M代码第232-237行）
-        df_issuer_limit = self.cache.get('单一主体规模限额')
-        if df_issuer_limit is not None:
-            df = df.merge(
-                df_issuer_limit[['日期', '指标名称', '指标值']].drop_duplicates(),
-                left_on=['单一主体限额适用类别', '日期'],
-                right_on=['指标名称', '日期'],
-                how='left'
-            )
-            df = df.drop(columns=['指标名称'], errors='ignore')
-            df = df.rename(columns={'指标值': '单一主体规模限额指标值1'})
-        
-        # 第二次合并单一主体规模限额（按担保公司是否准入）（M代码第239-245行）
-        if df_issuer_limit is not None and '担保公司是否准入' in df.columns:
-            df = df.merge(
-                df_issuer_limit[['日期', '指标名称', '指标值']].drop_duplicates(),
-                left_on=['担保公司是否准入', '日期'],
-                right_on=['指标名称', '日期'],
-                how='left'
-            )
-            df = df.drop(columns=['指标名称'], errors='ignore')
-            df = df.rename(columns={'指标值': '指标值_担保'})
-
-        # 与限额明细_债券持仓明细表_信用债1_2 保持同一套 M 代码实现，
-        # 避免担保口径在“总持仓”和“限额明细”两条链路之间发生漂移。
-        df = df.rename(columns={'单一主体限额适用类别': '单一主体限额适用类别1'})
-        df['指标值_担保'] = df['指标值_担保'].fillna(0)
-        df['单一主体规模限额指标值1'] = df['单一主体规模限额指标值1'].fillna(0)
-
-        def select_issuer_limit_category(row):
-            if pd.notna(row.get('指标值_担保')) and row.get('指标值_担保', 0) > row.get('单一主体规模限额指标值1', 0):
-                return row.get('担保公司是否准入')
-
-            return row['单一主体限额适用类别1']
-
-        def select_issuer_limit_value(row):
-            if pd.notna(row.get('指标值_担保')) and row.get('指标值_担保', 0) > row.get('单一主体规模限额指标值1', 0):
-                return row.get('指标值_担保')
-
-            return row.get('单一主体规模限额指标值1')
-
-        # 【P1-4修复7】选择最终的单一主体限额适用类别（M代码第255-257行）
-        df['单一主体限额适用类别'] = df.apply(select_issuer_limit_category, axis=1)
-
-        # 选择最终的单一主体规模限额指标值（M代码第259-262行）
-        df['单一主体规模限额指标值'] = df.apply(select_issuer_limit_value, axis=1)
-        
-        # 【P1-4修复8】关键步骤：与单一担保公司规模限额三键关联（M代码第268-274行）
-        # 合并键：担保人wind代码 + 单一主体限额适用类别 + 日期
-        # M代码：{"担保人wind代码", "单一主体限额适用类别", "日期"} <-> {"指标名称", "是否准入", "日期"}
-        df_guarantee_limit = self.cache.get('单一担保公司规模限额')
-        if df_guarantee_limit is not None:
-            rows_before = len(df)
-            
-            df = df.merge(
-                df_guarantee_limit[['日期', '指标名称', '是否准入', '指标值']].drop_duplicates(),
-                left_on=['日期', '担保人wind代码', '单一主体限额适用类别'],
-                right_on=['日期', '指标名称', '是否准入'],
-                how='left'
-            )
-            df = df.rename(columns={'指标值': '单一担保公司规模限额'})
-            
-            # 【P1-4修复9】筛选：只保留单一担保公司规模限额不为null的记录（M代码第276-277行）
-            df = df[df['单一担保公司规模限额'].notna()]
-            
-            rows_after = len(df)
-            logger.info(f"    关联单一担保公司规模限额并筛选: {rows_before} -> {rows_after} 行")
-        
-        # 添加业务分类（M代码第279-281行）
-        df['业务分类'] = df['内部证券账户名称'].apply(
-            lambda x: '做市业务' if x == '做市交易部做市业务' else '自营业务'
-        )
-        
-        # 分组计算（M代码第283-285行）
-        result = df.groupby(['日期', '业务分类', '担保人wind代码', '担保人'], as_index=False).agg({
-            '库存数量(万)_PR': 'sum'
-        })
-        
-        result = result.rename(columns={'库存数量(万)_PR': '单一担保人总持仓_PR'})
-        
-        logger.info(f"  单一担保人总持仓（按M代码完整实现）: {len(result)} 行")
-        
+        logger.info(f"  特定实控人总持仓: {len(result)} 行")
         return result
-    
-    def query_single_guarantee_total_position_unfiltered(self) -> pd.DataFrame:
-        """
-        查询: 单一担保人总持仓_不剔除
-        数据源: 单一担保公司规模限额 + 债券持仓明细表_信用债_合并风险限额相关
-        M代码逻辑: 不排除任何记录，全部统计
-        """
-        df_limit = self.cache.get('单一担保公司规模限额')
-        df_position = self.cache.get('债券持仓明细表_信用债_合并风险限额相关')
-        
-        if df_limit is None or df_position is None:
-            logger.warning(f"  单一担保公司规模限额或债券持仓未找到")
-            return pd.DataFrame()
-        
-        # 从限额表获取担保公司列表
-        df_guarantors = df_limit[['日期', '指标名称', '统一社会信用代码', '授信担保公司名称']].copy()
-        df_guarantors = df_guarantors.drop_duplicates()
-        
-        # 与持仓关联（右连接，保留所有持仓）
-        df = df_guarantors.merge(
-            df_position[['日期', '担保人wind代码', '库存数量(万)_PR']],
-            left_on=['日期', '指标名称'],
-            right_on=['日期', '担保人wind代码'],
-            how='right'
+
+    def query_single_guarantee_total_position(self) -> pd.DataFrame:
+        """委托共享内核计算剔除特定限额后的担保人总持仓。"""
+        df = self.cache.get("债券持仓明细表_信用债_合并风险限额相关")
+        if df is None:
+            df = self.query_bond_position_credit_merged()
+        result = calculate_single_guarantee_total_position(
+            df,
+            self.cache.get("限额明细_特定主体"),
+            self.cache.get("限额明细_特定实控人"),
+            self.cache.get("单一主体规模限额"),
+            self.cache.get("单一担保公司规模限额"),
+            self.cache.get("穿透高收益债券"),
+            self.cache.get("金融工具池设置"),
         )
-        
-        # 分组计算
-        result = df.groupby(['日期', '指标名称', '授信担保公司名称'], as_index=False).agg({
-            '库存数量(万)_PR': 'sum'
-        })
-        
-        result = result.rename(columns={'库存数量(万)_PR': '单一担保人总持仓_PR'})
-        
+        logger.info(f"  单一担保人总持仓（按M代码完整实现）: {len(result)} 行")
+        return result
+
+    def query_single_guarantee_total_position_unfiltered(self) -> pd.DataFrame:
+        """委托共享内核计算未剔除担保人总持仓。"""
+        result = calculate_single_guarantee_total_position_unfiltered(
+            self.cache.get("单一担保公司规模限额"),
+            self.cache.get("债券持仓明细表_信用债_合并风险限额相关"),
+        )
+        if result.empty and (
+            self.cache.get("单一担保公司规模限额") is None
+            or self.cache.get("债券持仓明细表_信用债_合并风险限额相关") is None
+        ):
+            logger.warning("  单一担保公司规模限额或债券持仓未找到")
         logger.info(f"  单一担保人总持仓_不剔除: {len(result)} 行")
-        
         return result

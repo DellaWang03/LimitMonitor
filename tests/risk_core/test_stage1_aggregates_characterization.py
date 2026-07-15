@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 import pandas as pd
+import pandas.testing as pdt
 
+from src.risk_core.stage1_aggregates import (
+    calculate_single_bond_total_position,
+    calculate_single_controller_total_position,
+    calculate_single_guarantee_total_position,
+    calculate_single_guarantee_total_position_unfiltered,
+    calculate_single_issuer_total_position,
+    calculate_specific_controller_total_position,
+    calculate_specific_issuer_total_position,
+    filter_non_high_yield_credit_rows,
+)
 from src.stage1.stage1_processor import Stage1Processor
 
 
@@ -51,6 +62,11 @@ def test_bond_issuer_and_controller_totals_freeze_business_partition_and_denomin
     assert controller_positions == {"做市业务": 40.0, "自营业务": 160.0}
     # 160 / 10亿元 * 0.0001 is the production concentration formula.
     assert bonds.loc[bonds["业务分类"] == "自营业务", "单一债券集中度"].item() == 0.0016
+    pdt.assert_frame_equal(calculate_single_bond_total_position(credit), bonds, check_exact=True)
+    pdt.assert_frame_equal(calculate_single_issuer_total_position(credit), issuers, check_exact=True)
+    pdt.assert_frame_equal(
+        calculate_single_controller_total_position(merged), controllers, check_exact=True
+    )
 
 
 def test_specific_totals_exclude_high_yield_and_attention_pool_asymmetrically(
@@ -111,6 +127,35 @@ def test_specific_totals_exclude_high_yield_and_attention_pool_asymmetrically(
     assert controller[["特定实控人名称", "特定实控人总持仓"]].to_dict("records") == [
         {"特定实控人名称": "修正实控人", "特定实控人总持仓": 30.0}
     ]
+    pdt.assert_frame_equal(
+        filter_non_high_yield_credit_rows(
+            merged,
+            stage1_processor.cache["穿透高收益债券"],
+            stage1_processor.cache["金融工具池设置"],
+        ),
+        rows.iloc[[0, 1]].assign(**{"是否属于高收益": ["否", "否"]}),
+        check_exact=True,
+    )
+    pdt.assert_frame_equal(
+        calculate_specific_issuer_total_position(
+            rows,
+            stage1_processor.cache["特定主体限额"],
+            stage1_processor.cache["穿透高收益债券"],
+            stage1_processor.cache["金融工具池设置"],
+        ),
+        issuer,
+        check_exact=True,
+    )
+    pdt.assert_frame_equal(
+        calculate_specific_controller_total_position(
+            merged,
+            stage1_processor.cache["特定实控人限额"],
+            stage1_processor.cache["穿透高收益债券"],
+            stage1_processor.cache["金融工具池设置"],
+        ),
+        controller,
+        check_exact=True,
+    )
     # Ordinary issuer/controller totals retain both focus-pool and high-yield rows.
     assert stage1_processor.query_single_issuer_total_position()["单一主体总持仓_PR"].item() == 120.0
     assert stage1_processor.query_single_controller_total_position()["单一实控人总持仓_PR"].item() == 120.0
@@ -180,6 +225,26 @@ def test_guarantee_total_freezes_three_key_match_and_special_attention_exclusion
 
     assert filtered["单一担保人总持仓_PR"].tolist() == [70.0]
     assert unfiltered["单一担保人总持仓_PR"].tolist() == [120.0]
+    pdt.assert_frame_equal(
+        calculate_single_guarantee_total_position(
+            merged,
+            stage1_processor.cache["限额明细_特定主体"],
+            stage1_processor.cache["限额明细_特定实控人"],
+            stage1_processor.cache["单一主体规模限额"],
+            stage1_processor.cache["单一担保公司规模限额"],
+            pd.DataFrame(columns=["债券代码", "类型"]),
+            pd.DataFrame(columns=["代码", "简称"]),
+        ),
+        filtered,
+        check_exact=True,
+    )
+    pdt.assert_frame_equal(
+        calculate_single_guarantee_total_position_unfiltered(
+            stage1_processor.cache["单一担保公司规模限额"], merged
+        ),
+        unfiltered,
+        check_exact=True,
+    )
 
 
 def test_specific_aggregate_missing_config_is_a_legal_empty_table(
@@ -187,3 +252,9 @@ def test_specific_aggregate_missing_config_is_a_legal_empty_table(
 ):
     stage1_processor.cache["债券持仓明细表_信用债"] = pd.DataFrame([credit_row()])
     assert stage1_processor.query_specific_issuer_total_position().empty
+    assert calculate_specific_issuer_total_position(
+        stage1_processor.cache["债券持仓明细表_信用债"],
+        None,
+        None,
+        None,
+    ).empty

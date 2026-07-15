@@ -44,9 +44,15 @@ def _frames(names: tuple[str, ...]) -> dict[str, pd.DataFrame]:
         "调整实控人名单": ["主体wind代码", "调整后实际控制人"],
         "高风险行业": ["日期", "行业名称", "行业类别"],
         "高风险省份": ["日期", "省份名称", "省份类别"],
+        "特定主体限额": ["日期", "主体wind代码", "指标名称", "指标值"],
+        "特定实控人限额": ["日期", "实控人名称", "指标名称", "指标值"],
+        "单一主体规模限额": ["日期", "指标名称", "指标值"],
         "单一担保公司规模限额": ["日期", "指标名称", "是否准入"],
     }
     frames = {name: pd.DataFrame(columns=schemas.get(name, ["日期", "值"])) for name in names}
+    if "特定实控人限额" in frames:
+        # Empty merged production context materializes the controller fallback as float64.
+        frames["特定实控人限额"]["实控人名称"] = pd.Series(dtype="float64")
     for frame in frames.values():
         if "日期" in frame.columns:
             frame["日期"] = pd.to_datetime(frame["日期"])
@@ -83,6 +89,11 @@ def test_stage1_shell_is_deterministic_and_does_not_mutate_inputs(business_date)
         "债券持仓明细表_信用债",
         "债券持仓明细表_全量债券监管集中度",
         "债券持仓明细表_信用债_合并风险限额相关",
+        "单一债券总持仓",
+        "单一主体总持仓",
+        "特定主体总持仓",
+        "单一实控人总持仓",
+        "特定实控人总持仓",
     ]
     for name in first:
         pdt.assert_frame_equal(first[name], second[name], check_exact=True)

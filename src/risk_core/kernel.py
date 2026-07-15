@@ -16,6 +16,13 @@ from .position_context import (
     normalize_credit_position,
     normalize_regulatory_position,
 )
+from .stage1_aggregates import (
+    calculate_single_bond_total_position,
+    calculate_single_controller_total_position,
+    calculate_single_issuer_total_position,
+    calculate_specific_controller_total_position,
+    calculate_specific_issuer_total_position,
+)
 
 
 class ProductionRiskKernel:
@@ -33,12 +40,34 @@ class ProductionRiskKernel:
         context_frames = dict(frames)
         context_frames["债券持仓明细表_信用债"] = credit_position
         credit_context = build_credit_risk_context(context_frames)
-        return {
+        results = {
             "债券持仓明细表": bond_position,
             "债券持仓明细表_信用债": credit_position,
             "债券持仓明细表_全量债券监管集中度": regulatory_position,
             "债券持仓明细表_信用债_合并风险限额相关": credit_context,
         }
+        results["单一债券总持仓"] = calculate_single_bond_total_position(
+            credit_position
+        )
+        results["单一主体总持仓"] = calculate_single_issuer_total_position(
+            credit_position
+        )
+        results["特定主体总持仓"] = calculate_specific_issuer_total_position(
+            credit_position,
+            frames["特定主体限额"],
+            frames["穿透高收益债券"],
+            frames["金融工具池设置"],
+        )
+        results["单一实控人总持仓"] = calculate_single_controller_total_position(
+            credit_context
+        )
+        results["特定实控人总持仓"] = calculate_specific_controller_total_position(
+            credit_context,
+            frames["特定实控人限额"],
+            frames["穿透高收益债券"],
+            frames["金融工具池设置"],
+        )
+        return results
 
     def run_stage2(
         self,
