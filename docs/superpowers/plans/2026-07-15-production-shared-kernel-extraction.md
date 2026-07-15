@@ -158,12 +158,16 @@ assert [(s['stage'], s['table_count']) for s in evidence['stages']] == [
 ]
 print('sealed baseline verified')
 PY
-test -d /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-gold1/stage0
-test -d /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-gold1/stage1
-test -d /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-gold1/stage2
+test -d /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-main1/stage0
+test -d /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-main1/stage1
+test -d /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-main1/stage2
 ```
 
-Do not modify or regenerate this reference root.
+The three stage-level logical fingerprints of this reference root must equal the
+three `logical_fingerprint.logical_sha256` values in the sealed evidence. A
+directory-existence check alone is insufficient. Do not modify or regenerate
+this reference root. The earlier `pretrade-baseline-20260710-gold1` directory is
+a failed partial run and is explicitly forbidden as a reference.
 
 ## Task 2: Add a fail-closed table/row/field differential harness
 
@@ -377,7 +381,7 @@ Existing methods load the same file/sheet, call the pure function and retain log
 - [ ] **Step 5: Full zero-difference gate**
 
 ```bash
-ENV=test LIMIT_MONITOR_PROFILE=local /opt/homebrew/bin/python3 scripts/run_kernel_candidate.py --input-root /Users/dellawang/Desktop/LimitMonitorAutomation/data_source_0123 --allow-output-root /Users/dellawang/Desktop/LimitMonitorAutomation-test-output --output /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/kernel-task6 --reference /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-gold1
+ENV=test LIMIT_MONITOR_PROFILE=local /opt/homebrew/bin/python3 scripts/run_kernel_candidate.py --input-root /Users/dellawang/Desktop/LimitMonitorAutomation/data_source_0123 --allow-output-root /Users/dellawang/Desktop/LimitMonitorAutomation-test-output --output /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/kernel-task6 --reference /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-main1
 ```
 
 Expected: `passed=true`, zero differences, exact `2efae81c...54d85`.
@@ -529,8 +533,8 @@ No business formula remains in file read/write methods. In-memory kernel returns
 - [ ] **Step 2: Run two independent final candidates**
 
 ```bash
-ENV=test LIMIT_MONITOR_PROFILE=local /opt/homebrew/bin/python3 scripts/run_kernel_candidate.py --input-root /Users/dellawang/Desktop/LimitMonitorAutomation/data_source_0123 --allow-output-root /Users/dellawang/Desktop/LimitMonitorAutomation-test-output --output /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/kernel-final-1 --reference /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-gold1
-ENV=test LIMIT_MONITOR_PROFILE=local /opt/homebrew/bin/python3 scripts/run_kernel_candidate.py --input-root /Users/dellawang/Desktop/LimitMonitorAutomation/data_source_0123 --allow-output-root /Users/dellawang/Desktop/LimitMonitorAutomation-test-output --output /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/kernel-final-2 --reference /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-gold1
+ENV=test LIMIT_MONITOR_PROFILE=local /opt/homebrew/bin/python3 scripts/run_kernel_candidate.py --input-root /Users/dellawang/Desktop/LimitMonitorAutomation/data_source_0123 --allow-output-root /Users/dellawang/Desktop/LimitMonitorAutomation-test-output --output /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/kernel-final-1 --reference /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-main1
+ENV=test LIMIT_MONITOR_PROFILE=local /opt/homebrew/bin/python3 scripts/run_kernel_candidate.py --input-root /Users/dellawang/Desktop/LimitMonitorAutomation/data_source_0123 --allow-output-root /Users/dellawang/Desktop/LimitMonitorAutomation-test-output --output /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/kernel-final-2 --reference /Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-main1
 ```
 
 Both independently require counts `10/35/22`, exact fingerprint, zero file/table/schema/row/order/field differences, unchanged protected paths, no DB/Wind/archive/current access, and identical logical fingerprints.
