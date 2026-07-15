@@ -155,6 +155,9 @@ class Stage1Processor:
     def _attach_isin_to_results(self, results: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """为带资产代码的输出结果统一补充 ISIN 码。"""
         mapping_df = self._load_isin_mapping()
+        # 保留本次运行实际用于补充输出的映射，供交易前共同内核输入快照复用。
+        # 不改变原有映射加载、匹配或输出处理逻辑。
+        self.cache["ISIN码映射"] = mapping_df
         return attach_isin_to_results(results, mapping_df)
     
     def process_all(self) -> Dict[str, pd.DataFrame]:
@@ -648,9 +651,12 @@ class Stage1Processor:
         if self.cache.get("金融工具池设置") is None:
             self.cache["金融工具池设置"] = self.query_financial_tool_pool()
 
+        if self.cache.get("高风险行业") is None:
+            self.cache["高风险行业"] = self.query_high_risk_industry()
+        if self.cache.get("高风险省份") is None:
+            self.cache["高风险省份"] = self.query_high_risk_province()
+
         frames = dict(self.cache)
-        frames["高风险行业"] = self.query_high_risk_industry()
-        frames["高风险省份"] = self.query_high_risk_province()
         result = build_credit_risk_context(frames)
         logger.info(f"  合并风险限额相关: {len(result)} 行 × {len(result.columns)} 列")
         return result

@@ -4,10 +4,12 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pandas.testing as pdt
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+import src.stage1.stage1_processor as stage1_processor_module
 from src.stage1.stage1_limit_detail import LimitDetailCalculator
 from src.stage1.stage1_processor import Stage1Processor
 
@@ -73,6 +75,8 @@ def test_stage1_marks_financial_tool_pool_code_as_high_yield(monkeypatch, tmp_pa
     result = processor.query_bond_position_credit_merged()
 
     assert result.loc[0, "是否属于高收益"] == "是"
+    assert "高风险行业" in processor.cache
+    assert "高风险省份" in processor.cache
 
 
 def test_stage1_credit_merge_loads_financial_tool_pool_when_cache_missing(monkeypatch, tmp_path):
@@ -109,6 +113,22 @@ def test_stage1_credit_merge_loads_financial_tool_pool_when_cache_missing(monkey
 
     assert result.loc[0, "是否属于高收益"] == "是"
     assert "金融工具池设置" in processor.cache
+
+
+def test_stage1_records_isin_mapping_used_to_attach_results(monkeypatch, tmp_path):
+    processor = Stage1Processor(tmp_path, tmp_path, tmp_path)
+    mapping = pd.DataFrame({"资产代码": ["A"], "ISIN码": ["CN0000000001"]})
+    results = {"结果": pd.DataFrame({"资产代码": ["A"]})}
+
+    monkeypatch.setattr(processor, "_load_isin_mapping", lambda: mapping)
+    monkeypatch.setattr(
+        stage1_processor_module,
+        "attach_isin_to_results",
+        lambda actual_results, actual_mapping: actual_results,
+    )
+
+    assert processor._attach_isin_to_results(results) is results
+    pdt.assert_frame_equal(processor.cache["ISIN码映射"], mapping)
 
 
 def test_stage1_single_bond_total_position_keeps_high_yield_rows_per_m_code(tmp_path):
