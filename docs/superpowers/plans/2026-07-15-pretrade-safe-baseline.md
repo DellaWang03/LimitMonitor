@@ -30,6 +30,7 @@
 - src/testing/__init__.py
 - src/testing/frozen_manifest.py
 - src/testing/current_issuer_resolver.py
+- src/testing/legacy_local_compat.py
 - src/testing/safe_paths.py
 - src/testing/test_environment.py
 - src/testing/frozen_config.py
@@ -41,6 +42,7 @@
 - scripts/run_frozen_baseline.py
 - tests/testing/test_frozen_manifest.py
 - tests/testing/test_current_issuer_resolver.py
+- tests/testing/test_legacy_local_compat.py
 - tests/testing/test_safe_paths.py
 - tests/testing/test_test_environment.py
 - tests/testing/test_frozen_config.py
@@ -847,6 +849,40 @@ git add docs src/testing/current_issuer_resolver.py scripts/run_frozen_baseline.
 git commit -m "test: use current static issuer resolver"
 ~~~
 
+### Task 6B: Recreate the deployed nested ConfigLoader path without changing production code
+
+**Root cause evidence:** `LimitDetailCalculator._load_regulatory_concentration_limit()` creates a new `ConfigLoader()` and therefore reads `project_root/data_source_0123/限额配置_当前.xlsx`. The isolated worktree intentionally has no `data_source_0123`, while all other Stage1 configuration reads use `FrozenInputConfig` correctly.
+
+**Files:**
+
+- Create: `src/testing/legacy_local_compat.py`
+- Modify: `scripts/run_frozen_baseline.py`
+- Test: `tests/testing/test_legacy_local_compat.py`
+- Test: `tests/scripts/test_run_frozen_baseline.py`
+
+- [x] **Step 1: Reproduce the missing deployed path**
+
+The first current-mapping full run reached Stage1 and failed at `限额明细_单一债券` with `project_root/data_source_0123/限额配置_当前.xlsx` missing. Stage0 had already reached 100% issuer-code coverage. The failed output remains external diagnostic evidence and is not gold.
+
+- [x] **Step 2: Implement one-file compatibility staging**
+
+The parent copies only the already-hashed frozen `限额配置_当前.xlsx` to the exact ignored local path before launching the sandbox. The child validates its expected relative path and SHA, includes it in protected before/after inventories and records compact evidence. A `finally` cleanup removes it only when the file hash is unchanged and the created directory contains no other entry.
+
+The production processor, `LimitDetailCalculator`, `ConfigLoader`, settings and limit formulas remain byte-identical to `579af695...`.
+
+- [x] **Step 3: Verify**
+
+~~~bash
+/opt/homebrew/bin/python3 -m pytest -q \
+  tests/testing/test_legacy_local_compat.py \
+  tests/scripts/test_run_frozen_baseline.py
+ENV=test LIMIT_MONITOR_PROFILE=local /opt/homebrew/bin/python3 -m pytest -q
+test ! -e data_source_0123
+git diff --exit-code 579af695fb8727dec8249f66d07a8b0e723da137 -- \
+  src/stage0 src/stage1 src/stage2 src/common src/utils \
+  config/settings.yaml scripts/daily_archive.py
+~~~
+
 ### Task 7: Run and independently seal the 2026-07-10 production gold sample
 
 **Files:**
@@ -886,7 +922,7 @@ ENV=test LIMIT_MONITOR_PROFILE=local \
   --issuer-mapping-file /Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/issuer_wind_code_mapping.csv \
   --zero-result-source /Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/风控部债券池_主体.xlsx \
   --allow-output-root /Users/dellawang/Desktop/LimitMonitorAutomation-test-output \
-  --output-name pretrade-baseline-20260710-current1 \
+  --output-name pretrade-baseline-20260710-compat1 \
   --project-root "$PWD" \
   --protected-root /Users/dellawang/Desktop/LimitMonitorAutomation/data/current \
   --protected-root /Users/dellawang/Desktop/LimitMonitorAutomation/data/archive \
@@ -903,7 +939,7 @@ Expected: exit 0 and exactly one new output root. No database service, Wind serv
 import json
 from pathlib import Path
 
-p = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-current1/baseline_evidence.json")
+p = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-compat1/baseline_evidence.json")
 d = json.loads(p.read_text(encoding="utf-8"))
 assert d["status"] == "success"
 assert d["manifest"]["id"] == "data_source_0123-20260710-v1"
@@ -926,7 +962,7 @@ Expected: assertions pass and one logical SHA-256 is printed. Manually inspect `
 
 - [ ] **Step 5: Prove repeatability with a second fresh output**
 
-Repeat Step 3 with `--output-name pretrade-baseline-20260710-current2`, then compare:
+Repeat Step 3 with `--output-name pretrade-baseline-20260710-compat2`, then compare:
 
 ~~~bash
 /opt/homebrew/bin/python3 - <<'PY'
@@ -934,8 +970,8 @@ import json
 from pathlib import Path
 
 root = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output")
-a = json.loads((root / "pretrade-baseline-20260710-current1/baseline_evidence.json").read_text(encoding="utf-8"))
-b = json.loads((root / "pretrade-baseline-20260710-current2/baseline_evidence.json").read_text(encoding="utf-8"))
+a = json.loads((root / "pretrade-baseline-20260710-compat1/baseline_evidence.json").read_text(encoding="utf-8"))
+b = json.loads((root / "pretrade-baseline-20260710-compat2/baseline_evidence.json").read_text(encoding="utf-8"))
 assert a["output_fingerprint"]["logical_sha256"] == b["output_fingerprint"]["logical_sha256"]
 assert a["stages"] == b["stages"]
 print("repeatable")
@@ -953,7 +989,7 @@ Copy run1's evidence JSON to `docs/evidence/pretrade-baseline-20260710.json`. Re
 import json
 from pathlib import Path
 
-source_root = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-current1")
+source_root = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-compat1")
 source = source_root / "baseline_evidence.json"
 target = Path("docs/evidence/pretrade-baseline-20260710.json")
 

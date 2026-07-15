@@ -29,6 +29,10 @@ from src.pipeline.execution import BaselineRunRequest, BaselineRunResult, run_fr
 from src.pipeline.paths import PipelinePaths
 from src.testing.frozen_config import FrozenInputConfig
 from src.testing.frozen_manifest import FrozenInputManifest, ValidatedInputManifest
+from src.testing.legacy_local_compat import (
+    cleanup_legacy_local_limit_config,
+    stage_legacy_local_limit_config,
+)
 from src.testing.output_fingerprint import fingerprint_tree
 from src.testing.protected_inventory import inventory_tree
 from src.testing.safe_paths import create_unique_test_output
@@ -87,6 +91,8 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--sandbox-profile-sha256", help=argparse.SUPPRESS)
     parser.add_argument("--git-executable", help=argparse.SUPPRESS)
     parser.add_argument("--git-executable-sha256", help=argparse.SUPPRESS)
+    parser.add_argument("--compatibility-limit-config", help=argparse.SUPPRESS)
+    parser.add_argument("--compatibility-limit-config-sha256", help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 
 
@@ -128,6 +134,7 @@ def _run_parent(args: argparse.Namespace) -> int:
     profile_sha = _sha256_file(profile)
     git_executable = _resolve_real_git()
     git_sha = _sha256_file(git_executable)
+    compatibility = stage_legacy_local_limit_config(validated, project_root)
 
     child_argv = [
         str(SANDBOX_EXECUTABLE),
@@ -162,16 +169,23 @@ def _run_parent(args: argparse.Namespace) -> int:
         str(git_executable),
         "--git-executable-sha256",
         git_sha,
+        "--compatibility-limit-config",
+        str(compatibility.path),
+        "--compatibility-limit-config-sha256",
+        compatibility.sha256,
     ]
     for protected in args.protected_root:
         child_argv.extend(("--protected-root", str(Path(protected).absolute())))
 
-    completed = subprocess.run(
-        child_argv,
-        cwd=project_root,
-        env=_child_environment(paths),
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            child_argv,
+            cwd=project_root,
+            env=_child_environment(paths),
+            check=False,
+        )
+    finally:
+        cleanup_legacy_local_limit_config(compatibility)
     return completed.returncode
 
 
@@ -200,6 +214,8 @@ def _run_sandboxed_child(args: argparse.Namespace) -> int:
         "sandbox_profile_sha256",
         "git_executable",
         "git_executable_sha256",
+        "compatibility_limit_config",
+        "compatibility_limit_config_sha256",
     )
     output_root = Path(args.output_root).absolute()
     completed_guards: list[str] = []
@@ -224,6 +240,12 @@ def _run_sandboxed_child(args: argparse.Namespace) -> int:
             args.git_executable_sha256,
         )
         completed_guards.append("git_binary")
+        compatibility = _validate_legacy_local_compatibility(
+            Path(args.compatibility_limit_config),
+            args.compatibility_limit_config_sha256,
+            project_root,
+        )
+        completed_guards.append("legacy_local_compatibility")
 
         git_head = _git_head(project_root, git_executable)
         clean_before = _git_is_clean(project_root, git_executable)
@@ -259,6 +281,7 @@ def _run_sandboxed_child(args: argparse.Namespace) -> int:
                 manifest.input_root,
                 issuer_resolver.mapping_file,
                 issuer_resolver.zero_result_source,
+                compatibility,
                 *(Path(path) for path in args.protected_root),
             ]
         )
@@ -306,6 +329,12 @@ def _run_sandboxed_child(args: argparse.Namespace) -> int:
             "current_issuer_resolver": _current_issuer_resolver_evidence(
                 issuer_resolver
             ),
+            "legacy_local_compatibility": {
+                "relative_path": compatibility.relative_to(project_root).as_posix(),
+                "size": compatibility.stat().st_size,
+                "sha256": _sha256_file(compatibility),
+                "source_manifest_file": "限额配置_当前.xlsx",
+            },
             "git": {
                 "head": git_head,
                 "baseline": BASELINE_COMMIT,
@@ -530,6 +559,22 @@ def _validate_binary(path: Path, label: str, expected_sha: str) -> Path:
             f"{label} 二进制哈希不一致: expected={expected_sha}; actual={actual_sha}"
         )
     return binary
+
+
+def _validate_legacy_local_compatibility(
+    path: Path,
+    expected_sha: str,
+    project_root: Path,
+) -> Path:
+    expected_path = project_root / "data_source_0123/限额配置_当前.xlsx"
+    if path.absolute() != expected_path.absolute():
+        raise UnsafeTestEnvironment(
+            f"本地兼容限额配置路径不正确: {path}"
+        )
+    compatibility = _resolve_file(path, "本地兼容限额配置")
+    if _sha256_file(compatibility) != expected_sha:
+        raise UnsafeTestEnvironment("本地兼容限额配置 SHA-256 不一致")
+    return compatibility
 
 
 def _resolve_directory(path: Path, label: str) -> Path:

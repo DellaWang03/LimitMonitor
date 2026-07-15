@@ -24,7 +24,8 @@ def _write_tiny_manifest(tmp_path: Path) -> tuple[Path, Path]:
     source = tmp_path / "source"
     source.mkdir()
     payload = b"input"
-    (source / "input.xlsx").write_bytes(payload)
+    file_name = "限额配置_当前.xlsx"
+    (source / file_name).write_bytes(payload)
     manifest = tmp_path / "manifest.json"
     manifest.write_text(
         json.dumps(
@@ -33,7 +34,7 @@ def _write_tiny_manifest(tmp_path: Path) -> tuple[Path, Path]:
                 "expected_business_date": "2026-07-10",
                 "files": [
                     {
-                        "name": "input.xlsx",
+                        "name": file_name,
                         "size": len(payload),
                         "sha256": hashlib.sha256(payload).hexdigest(),
                     }
@@ -165,6 +166,37 @@ def test_parent_propagates_nonzero_sandbox_exit(
     )
 
     assert runner.main(_parent_args(source, manifest, allow, project_root)) == 23
+
+
+def test_parent_stages_legacy_local_config_only_during_child_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source, manifest = _write_tiny_manifest(tmp_path)
+    allow = tmp_path / "allow"
+    allow.mkdir()
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("ENV", "test")
+    monkeypatch.setenv("LIMIT_MONITOR_PROFILE", "local")
+    monkeypatch.setattr(runner, "_git_is_clean", lambda root: True)
+    monkeypatch.setattr(
+        runner,
+        "_resolve_real_git",
+        lambda: Path("/Applications/Xcode.app/Contents/Developer/usr/bin/git"),
+    )
+    compatibility = project_root / "data_source_0123/限额配置_当前.xlsx"
+
+    def inspect_child(argv, **kwargs):
+        assert compatibility.read_bytes() == (source / "限额配置_当前.xlsx").read_bytes()
+        assert "--compatibility-limit-config" in argv
+        return subprocess.CompletedProcess(args=argv, returncode=0)
+
+    monkeypatch.setattr(runner.subprocess, "run", inspect_child)
+
+    assert runner.main(_parent_args(source, manifest, allow, project_root)) == 0
+    assert not compatibility.exists()
+    assert not compatibility.parent.exists()
 
 
 def test_parent_rejects_dirty_worktree_before_creating_output(
