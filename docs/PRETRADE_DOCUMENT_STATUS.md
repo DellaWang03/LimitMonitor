@@ -29,7 +29,7 @@
 
 | 文档 | 状态 | 用途 |
 |---|---|---|
-| `docs/superpowers/plans/2026-07-15-pretrade-safe-baseline.md` | 待执行 | 在零生产逻辑修改下生成 `data_source_0123` 的可重复金样；这是共同内核开发前的第一道正式门禁 |
+| `docs/superpowers/plans/2026-07-15-pretrade-safe-baseline.md` | 执行中 | 在零生产逻辑修改下生成 `data_source_0123` 的可重复金样；已按权威规格 2.1 纳入静态主体代码解析依赖 |
 
 该计划完成前：
 

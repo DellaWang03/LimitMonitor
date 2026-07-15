@@ -4,7 +4,7 @@
 
 **Goal:** 在不连接数据库、不访问 Wind、不触碰生产归档目录且不改变任何业务计算代码的前提下，用冻结的 data_source_0123 完整运行 GitHub 上线基线 Stage0 → Stage1 → Stage2，并生成可重复比较的生产金样。
 
-**Architecture:** 本阶段只增加测试编排层。Stage0Processor、Stage1Processor、Stage2Processor 保持字节级不变；外层负责冻结输入、路径保护、macOS 文件沙箱、显式路径注入、顺序编排、受保护目录清单和逻辑内容指纹。共同内核、不可变数据库、Wind 落库和两个页面均不在本计划实现。
+**Architecture:** 本阶段只增加测试编排层。Stage0Processor、Stage1Processor、Stage2Processor 保持字节级不变；外层负责冻结业务日输入、只读校验当前静态主体代码映射、在隔离目录重建显式零代码会话上下文、路径保护、macOS 文件沙箱、显式路径注入、顺序编排、受保护目录清单和逻辑内容指纹。共同内核、不可变数据库、Wind 落库和两个页面均不在本计划实现。
 
 **Tech Stack:** Python 3.14、pandas、openpyxl、pytest、mdbtools、macOS sandbox-exec、现有 Stage0/Stage1/Stage2。
 
@@ -13,6 +13,7 @@
 - 上线基线固定为 GitHub main 提交 579af695fb8727dec8249f66d07a8b0e723da137。
 - 业务依据固定为 docs/PRETRADE_SHARED_CORE_SPEC.md。
 - 输入清单固定为 data_source_0123-20260710-v1，业务日固定为 2026-07-10。
+- `issuer_wind_code_mapping.csv` 属于无业务日期的静态运行依赖，按 `docs/PRETRADE_SHARED_CORE_SPEC.md` 2.1 直接只读使用当前表；不得混入12文件业务清单，也不得另建历史映射主表。
 - 必须显式设置 ENV=test 与 LIMIT_MONITOR_PROFILE=local。
 - 每一个输入文件都执行 realpath、普通文件、直接子文件、大小和 SHA-256 校验。
 - 输出必须是外部白名单根下全新且不存在的唯一目录。
@@ -28,6 +29,7 @@
 - config/test_manifests/frozen-baseline-macos.sb
 - src/testing/__init__.py
 - src/testing/frozen_manifest.py
+- src/testing/current_issuer_resolver.py
 - src/testing/safe_paths.py
 - src/testing/test_environment.py
 - src/testing/frozen_config.py
@@ -38,6 +40,7 @@
 - src/pipeline/execution.py
 - scripts/run_frozen_baseline.py
 - tests/testing/test_frozen_manifest.py
+- tests/testing/test_current_issuer_resolver.py
 - tests/testing/test_safe_paths.py
 - tests/testing/test_test_environment.py
 - tests/testing/test_frozen_config.py
@@ -54,6 +57,7 @@
 - 不提取或修改业务内核。
 - 不创建、迁移或写入任何业务数据库表。
 - 不调用 Wind，不写本地 Wind JSON。
+- 不实时调用 Excel/Wind；当前映射只读校验后复制进本次隔离输出，显式零代码仅在隔离临时目录形成一次性会话结果。
 - 不修改两个交易前页面或其他页面。
 - 不运行现有 run_daily.sh、run_daily.bat 或 daily_archive.py。
 
@@ -648,7 +652,7 @@ git commit -m "test: fingerprint frozen baseline outputs"
 
 **Interfaces:**
 
-- Parent command accepts `--input-root`, `--manifest`, `--allow-output-root`, `--output-name`, `--project-root` and repeated `--protected-root`.
+- Parent command accepts `--input-root`, `--manifest`, `--issuer-mapping-file`, `--zero-result-source`, `--allow-output-root`, `--output-name`, `--project-root` and repeated `--protected-root`.
 - Parent creates the unique output root and invokes the same script with private `--sandboxed-child` arguments.
 - Child writes `<output-root>/baseline_evidence.json` atomically and returns 0 only after all contracts pass.
 
@@ -805,6 +809,44 @@ git add config/test_manifests/frozen-baseline-macos.sb scripts/run_frozen_baseli
 git commit -m "test: enforce sandboxed frozen baseline run"
 ~~~
 
+### Task 6A: Use the current static issuer mapping without creating a historical copy
+
+**Files:**
+
+- Create: `src/testing/current_issuer_resolver.py`
+- Modify: `scripts/run_frozen_baseline.py`
+- Test: `tests/testing/test_current_issuer_resolver.py`
+- Test: `tests/scripts/test_run_frozen_baseline.py`
+
+- [x] **Step 1: Freeze the approved boundary**
+
+`issuer_wind_code_mapping.csv` is a non-dated identifier resolver. The runner accepts the current file through `--issuer-mapping-file`, records its size/SHA/row count and copies it only into the isolated Stage0 output. It does not create another historical mapping master.
+
+For deployed zero-result semantics, `--zero-result-source` points to the current `风控部债券池_主体.xlsx`. The guard reads only `发行人名称` and `发行人wind代码`, selects exact numeric zero rows and creates `tmp/temp/wind_codes_result.xlsx` inside the unique sandbox output. Date, pool category and every other column are ignored.
+
+- [x] **Step 2: Validate fail-closed behavior**
+
+Tests prove:
+
+- both sources are ordinary non-symlink files with exact expected names;
+- mapping columns are exactly `发行人,wind代码`, values are non-empty and issuer names are unique;
+- the zero source contains the two required columns and at least one explicit numeric zero;
+- both hashes are stable across validation and staging;
+- staged targets are fixed under `stage0` and `tmp/temp` and refuse pre-existing targets;
+- source bytes remain unchanged;
+- evidence contains hashes/counts/names but no absolute source path.
+
+- [x] **Step 3: Verify and commit**
+
+~~~bash
+/opt/homebrew/bin/python3 -m pytest -q \
+  tests/testing/test_current_issuer_resolver.py \
+  tests/scripts/test_run_frozen_baseline.py
+git diff --check
+git add docs src/testing/current_issuer_resolver.py scripts/run_frozen_baseline.py tests
+git commit -m "test: use current static issuer resolver"
+~~~
+
 ### Task 7: Run and independently seal the 2026-07-10 production gold sample
 
 **Files:**
@@ -841,8 +883,10 @@ ENV=test LIMIT_MONITOR_PROFILE=local \
   /opt/homebrew/bin/python3 scripts/run_frozen_baseline.py \
   --input-root /Users/dellawang/Desktop/LimitMonitorAutomation/data_source_0123 \
   --manifest config/test_manifests/data_source_0123-20260710-v1.json \
+  --issuer-mapping-file /Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/issuer_wind_code_mapping.csv \
+  --zero-result-source /Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/风控部债券池_主体.xlsx \
   --allow-output-root /Users/dellawang/Desktop/LimitMonitorAutomation-test-output \
-  --output-name pretrade-baseline-20260710-run1 \
+  --output-name pretrade-baseline-20260710-current1 \
   --project-root "$PWD" \
   --protected-root /Users/dellawang/Desktop/LimitMonitorAutomation/data/current \
   --protected-root /Users/dellawang/Desktop/LimitMonitorAutomation/data/archive \
@@ -859,7 +903,7 @@ Expected: exit 0 and exactly one new output root. No database service, Wind serv
 import json
 from pathlib import Path
 
-p = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-run1/baseline_evidence.json")
+p = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-current1/baseline_evidence.json")
 d = json.loads(p.read_text(encoding="utf-8"))
 assert d["status"] == "success"
 assert d["manifest"]["id"] == "data_source_0123-20260710-v1"
@@ -882,7 +926,7 @@ Expected: assertions pass and one logical SHA-256 is printed. Manually inspect `
 
 - [ ] **Step 5: Prove repeatability with a second fresh output**
 
-Repeat Step 3 with `--output-name pretrade-baseline-20260710-run2`, then compare:
+Repeat Step 3 with `--output-name pretrade-baseline-20260710-current2`, then compare:
 
 ~~~bash
 /opt/homebrew/bin/python3 - <<'PY'
@@ -890,8 +934,8 @@ import json
 from pathlib import Path
 
 root = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output")
-a = json.loads((root / "pretrade-baseline-20260710-run1/baseline_evidence.json").read_text(encoding="utf-8"))
-b = json.loads((root / "pretrade-baseline-20260710-run2/baseline_evidence.json").read_text(encoding="utf-8"))
+a = json.loads((root / "pretrade-baseline-20260710-current1/baseline_evidence.json").read_text(encoding="utf-8"))
+b = json.loads((root / "pretrade-baseline-20260710-current2/baseline_evidence.json").read_text(encoding="utf-8"))
 assert a["output_fingerprint"]["logical_sha256"] == b["output_fingerprint"]["logical_sha256"]
 assert a["stages"] == b["stages"]
 print("repeatable")
@@ -909,7 +953,7 @@ Copy run1's evidence JSON to `docs/evidence/pretrade-baseline-20260710.json`. Re
 import json
 from pathlib import Path
 
-source_root = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-run1")
+source_root = Path("/Users/dellawang/Desktop/LimitMonitorAutomation-test-output/pretrade-baseline-20260710-current1")
 source = source_root / "baseline_evidence.json"
 target = Path("docs/evidence/pretrade-baseline-20260710.json")
 
@@ -961,6 +1005,7 @@ This plan is complete only when all of the following are true:
 
 - GitHub deployed baseline ancestry is proven and production calculation scope has zero diff.
 - Exact 12-file manifest and business date 2026-07-10 are verified twice.
+- Current static issuer mapping and explicit-zero source are hashed, read-only, separately evidenced and unchanged across both runs.
 - Stage0 → Stage1 → Stage2 run through the deployed processor classes without archive/database/Wind/UI code.
 - A real macOS sandbox proves writes are restricted to the unique output and network is denied.
 - Legal empty tables are accepted; swallowed failures and missing workbooks fail closed.

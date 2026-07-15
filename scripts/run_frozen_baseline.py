@@ -32,6 +32,11 @@ from src.testing.frozen_manifest import FrozenInputManifest, ValidatedInputManif
 from src.testing.output_fingerprint import fingerprint_tree
 from src.testing.protected_inventory import inventory_tree
 from src.testing.safe_paths import create_unique_test_output
+from src.testing.current_issuer_resolver import (
+    ValidatedCurrentIssuerResolver,
+    stage_current_issuer_resolver,
+    validate_current_issuer_resolver,
+)
 from src.testing.test_environment import UnsafeTestEnvironment, assert_test_environment
 from src.utils.config_loader import ConfigLoader
 
@@ -69,6 +74,8 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-root")
     parser.add_argument("--manifest")
+    parser.add_argument("--issuer-mapping-file")
+    parser.add_argument("--zero-result-source")
     parser.add_argument("--allow-output-root", required=True)
     parser.add_argument("--output-name")
     parser.add_argument("--project-root")
@@ -88,6 +95,8 @@ def _run_parent(args: argparse.Namespace) -> int:
         args,
         "input_root",
         "manifest",
+        "issuer_mapping_file",
+        "zero_result_source",
         "output_name",
         "project_root",
     )
@@ -98,6 +107,10 @@ def _run_parent(args: argparse.Namespace) -> int:
 
     manifest_path = _resolve_file(Path(args.manifest), "冻结清单")
     validated = FrozenInputManifest.load(manifest_path).validate(Path(args.input_root))
+    issuer_resolver = validate_current_issuer_resolver(
+        Path(args.issuer_mapping_file),
+        Path(args.zero_result_source),
+    )
     allow_output_root = _resolve_directory(Path(args.allow_output_root), "输出白名单根")
     output_root = create_unique_test_output(
         allow_root=allow_output_root,
@@ -129,6 +142,10 @@ def _run_parent(args: argparse.Namespace) -> int:
         str(validated.input_root),
         "--manifest",
         str(manifest_path),
+        "--issuer-mapping-file",
+        str(issuer_resolver.mapping_file),
+        "--zero-result-source",
+        str(issuer_resolver.zero_result_source),
         "--allow-output-root",
         str(allow_output_root),
         "--output-name",
@@ -175,6 +192,8 @@ def _run_sandboxed_child(args: argparse.Namespace) -> int:
         args,
         "input_root",
         "manifest",
+        "issuer_mapping_file",
+        "zero_result_source",
         "output_root",
         "project_root",
         "sandbox_profile",
@@ -229,9 +248,19 @@ def _run_sandboxed_child(args: argparse.Namespace) -> int:
         manifest_path = _resolve_file(Path(args.manifest), "冻结清单")
         manifest = FrozenInputManifest.load(manifest_path).validate(Path(args.input_root))
         completed_guards.append("manifest")
+        issuer_resolver = validate_current_issuer_resolver(
+            Path(args.issuer_mapping_file),
+            Path(args.zero_result_source),
+        )
+        completed_guards.append("current_issuer_resolver")
 
         protected_paths = _unique_protected_paths(
-            [manifest.input_root, *(Path(path) for path in args.protected_root)]
+            [
+                manifest.input_root,
+                issuer_resolver.mapping_file,
+                issuer_resolver.zero_result_source,
+                *(Path(path) for path in args.protected_root),
+            ]
         )
         protected_before = {
             str(path): inventory_tree(path)
@@ -245,6 +274,8 @@ def _run_sandboxed_child(args: argparse.Namespace) -> int:
             pipeline_root=paths.root,
             access_export_dir=paths.access_export,
         )
+        stage_current_issuer_resolver(issuer_resolver, paths)
+        completed_guards.append("current_issuer_resolver_staged")
         os.chdir(paths.tmp)
         run_result = run_frozen_pipeline(
             BaselineRunRequest(
@@ -272,6 +303,9 @@ def _run_sandboxed_child(args: argparse.Namespace) -> int:
             "schema_version": 1,
             "status": "success",
             "manifest": _manifest_evidence(manifest),
+            "current_issuer_resolver": _current_issuer_resolver_evidence(
+                issuer_resolver
+            ),
             "git": {
                 "head": git_head,
                 "baseline": BASELINE_COMMIT,
@@ -400,6 +434,28 @@ def _manifest_evidence(manifest: ValidatedInputManifest) -> dict[str, Any]:
         "id": manifest.manifest_id,
         "business_date": manifest.expected_business_date.isoformat(),
         "files": [asdict(file) for file in manifest.files],
+    }
+
+
+def _current_issuer_resolver_evidence(
+    resolver: ValidatedCurrentIssuerResolver,
+) -> dict[str, Any]:
+    return {
+        "kind": "current_static_issuer_resolver",
+        "purpose": "stage0_issuer_wind_code_resolution_only",
+        "mapping": {
+            "name": resolver.mapping_file.name,
+            "size": resolver.mapping_size,
+            "sha256": resolver.mapping_sha256,
+            "row_count": resolver.mapping_row_count,
+        },
+        "zero_result_source": {
+            "name": resolver.zero_result_source.name,
+            "size": resolver.zero_result_source_size,
+            "sha256": resolver.zero_result_source_sha256,
+            "zero_result_count": len(resolver.zero_results),
+            "issuer_names": [name for name, _ in resolver.zero_results],
+        },
     }
 
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 from unittest.mock import Mock
 
+import pandas as pd
 import pytest
 
 from scripts import run_frozen_baseline as runner
@@ -15,6 +16,7 @@ from src.pipeline.execution import (
     TableRunSummary,
 )
 from src.pipeline.paths import PipelinePaths
+from src.testing.current_issuer_resolver import validate_current_issuer_resolver
 from src.testing.test_environment import UnsafeTestEnvironment
 
 
@@ -43,17 +45,38 @@ def _write_tiny_manifest(tmp_path: Path) -> tuple[Path, Path]:
     return source, manifest
 
 
+def _write_tiny_resolver_sources(tmp_path: Path) -> tuple[Path, Path]:
+    mapping = tmp_path / "issuer_wind_code_mapping.csv"
+    mapping.write_text("发行人,wind代码\n甲公司,1001\n", encoding="utf-8-sig")
+    zero_source = tmp_path / "风控部债券池_主体.xlsx"
+    pd.DataFrame(
+        {
+            "发行人名称": ["无代码公司"],
+            "发行人wind代码": [0],
+        }
+    ).to_excel(
+        zero_source,
+        index=False,
+    )
+    return mapping, zero_source
+
+
 def _parent_args(
     source: Path,
     manifest: Path,
     allow: Path,
     project_root: Path,
 ) -> list[str]:
+    mapping, zero_source = _write_tiny_resolver_sources(source.parent)
     return [
         "--input-root",
         str(source),
         "--manifest",
         str(manifest),
+        "--issuer-mapping-file",
+        str(mapping),
+        "--zero-result-source",
+        str(zero_source),
         "--allow-output-root",
         str(allow),
         "--output-name",
@@ -100,6 +123,8 @@ def test_parent_launches_only_the_sandboxed_child(
     assert "--database-url" not in argv
     assert "--archive" not in argv
     assert "--wind" not in argv
+    assert "--issuer-mapping-file" in argv
+    assert "--zero-result-source" in argv
     child_env = run.call_args.kwargs["env"]
     assert child_env == {
         "ENV": "test",
@@ -200,3 +225,21 @@ def test_stage_evidence_contains_no_absolute_output_path(tmp_path: Path) -> None
 
     assert str(tmp_path) not in serialized
     assert stages[0]["table_count"] == 1
+
+
+def test_current_issuer_resolver_evidence_has_hashes_without_absolute_paths(
+    tmp_path: Path,
+) -> None:
+    mapping, zero_source = _write_tiny_resolver_sources(tmp_path)
+    resolver = validate_current_issuer_resolver(mapping, zero_source)
+
+    evidence = runner._current_issuer_resolver_evidence(resolver)
+    serialized = json.dumps(evidence, ensure_ascii=False)
+
+    assert str(tmp_path) not in serialized
+    assert evidence["kind"] == "current_static_issuer_resolver"
+    assert evidence["mapping"]["sha256"] == hashlib.sha256(
+        mapping.read_bytes()
+    ).hexdigest()
+    assert evidence["zero_result_source"]["zero_result_count"] == 1
+    assert evidence["zero_result_source"]["issuer_names"] == ["无代码公司"]
