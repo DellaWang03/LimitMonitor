@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from datetime import UTC, datetime
+from hashlib import sha256
 import os
 from pathlib import Path
 import subprocess
@@ -27,6 +29,21 @@ from src.utils.config_loader import get_config
 
 CURRENT_DIR = _PROJECT_ROOT / "data" / "current"
 
+# 这些是 Stage0/1/2 在一次既有日跑中实际读取、并可影响共同内核输入的原始文件。
+# 不遍历共享盘目录，避免把无关文件纳入运行时间和审计摘要。
+KERNEL_SOURCE_FILE_NAMES = (
+    "德勤-主体评级列表.xlsx",
+    "风控部债券池.accdb",
+    "风控部债券池_主体_虚拟添加.xlsx",
+    "标准日期表.xlsx",
+    "净资产.xlsx",
+    "统计报表底稿1_债券.xlsx",
+    "统计报表底稿2_债券SPPI.xlsx",
+    "发行人类型调整表.xlsx",
+    "金融工具池设置.xlsx",
+    "限额配置_当前.xlsx",
+)
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -43,11 +60,43 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _source_manifest(data_dir: Path) -> dict[str, object]:
+def _sha256_file(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _source_manifest(config, *, current_dir: Path = CURRENT_DIR) -> dict[str, object]:
+    """记录实际共同内核源文件与当次使用的静态发行人映射摘要。"""
+
+    source_files = []
+    for file_name in KERNEL_SOURCE_FILE_NAMES:
+        path = Path(config.get_data_file_path(file_name))
+        if not path.is_file():
+            raise FileNotFoundError(f"共同内核来源文件不存在: {path}")
+        source_files.append(
+            {
+                "name": file_name,
+                "sha256": _sha256_file(path),
+                "size": path.stat().st_size,
+            }
+        )
+
+    mapping_path = current_dir / "stage0_output" / "issuer_wind_code_mapping.csv"
+    if not mapping_path.is_file():
+        raise FileNotFoundError(f"当次发行人静态映射不存在: {mapping_path}")
+    with mapping_path.open("r", encoding="utf-8-sig", newline="") as source:
+        mapping_rows = sum(1 for _ in csv.DictReader(source))
+
     return {
+        "files": source_files,
+        "static_issuer_mapping": {
+            "sha256": _sha256_file(mapping_path),
+            "row_count": mapping_rows,
+        },
         "captured_at": datetime.now(UTC).isoformat(),
-        "data_dir": str(data_dir.resolve()),
-        "source": "daily_runtime",
     }
 
 
@@ -86,7 +135,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             runtime,
             store,
             usage="PROD",
-            source_manifest=_source_manifest(data_dir),
+            source_manifest=_source_manifest(config, current_dir=CURRENT_DIR),
             code_commit=_git_commit(),
         )
 

@@ -113,6 +113,19 @@ def test_result_tables_are_deeply_detached_and_mapping_is_read_only():
         result.stage1_tables["新增"] = pd.DataFrame()
 
 
+def test_defensive_copy_preserves_object_dtype_for_plain_string_cells():
+    frame = pd.DataFrame(
+        {"代码": pd.Series(["102480811", "102484800"], dtype="object")}
+    )
+    result = ProductionKernelResult(
+        stage1_tables={"阶段1": frame},
+        stage2_tables={"阶段2": frame},
+    )
+
+    assert result.stage1_tables["阶段1"]["代码"].dtype == object
+    assert result.stage2_tables["阶段2"]["代码"].dtype == object
+
+
 def test_contract_rejects_non_dataframe_frame(business_date):
     with pytest.raises(TypeError, match="DataFrame"):
         ProductionKernelInput(

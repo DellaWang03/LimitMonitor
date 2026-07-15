@@ -1,9 +1,38 @@
 from __future__ import annotations
 
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
 from scripts import run_daily_pipeline as daily
+
+
+def test_source_manifest_records_input_files_and_current_static_mapping(tmp_path) -> None:
+    source_file = tmp_path / "source.xlsx"
+    source_file.write_bytes(b"source-bytes")
+
+    current_dir = tmp_path / "current"
+    mapping_path = current_dir / "stage0_output" / "issuer_wind_code_mapping.csv"
+    mapping_path.parent.mkdir(parents=True)
+    mapping_payload = "发行人,wind_code\n甲公司,000001\n乙公司,000002\n".encode("utf-8")
+    mapping_path.write_bytes(mapping_payload)
+
+    config = SimpleNamespace(get_data_file_path=lambda _: source_file)
+    manifest = daily._source_manifest(config, current_dir=current_dir)
+
+    assert manifest["files"] == [
+        {
+            "name": file_name,
+            "sha256": sha256(b"source-bytes").hexdigest(),
+            "size": len(b"source-bytes"),
+        }
+        for file_name in daily.KERNEL_SOURCE_FILE_NAMES
+    ]
+    assert manifest["static_issuer_mapping"] == {
+        "sha256": sha256(mapping_payload).hexdigest(),
+        "row_count": 2,
+    }
+    assert "captured_at" in manifest
 
 
 def _install_dependencies(monkeypatch, *, archive_error=None, publish_error=None, display_error=None):
@@ -32,6 +61,15 @@ def _install_dependencies(monkeypatch, *, archive_error=None, publish_error=None
         daily,
         "run_daily_runtime",
         lambda **kwargs: calls.append("runtime") or runtime,
+    )
+    monkeypatch.setattr(
+        daily,
+        "_source_manifest",
+        lambda config, **kwargs: {
+            "files": [],
+            "static_issuer_mapping": {"sha256": "test", "row_count": 0},
+            "captured_at": "2026-07-15T00:00:00+00:00",
+        },
     )
     monkeypatch.setattr(
         daily.ArchiveDB,

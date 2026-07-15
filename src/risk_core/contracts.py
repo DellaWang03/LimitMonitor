@@ -63,9 +63,21 @@ class MissingKernelFramesError(KeyError):
 def _copy_frame(frame: pd.DataFrame) -> pd.DataFrame:
     """Copy a frame and mutable Python objects stored in object cells."""
     copied = frame.copy(deep=True)
-    for column in copied.columns:
-        if pd.api.types.is_object_dtype(copied[column].dtype):
-            copied[column] = copied[column].map(deepcopy, na_action="ignore")
+    for position, dtype in enumerate(copied.dtypes):
+        if not pd.api.types.is_object_dtype(dtype):
+            continue
+        column = copied.iloc[:, position]
+        # pandas 3 may infer ``StringDtype`` from ``Series.map(deepcopy)``.
+        # Rebuild explicitly with the source dtype so defensive copying never
+        # changes the representation handed to the legacy adapters or kernel.
+        copied.isetitem(
+            position,
+            pd.Series(
+                [deepcopy(value) for value in column.tolist()],
+                index=copied.index,
+                dtype=dtype,
+            ),
+        )
     return copied
 
 
