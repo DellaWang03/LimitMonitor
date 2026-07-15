@@ -21,7 +21,8 @@
 
 | 文档 | 状态 | 用途 |
 |---|---|---|
-| `docs/PRETRADE_SHARED_CORE_SPEC.md` | 已冻结 | 唯一业务口径、共同内核、数据库契约、Wind 边界和总体验收规格 |
+| `docs/PRETRADE_SHARED_CORE_SPEC.md` | 已冻结 | 唯一业务口径、共同内核、MVP 数据库上下文、Wind 边界和总体验收规格 |
+| `docs/superpowers/specs/2026-07-15-pretrade-mvp-db-context-design.md` | 已批准 | `PRETRADE_SHARED_CORE_SPEC.md` 第 4 节的详细设计附件；定义 27 输入、四张 `pretrade_` 表、日常发布顺序和明确后置项 |
 
 权威规格所引用的生产事实来自 GitHub `main@579af695...` 的 Stage0、Stage1、Stage2 行为；若自然语言与已冻结生产特征测试发生歧义，必须暂停并补充规格评审，不能自行选择更严或更松的解释。
 
@@ -31,6 +32,7 @@
 |---|---|---|
 | `docs/superpowers/plans/2026-07-15-pretrade-safe-baseline.md` | 已完成 | 已在零生产逻辑修改下生成 `data_source_0123` 的双跑可重复金样；已按权威规格 2.1 纳入静态主体代码解析依赖 |
 | `docs/superpowers/plans/2026-07-15-production-shared-kernel-extraction.md` | 已完成 | Stage1/Stage2 生产业务转换已抽成无文件 I/O 的共同内核；两次独立候选均通过逐表、逐行、逐字段零差异门禁 |
+| `docs/superpowers/plans/2026-07-15-pretrade-mvp-db-context.md` | 执行中 | 以同次日常运行的 27 项实际输入构建 `pretrade_` 快照；开发和验收只写 `DEV`，不改既有归档/展示读路径 |
 
 完成证据：`docs/evidence/pretrade-baseline-20260710.json`。正式双跑总逻辑指纹均为
 `2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85`，Stage0/1/2
@@ -50,7 +52,7 @@
 `2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85`，Stage0/1/2
 分别输出 10、35、22 张表，所有文件、表、schema、行序、字段及浮点序列化差异均为 0。
 
-下一步唯一可执行阶段是“不可变数据库快照与全量落库”。只读数据库上下文、Wind 主数据落库、单券/篮子服务及两个页面仍未完成最终验收，不得因共同内核通过而标记完成或直接合并旧功能分支。
+下一步唯一可执行阶段是“交易前 MVP 数据库上下文”：从同次日常运行捕获 27 个共同内核外部输入，写入四张 `pretrade_` 表并完成 `data_source_0123` 的 `DEV` 零差异重放。既有展示归档、`archive_meta`、16 张归档表和展示快照保持原样；非持仓债 Wind 只在后续服务阶段 on-the-fly 获取且不落库。单券/篮子服务及两个页面仍未完成最终验收，不得因共同内核通过而标记完成或直接合并旧功能分支。
 
 ## 4. SUPERSEDED
 
@@ -68,6 +70,7 @@
 | `docs/superpowers/specs/2026-07-15-pretrade-business-parity-remediation-design.md` | 仍以修补交易前平行引擎为主，未达到零业务差异目标 |
 | `docs/superpowers/plans/2026-07-15-pretrade-db-only-context.md` | 已完成的过渡性只读上下文计划，按 `data_date` 覆盖且依赖本地 Wind 缓存，不是最终不可变数据库设计 |
 | `docs/superpowers/specs/2026-07-14-pretrade-db-only-context-design.md` | 同上；可保留字段映射、列校验和事务经验，但不能保留第二套公式或最终快照身份模型 |
+| `PRETRADE_SHARED_CORE_SPEC.md` 附录 A | 原全量闭包、34 投影、类型化事实、Wind 落库与独立 TEST 物理隔离草案；已由当前 MVP 数据库上下文契约替代 |
 
 ### 对应代码的治理状态
 
@@ -92,10 +95,9 @@
 
 1. 安全金标基线实施及证据；
 2. 生产共同内核提取计划；
-3. 不可变数据库快照与全量落库计划；
-4. 持仓/非持仓主数据适配与 Wind 落库计划；
-5. 单券和一揽子服务接入计划；
-6. 全量差分、故障注入和回滚计划；
-7. 两个指定页面的最终 UI 回归计划。
+3. 交易前 MVP 数据库上下文计划；
+4. 单券和一揽子共同内核服务与 on-the-fly Wind 计划；
+5. 全量差分、故障注入和回滚计划；
+6. 两个指定页面的最终 UI 回归计划。
 
 每份后续计划必须显式引用 `docs/PRETRADE_SHARED_CORE_SPEC.md`，并列出它实现的规格章节。未通过前一门禁时，不得把后一计划标记为可执行。
