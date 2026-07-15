@@ -26,6 +26,7 @@ from .stage1_aggregates import (
     calculate_single_guarantee_total_position_unfiltered,
 )
 from .stage1_limits import Stage1LimitEngine
+from .stage2_limits import Stage2RiskEngine
 
 
 class ProductionRiskKernel:
@@ -155,11 +156,39 @@ class ProductionRiskKernel:
     ) -> dict[str, pd.DataFrame]:
         if not isinstance(inputs, ProductionKernelInput):
             raise TypeError("inputs must be ProductionKernelInput")
-        inputs.require_frames(STAGE2_REQUIRED_FRAMES)
+        frames = inputs.require_frames(STAGE2_REQUIRED_FRAMES)
         if not isinstance(stage1_tables, Mapping):
             raise TypeError("stage1_tables must be a mapping of pandas DataFrame values")
         for name, frame in stage1_tables.items():
             if not isinstance(name, str) or not isinstance(frame, pd.DataFrame):
                 raise TypeError("stage1_tables must map string keys to pandas DataFrame values")
-            _copy_frame(frame)
-        return {}
+            frames[name] = _copy_frame(frame)
+
+        engine = Stage2RiskEngine(frames)
+        results: dict[str, pd.DataFrame] = {}
+
+        def register(name: str, method_name: str) -> pd.DataFrame:
+            frame = getattr(engine, method_name)()
+            results[name] = frame
+            engine.cache[name] = _copy_frame(frame)
+            return frame
+
+        register("信用债总持仓", "query_total_credit_position")
+        register("单一地域总持仓", "query_single_region_total_position")
+        register("单一地域城投总持仓", "query_single_region_citybond_position")
+        register("高风险行业总持仓", "query_high_risk_industry_position")
+        register("高风险行业总持仓_2", "query_high_risk_industry_position_detail")
+        register("高风险省份总持仓", "query_high_risk_province_position")
+        register("高风险省份总持仓_2", "query_high_risk_province_position_detail")
+        register("限额明细_债券持仓明细表_信用债2", "query_credit_bond_detail_2")
+        register("限额明细_高风险行业", "query_high_risk_industry_detail")
+        register("限额明细_高风险行业_2", "query_high_risk_industry_detail_2")
+        register("限额明细_高风险省份", "query_high_risk_province_detail")
+        register("限额明细_高风险省份2", "query_high_risk_province_detail_2")
+        register(
+            "限额明细_地域集中度限额(含城投)",
+            "query_region_concentration_detail",
+        )
+        register("限额明细_高收益", "query_high_yield_detail")
+        register("限额明细_高收益_投资本金规模", "query_high_yield_capital")
+        return results

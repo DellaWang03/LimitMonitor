@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import pandas as pd
+import pandas.testing as pdt
 
+from src.risk_core.stage2_limits import Stage2RiskEngine
 from src.stage2 import stage2_processor as stage2_module
 from src.stage2.stage2_processor import SOURCE_ROW_ID_COL, Stage2Processor
 
@@ -27,6 +29,60 @@ PRODUCTION_STAGE2_CALCULATION_METHODS = {
 
 def test_stage2_calculation_public_surface_is_frozen():
     assert PRODUCTION_STAGE2_CALCULATION_METHODS <= set(dir(Stage2Processor))
+    assert PRODUCTION_STAGE2_CALCULATION_METHODS <= set(dir(Stage2RiskEngine))
+
+
+def test_stage2_engine_matches_adapter_for_explicit_frame_inputs(
+    monkeypatch, stage2_processor, credit_row, business_date
+):
+    credit = pd.DataFrame(
+        [
+            credit_row(
+                资产代码="CITY.IB",
+                省份="山西省",
+                wind行业="煤炭",
+                债券类别="城投债",
+                是否城投债="是",
+                **{"库存数量(万)_PR": 120.0},
+            ),
+            credit_row(
+                资产代码="NORMAL.IB",
+                省份="浙江省",
+                wind行业="制造业",
+                债券类别="产业债",
+                是否城投债="否",
+                **{"库存数量(万)_PR": 80.0},
+            ),
+        ]
+    )
+    merged = credit.copy()
+    merged["行业类别"] = ["高风险行业", pd.NA]
+    merged["省份类别"] = ["高风险省份", pd.NA]
+    net_asset = pd.DataFrame([{"日期": business_date, "公司净资产(万)": 1000.0}])
+    cache = {
+        "债券持仓明细表_信用债": credit,
+        "债券持仓明细表_信用债_合并风险限额相关": merged,
+        "公司净资产_手工_每日": net_asset,
+    }
+    stage2_processor.cache.update(cache)
+    monkeypatch.setattr(stage2_module.pd, "read_excel", lambda *a, **k: net_asset.copy())
+
+    engine = Stage2RiskEngine(cache)
+    for method_name in [
+        "query_total_credit_position",
+        "query_single_region_total_position",
+        "query_single_region_citybond_position",
+    ]:
+        expected = getattr(stage2_processor, method_name)()
+        actual = getattr(engine, method_name)()
+        pdt.assert_frame_equal(actual, expected, check_exact=True)
+
+
+def test_stage2_engine_detaches_mutable_inputs(credit_row, business_date):
+    credit = pd.DataFrame([credit_row(**{"库存数量(万)_PR": 100.0})])
+    engine = Stage2RiskEngine({"债券持仓明细表_信用债": credit})
+    credit.loc[0, "库存数量(万)_PR"] = 999.0
+    assert engine.query_total_credit_position()["信用债总持仓_PR"].tolist() == [100.0]
 
 
 def test_stage2_totals_and_summary_details_freeze_denominators_and_aggregations(

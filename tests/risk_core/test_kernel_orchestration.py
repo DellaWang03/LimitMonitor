@@ -44,6 +44,18 @@ def _frames(names: tuple[str, ...]) -> dict[str, pd.DataFrame]:
         "调整实控人名单": ["主体wind代码", "调整后实际控制人"],
         "高风险行业": ["日期", "行业名称", "行业类别"],
         "高风险省份": ["日期", "省份名称", "省份类别"],
+        "地域集中度限额(含城投)": [
+            "日期", "指标名称", "指标值_地域集中度限额", "指标值_城投集中度限额"
+        ],
+        "ISIN码映射": ["资产代码", "ISIN码"],
+        "债券持仓表_核算系统": [
+            "日期", "账户", "简称", "代码", "持仓面额(元)", "全价成本(元)"
+        ],
+        "穿透高收益_投资本金规模": [
+            "日期", "账户", "简称", "代码", "持仓面额(元)", "全价成本(元)"
+        ],
+        "公司净资产_手工_每日": ["日期", "公司净资产(万)"],
+        "高收益限额": ["指标", "限额(万)"],
         "特定主体限额": ["日期", "主体wind代码", "指标名称", "指标值"],
         "特定实控人限额": ["日期", "实控人名称", "指标名称", "指标值"],
         "单一债券集中度限额": ["日期", "指标名称", "指标值"],
@@ -71,6 +83,9 @@ def _frames(names: tuple[str, ...]) -> dict[str, pd.DataFrame]:
     ):
         if name in frames:
             frames[name]["指标名称"] = pd.Series(dtype="float64")
+    for name in ("高风险行业", "高风险省份"):
+        if name in frames:
+            frames[name]["指标值"] = pd.Series(dtype="float64")
     for frame in frames.values():
         if "日期" in frame.columns:
             frame["日期"] = pd.to_datetime(frame["日期"])
@@ -133,16 +148,52 @@ def test_stage1_shell_is_deterministic_and_does_not_mutate_inputs(business_date)
 
 def test_stage2_shell_validates_frames_and_does_not_mutate_stage1_tables(business_date):
     frames = _frames(tuple(dict.fromkeys(STAGE1_REQUIRED_FRAMES + STAGE2_REQUIRED_FRAMES)))
+    frames["高收益限额"] = pd.DataFrame(
+        [
+            {"指标": "年度高收益债券投资本金规模", "限额(万)": 100.0},
+            {"指标": "单一债券票面规模", "限额(万)": 100.0},
+            {"指标": "单一主体票面规模", "限额(万)": 200.0},
+        ]
+    )
     inputs = ProductionKernelInput(
         business_date=business_date,
         frames=frames,
         parameters=ProductionKernelParameters(0.16),
     )
-    stage1_tables = {"阶段1结果": pd.DataFrame({"值": [1], "对象": [["a"]]})}
+    credit = frames["债券持仓明细表_信用债"].copy()
+    credit["_源行号"] = pd.Series(dtype="int64")
+    merged = credit.copy()
+    merged["行业类别"] = pd.Series(dtype="object")
+    merged["省份类别"] = pd.Series(dtype="object")
+    stage1_tables = {
+        "债券持仓明细表_信用债": credit,
+        "债券持仓明细表_信用债_合并风险限额相关": merged,
+        "阶段1结果": pd.DataFrame({"值": [1], "对象": [["a"]]}),
+    }
     before = stage1_tables["阶段1结果"].copy(deep=True)
 
     kernel = ProductionRiskKernel()
-    assert kernel.run_stage2(inputs, stage1_tables) == {}
+    first = kernel.run_stage2(inputs, stage1_tables)
+    second = kernel.run_stage2(inputs, stage1_tables)
+    assert list(first) == [
+        "信用债总持仓",
+        "单一地域总持仓",
+        "单一地域城投总持仓",
+        "高风险行业总持仓",
+        "高风险行业总持仓_2",
+        "高风险省份总持仓",
+        "高风险省份总持仓_2",
+        "限额明细_债券持仓明细表_信用债2",
+        "限额明细_高风险行业",
+        "限额明细_高风险行业_2",
+        "限额明细_高风险省份",
+        "限额明细_高风险省份2",
+        "限额明细_地域集中度限额(含城投)",
+        "限额明细_高收益",
+        "限额明细_高收益_投资本金规模",
+    ]
+    for name in first:
+        pdt.assert_frame_equal(first[name], second[name], check_exact=True)
     pdt.assert_frame_equal(stage1_tables["阶段1结果"], before, check_exact=True)
 
     missing_frames = dict(frames)
