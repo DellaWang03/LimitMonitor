@@ -11,6 +11,7 @@ from .contracts import (
     _copy_frame,
 )
 from .position_context import (
+    attach_isin_to_results,
     build_credit_risk_context,
     normalize_bond_position,
     normalize_credit_position,
@@ -44,10 +45,24 @@ class ProductionRiskKernel:
         context_frames = dict(frames)
         context_frames["债券持仓明细表_信用债"] = credit_position
         credit_context = build_credit_risk_context(context_frames)
-        results = {
+        results: dict[str, pd.DataFrame] = {
+            "风控部债券池": _copy_frame(frames["风控部债券池"]),
+            "风控部主体池": _copy_frame(frames["风控部主体池"]),
+            "调整实控人名单": _copy_frame(frames["调整实控人名单"]),
+            "发行人类型调整表": _copy_frame(frames["发行人类型调整表"]),
+            "穿透高收益债券": _copy_frame(frames["穿透高收益债券"]),
             "债券持仓明细表": bond_position,
             "债券持仓明细表_信用债": credit_position,
             "债券持仓明细表_全量债券监管集中度": regulatory_position,
+            "中债隐含评级AAA&AAA+": _copy_frame(frames["中债隐含评级AAA&AAA+"]),
+            "单一债券规模限额": _copy_frame(frames["单一债券规模限额"]),
+            "单一债券集中度限额": _copy_frame(frames["单一债券集中度限额"]),
+            "特批单一债券限额": _copy_frame(frames["特批单一债券限额"]),
+            "单一主体规模限额": _copy_frame(frames["单一主体规模限额"]),
+            "单一实控人规模限额": _copy_frame(frames["单一实控人规模限额"]),
+            "特定主体限额": _copy_frame(frames["特定主体限额"]),
+            "特定实控人限额": _copy_frame(frames["特定实控人限额"]),
+            "单一担保公司规模限额": _copy_frame(frames["单一担保公司规模限额"]),
             "债券持仓明细表_信用债_合并风险限额相关": credit_context,
         }
         results["单一债券总持仓"] = calculate_single_bond_total_position(
@@ -147,7 +162,7 @@ class ProductionRiskKernel:
             "限额明细_全量债券监管集中度",
             limit_engine.calculate_limit_detail_full_regulatory_concentration(),
         )
-        return results
+        return attach_isin_to_results(results, frames["ISIN码映射"])
 
     def run_stage2(
         self,
@@ -165,7 +180,21 @@ class ProductionRiskKernel:
             frames[name] = _copy_frame(frame)
 
         engine = Stage2RiskEngine(frames)
-        results: dict[str, pd.DataFrame] = {}
+        results: dict[str, pd.DataFrame] = {
+            "高风险行业": _copy_frame(frames["高风险行业"]),
+            "高风险省份": _copy_frame(frames["高风险省份"]),
+            "高风险限额": _copy_frame(frames["高风险限额"]),
+            "地域集中度限额(含城投)": _copy_frame(
+                frames["地域集中度限额(含城投)"]
+            ),
+            "金融工具池设置": _copy_frame(frames["金融工具池设置"]),
+            "债券持仓明细表_信用债": _copy_frame(
+                frames["债券持仓明细表_信用债"]
+            ),
+            "债券持仓明细表_信用债_合并风险限额相关": _copy_frame(
+                frames["债券持仓明细表_信用债_合并风险限额相关"]
+            ),
+        }
 
         def register(name: str, method_name: str) -> pd.DataFrame:
             frame = getattr(engine, method_name)()

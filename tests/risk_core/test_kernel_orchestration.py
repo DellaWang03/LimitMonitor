@@ -118,9 +118,23 @@ def test_stage1_shell_is_deterministic_and_does_not_mutate_inputs(business_date)
     first = kernel.run_stage1(inputs)
     second = kernel.run_stage1(inputs)
     assert list(first) == [
+        "风控部债券池",
+        "风控部主体池",
+        "调整实控人名单",
+        "发行人类型调整表",
+        "穿透高收益债券",
         "债券持仓明细表",
         "债券持仓明细表_信用债",
         "债券持仓明细表_全量债券监管集中度",
+        "中债隐含评级AAA&AAA+",
+        "单一债券规模限额",
+        "单一债券集中度限额",
+        "特批单一债券限额",
+        "单一主体规模限额",
+        "单一实控人规模限额",
+        "特定主体限额",
+        "特定实控人限额",
+        "单一担保公司规模限额",
         "债券持仓明细表_信用债_合并风险限额相关",
         "单一债券总持仓",
         "单一主体总持仓",
@@ -176,6 +190,13 @@ def test_stage2_shell_validates_frames_and_does_not_mutate_stage1_tables(busines
     first = kernel.run_stage2(inputs, stage1_tables)
     second = kernel.run_stage2(inputs, stage1_tables)
     assert list(first) == [
+        "高风险行业",
+        "高风险省份",
+        "高风险限额",
+        "地域集中度限额(含城投)",
+        "金融工具池设置",
+        "债券持仓明细表_信用债",
+        "债券持仓明细表_信用债_合并风险限额相关",
         "信用债总持仓",
         "单一地域总持仓",
         "单一地域城投总持仓",
