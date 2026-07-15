@@ -22,6 +22,16 @@ from ..common.financial_tool_pool import (
     row_in_financial_tool_pool,
 )
 from ..utils.limit_config_loader import load_limit_config
+from ..risk_core.position_context import (
+    attach_isin_to_results,
+    build_credit_risk_context,
+    collapse_credit_merged_to_source_rows,
+    ensure_source_row_id,
+    normalize_bond_position,
+    normalize_credit_position,
+    normalize_regulatory_position,
+    validate_source_row_id,
+)
 
 
 SOURCE_ROW_ID_COL = '_源行号'
@@ -126,80 +136,15 @@ class Stage1Processor:
 
     def _ensure_source_row_id(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
         """为信用债源持仓生成运行内唯一行号，用于保护真实重复持仓。"""
-        if SOURCE_ROW_ID_COL not in df.columns:
-            df = df.reset_index(drop=True).copy()
-            df[SOURCE_ROW_ID_COL] = np.arange(1, len(df) + 1, dtype='int64')
-            logger.info(f"  {table_name}: 已生成 {SOURCE_ROW_ID_COL}")
-
-        self._validate_source_row_id(df, table_name)
-        return df
+        return ensure_source_row_id(df, table_name)
 
     def _validate_source_row_id(self, df: pd.DataFrame, table_name: str) -> None:
         """校验信用债源行号存在且唯一。"""
-        if SOURCE_ROW_ID_COL not in df.columns:
-            raise KeyError(f"{table_name} 缺少 {SOURCE_ROW_ID_COL}，无法安全保留真实重复持仓")
-        if df[SOURCE_ROW_ID_COL].isna().any():
-            raise ValueError(f"{table_name} 的 {SOURCE_ROW_ID_COL} 存在空值")
-        duplicated = df[df[SOURCE_ROW_ID_COL].duplicated(keep=False)]
-        if not duplicated.empty:
-            sample_ids = duplicated[SOURCE_ROW_ID_COL].drop_duplicates().head(5).tolist()
-            raise ValueError(f"{table_name} 的 {SOURCE_ROW_ID_COL} 不唯一，示例: {sample_ids}")
+        validate_source_row_id(df, table_name)
 
     def _collapse_credit_merged_to_source_rows(self, df: pd.DataFrame) -> pd.DataFrame:
         """把 merge 展开的同一源持仓收敛回一行，遇到非空字段冲突时中止。"""
-        if SOURCE_ROW_ID_COL not in df.columns:
-            raise KeyError(f"债券持仓明细表_信用债_合并风险限额相关 缺少 {SOURCE_ROW_ID_COL}")
-        if df[SOURCE_ROW_ID_COL].isna().any():
-            raise ValueError(f"债券持仓明细表_信用债_合并风险限额相关 的 {SOURCE_ROW_ID_COL} 存在空值")
-
-        duplicated = df[df[SOURCE_ROW_ID_COL].duplicated(keep=False)]
-        if duplicated.empty:
-            return df
-
-        conflicts = []
-        check_cols = [col for col in df.columns if col != SOURCE_ROW_ID_COL]
-        for source_id, group in duplicated.groupby(SOURCE_ROW_ID_COL, sort=False):
-            for col in check_cols:
-                values = group[col].dropna()
-                if values.empty:
-                    continue
-                if values.dtype == object or pd.api.types.is_string_dtype(values):
-                    values = values.astype(str).str.strip()
-                    values = values[~values.isin(['', 'nan', 'None', '<NA>'])]
-                    if values.empty:
-                        continue
-                if values.drop_duplicates().shape[0] > 1:
-                    conflicts.append(f"{SOURCE_ROW_ID_COL}={source_id}, 字段={col}")
-                    break
-            if len(conflicts) >= 10:
-                break
-
-        if conflicts:
-            raise ValueError(
-                "合并风险限额相关出现同一源持仓的冲突展开，已中止以避免静默取错值；"
-                f"示例: {conflicts}"
-            )
-
-        rows_before = len(df)
-        priority_cols = [col for col in df.columns if col != SOURCE_ROW_ID_COL]
-        df['_非空字段数'] = df[priority_cols].notna().sum(axis=1)
-        if '实际控制人名称_修正' in df.columns:
-            df['_实控人非空'] = df['实际控制人名称_修正'].notna()
-            df = df.sort_values(
-                by=[SOURCE_ROW_ID_COL, '_非空字段数', '_实控人非空'],
-                ascending=[True, False, False]
-            )
-            df = df.drop(columns=['_非空字段数', '_实控人非空'])
-        else:
-            df = df.sort_values(
-                by=[SOURCE_ROW_ID_COL, '_非空字段数'],
-                ascending=[True, False]
-            )
-            df = df.drop(columns=['_非空字段数'])
-
-        df = df.drop_duplicates(subset=[SOURCE_ROW_ID_COL], keep='first')
-        logger.info(f"    ✓ 按{SOURCE_ROW_ID_COL}收敛merge展开: {rows_before} -> {len(df)} 行")
-        return df
+        return collapse_credit_merged_to_source_rows(df)
 
     def _load_isin_mapping(self) -> pd.DataFrame:
         """读取资产代码到 ISIN 码映射。"""
@@ -255,38 +200,7 @@ class Stage1Processor:
     def _attach_isin_to_results(self, results: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """为带资产代码的输出结果统一补充 ISIN 码。"""
         mapping_df = self._load_isin_mapping()
-        if mapping_df.empty:
-            return results
-
-        updated_results = {}
-        attached_count = 0
-        for name, df in results.items():
-            if not isinstance(df, pd.DataFrame) or '资产代码' not in df.columns:
-                updated_results[name] = df
-                continue
-
-            result_df = df.copy()
-            result_df['资产代码'] = result_df['资产代码'].apply(self._clean_code_like_value)
-            result_df = result_df.merge(
-                mapping_df,
-                on='资产代码',
-                how='left',
-                suffixes=('', '_映射')
-            )
-            if 'ISIN码_映射' in result_df.columns:
-                if 'ISIN码' in result_df.columns:
-                    result_df['ISIN码'] = result_df['ISIN码'].apply(self._clean_code_like_value)
-                    result_df['ISIN码'] = result_df['ISIN码'].combine_first(result_df['ISIN码_映射'])
-                else:
-                    result_df['ISIN码'] = result_df['ISIN码_映射']
-                result_df = result_df.drop(columns=['ISIN码_映射'], errors='ignore')
-
-            updated_results[name] = result_df
-            attached_count += 1
-
-        if attached_count:
-            logger.info(f"统一补充 ISIN 码完成: {attached_count} 张结果表")
-        return updated_results
+        return attach_isin_to_results(results, mapping_df)
     
     def process_all(self) -> Dict[str, pd.DataFrame]:
         """
@@ -558,192 +472,32 @@ class Stage1Processor:
         return results
     
     def query_bond_position(self) -> pd.DataFrame:
-        """
-        查询: 债券持仓明细表
-        数据源: 统计报表底稿1_债券.xlsx / 债券持仓明细表
-        M代码逻辑: 只选择部分列
-        """
+        """读取底稿1后委托纯内核完成债券持仓标准化。"""
         file_path = self._data_file_path("统计报表底稿1_债券.xlsx")
-        
         logger.info(f"  读取数据源: {file_path}")
-        df = pd.read_excel(file_path, sheet_name="债券持仓明细表")
-        
-        # 清洗字符串列
-        for col in df.columns:
-            if df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col]):
-                df[col] = df[col].astype(str).str.strip()
+        raw = pd.read_excel(file_path, sheet_name="债券持仓明细表")
+        result = normalize_bond_position(raw)
+        logger.info(f"  债券持仓明细表: {len(result)} 行, {len(result.columns)} 列")
+        return result
 
-        # 转换日期列
-        if '日期' in df.columns:
-            df['日期'] = pd.to_datetime(df['日期'])
-
-        # 根据M代码选择需要的列
-        selected_cols = ['日期', '金融资产会计属性', '部门', '内部证券账户名称', '资产代码', '资产名称',
-                        '库存数量(万)', '库存数量(万)_空头为负', '债券分类2', '主证券代码', '主证券名称', 
-                        '库存数量(万)_PR', '债券余额(亿)', '债务主体wind代码', '担保人wind代码']
-        
-        # 只保留存在的列
-        existing_cols = [col for col in selected_cols if col in df.columns]
-        df = df[existing_cols]
-
-        df = self._coerce_numeric_columns(
-            df,
-            ['库存数量(万)', '库存数量(万)_空头为负', '库存数量(万)_PR', '债券余额(亿)']
-        )
-
-        if '资产代码' in df.columns:
-            df['资产代码_标准'] = normalize_security_code_series(df['资产代码'])
-        if '主证券代码' in df.columns:
-            df['主证券代码_标准'] = normalize_security_code_series(df['主证券代码'])
-        
-        logger.info(f"  债券持仓明细表: {len(df)} 行, {len(df.columns)} 列")
-        
-        return df
-    
     def query_bond_position_credit(self) -> pd.DataFrame:
-        """
-        查询: 债券持仓明细表_信用债
-        数据源: 统计报表底稿2_债券SPPI.xlsx / 债券_含穿透持仓
-        M代码逻辑: 
-        1. 读取债券_含穿透持仓
-        2. 选择需要的列
-        3. 筛选: 债券分类2 <> "利率债"
-        4. 筛选: 不包含"代申购代缴款"
-        5. 筛选: 日期非空
-        """
+        """读取底稿2后委托纯内核完成信用债持仓标准化。"""
         file_path = self._data_file_path("统计报表底稿2_债券SPPI.xlsx")
-        
         logger.info(f"  读取数据源: {file_path}")
-        df = pd.read_excel(file_path, sheet_name="债券_含穿透持仓")
-        
-        # 清洗字符串列（关键修复：保留实控人相关列的 NaN，避免转为字符串 'nan'）
-        # 实控人相关列需要保留 NaN 以便后续 combine_first 正确工作
-        # wind 代码列保持原样，不做格式转换（避免影响 merge 结果和持仓总计）
-        controller_cols = ['实际控制人名称', '实际控制人名称_修正']
-
-        for col in df.columns:
-            if df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col]):
-                if col in controller_cols:
-                    # 仅清洗非空值，保留 NaN；返回清洗后的值或 None
-                    df[col] = df[col].apply(lambda x: str(x).strip() if pd.notna(x) and str(x).strip() not in ['', 'nan', 'None'] else None)
-                else:
-                    # 其他列：正常清洗（去除首尾空格，含 \xa0 等非标准空白）
-                    df[col] = df[col].astype(str).str.strip()
-        
-        # 转换日期列
-        if '日期' in df.columns:
-            df['日期'] = pd.to_datetime(df['日期'], errors='coerce')
-        
-        logger.info(f"  原始数据: {len(df)} 行")
-        
-        # 根据M代码选择需要的列（这里只列出关键的23列）
-        # 含 实际控制人名称 作为底稿兜底（当 实际控制人名称_修正 缺失时）
-        selected_cols = ['日期', '金融资产会计属性', '部门', '内部证券账户名称', '资产代码', 'ISIN码', '资产名称',
-                        '债券分类2', '债券类型1', '主证券代码', '主证券名称', '库存数量(万)_PR', '债券余额(亿)',
-                        '发行人类型', '债务主体', '债务主体wind代码', '实际控制人名称', '实际控制人名称_修正', 
-                        '担保人', '担保人wind代码', '是否城投债', '债券类别', 'wind行业', '省份', '合并辅助列']
-        
-        # 保留存在的列
-        existing_cols = [col for col in selected_cols if col in df.columns]
-        df = df[existing_cols]
-        
-        # 筛选: 债券分类2 <> "利率债"
-        df = df[df['债券分类2'] != '利率债']
-        logger.info(f"  筛选非利率债: {len(df)} 行")
-        
-        # 筛选: 不包含"代申购代缴款"
-        if '内部证券账户名称' in df.columns:
-            df = df[~df['内部证券账户名称'].str.contains('代申购代缴款', na=False)]
-            logger.info(f"  排除代申购代缴款: {len(df)} 行")
-        
-        # 筛选: 日期非空
-        df = df[df['日期'].notna()]
-        logger.info(f"  筛选日期非空: {len(df)} 行")
-
-        df = self._coerce_numeric_columns(
-            df,
-            ['库存数量(万)_PR', '债券余额(亿)']
-        )
-
-        if '资产代码' in df.columns:
-            df['资产代码_标准'] = normalize_security_code_series(df['资产代码'])
-        if '主证券代码' in df.columns:
-            df['主证券代码_标准'] = normalize_security_code_series(df['主证券代码'])
-        
-        # 省份标准化（底稿可能未标准化，M代码无此步骤，Python 补充以保证全链路一致）
-        if '省份' in df.columns:
-            from ..common import ProvinceNormalizer
-            df = ProvinceNormalizer.add_normalized_column(
-                df,
-                source_column='省份',
-                target_column='省份_标准'
-            )
-            df['省份'] = df['省份_标准']
-            df = df.drop(columns=['省份_标准'], errors='ignore')
-
-        df = self._ensure_source_row_id(df, '债券持仓明细表_信用债')
-        
-        return df
+        raw = pd.read_excel(file_path, sheet_name="债券_含穿透持仓")
+        result = normalize_credit_position(raw)
+        logger.info(f"  信用债持仓标准化: {len(result)} 行")
+        return result
 
     def query_bond_position_regulatory_full(self) -> pd.DataFrame:
-        """
-        查询: 债券持仓明细表_全量债券监管集中度
-        数据源: 统计报表底稿2_债券SPPI.xlsx / 债券_含穿透持仓
-
-        口径:
-        1. 保留全量债券，不按信用债/利率债/高收益做业务剔除
-        2. 仅做必要的数据清洗与日期非空过滤
-        """
+        """读取底稿2后委托纯内核完成全量监管持仓标准化。"""
         file_path = self._data_file_path("统计报表底稿2_债券SPPI.xlsx")
-
         logger.info(f"  读取数据源: {file_path}")
-        df = pd.read_excel(file_path, sheet_name="债券_含穿透持仓")
+        raw = pd.read_excel(file_path, sheet_name="债券_含穿透持仓")
+        result = normalize_regulatory_position(raw)
+        logger.info(f"  全量监管集中度底表（日期非空）: {len(result)} 行")
+        return result
 
-        controller_cols = ['实际控制人名称', '实际控制人名称_修正']
-        for col in df.columns:
-            if df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col]):
-                if col in controller_cols:
-                    df[col] = df[col].apply(
-                        lambda x: str(x).strip() if pd.notna(x) and str(x).strip() not in ['', 'nan', 'None'] else None
-                    )
-                else:
-                    df[col] = df[col].astype(str).str.strip()
-
-        if '日期' in df.columns:
-            df['日期'] = pd.to_datetime(df['日期'], errors='coerce')
-
-        selected_cols = [
-            '日期', '金融资产会计属性', '部门', '内部证券账户名称', '资产代码', 'ISIN码',
-            '资产名称', '债券分类2', '债券类型1', '主证券代码', '主证券名称',
-            '库存数量(万)_PR', '债券余额(亿)', '发行人类型', '债务主体',
-            '债务主体wind代码', '实际控制人名称', '实际控制人名称_修正',
-            '担保人', '担保人wind代码', '是否城投债', '债券类别', 'wind行业', '省份'
-        ]
-        existing_cols = [col for col in selected_cols if col in df.columns]
-        df = df[existing_cols]
-
-        df = df[df['日期'].notna()].copy()
-        logger.info(f"  全量监管集中度底表（日期非空）: {len(df)} 行")
-
-        df = self._coerce_numeric_columns(df, ['库存数量(万)_PR', '债券余额(亿)'])
-
-        if '资产代码' in df.columns:
-            df['资产代码_标准'] = normalize_security_code_series(df['资产代码'])
-        if '主证券代码' in df.columns:
-            df['主证券代码_标准'] = normalize_security_code_series(df['主证券代码'])
-
-        if '省份' in df.columns:
-            from ..common import ProvinceNormalizer
-            df = ProvinceNormalizer.add_normalized_column(
-                df,
-                source_column='省份',
-                target_column='省份_标准'
-            )
-            df['省份'] = df['省份_标准']
-            df = df.drop(columns=['省份_标准'], errors='ignore')
-
-        return df
-    
     def query_wind_bond_pool(self) -> pd.DataFrame:
         """
         查询: 风控部债券池
@@ -933,389 +687,19 @@ class Stage1Processor:
         return df
     
     def query_bond_position_credit_merged(self) -> pd.DataFrame:
-        """
-        查询: 债券持仓明细表_信用债_合并风险限额相关
-        数据源: 债券持仓明细表_信用债
-        M代码逻辑: 复杂的多表关联，添加风险限额相关字段
-        """
-        # 获取信用债数据
-        df = self.cache.get('债券持仓明细表_信用债')
-        if df is None:
-            df = self.query_bond_position_credit()
+        """委托纯内核构建信用债共享风险上下文。"""
+        if self.cache.get("债券持仓明细表_信用债") is None:
+            self.cache["债券持仓明细表_信用债"] = self.query_bond_position_credit()
+        if self.cache.get("金融工具池设置") is None:
+            self.cache["金融工具池设置"] = self.query_financial_tool_pool()
 
-        df = df.copy()
-        df = self._ensure_source_row_id(df, '债券持仓明细表_信用债')
-        source_row_count = len(df)
-        source_inventory_sum = pd.to_numeric(
-            df.get('库存数量(万)_PR', pd.Series(dtype=float)),
-            errors='coerce'
-        ).sum()
-        
-        logger.info(f"  开始合并风险限额字段...")
-        
-        # 1. 合并穿透高收益债券，并按账户/穿透配置/金融工具池识别高收益
-        df_high_yield = self.cache.get('穿透高收益债券')
-        if df_high_yield is not None and '债券代码' in df_high_yield.columns:
-            df = df.merge(
-                df_high_yield[['债券代码', '类型']],
-                left_on='资产代码',
-                right_on='债券代码',
-                how='left'
-            )
-            df = df.drop(columns=['债券代码'], errors='ignore')
-            logger.info(f"    ✓ 合并穿透高收益债券")
+        frames = dict(self.cache)
+        frames["高风险行业"] = self.query_high_risk_industry()
+        frames["高风险省份"] = self.query_high_risk_province()
+        result = build_credit_risk_context(frames)
+        logger.info(f"  合并风险限额相关: {len(result)} 行 × {len(result.columns)} 列")
+        return result
 
-        if '类型' not in df.columns:
-            df['类型'] = pd.NA
-
-        df_tool_pool = self.cache.get('金融工具池设置')
-        if df_tool_pool is None:
-            df_tool_pool = self.query_financial_tool_pool()
-            self.cache['金融工具池设置'] = df_tool_pool
-
-        tool_pool_names, tool_pool_codes = build_financial_tool_pool_sets(df_tool_pool)
-
-        def is_high_yield(row):
-            if '高收益' in str(row.get('内部证券账户名称', '')):
-                return '是'
-            if row.get('类型') == '高收益':
-                return '是'
-            if row_in_financial_tool_pool(row, tool_pool_names, tool_pool_codes):
-                return '是'
-            return '否'
-
-        df['是否属于高收益'] = df.apply(is_high_yield, axis=1)
-        df = df.drop(columns=['类型'], errors='ignore')
-        logger.info(
-            f"    ✓ 识别高收益: {(df['是否属于高收益'] == '是').sum()} 条 "
-            f"(金融工具池代码/简称: {len(tool_pool_codes)}/{len(tool_pool_names)})"
-        )
-        
-        # 2. 合并中债隐含评级
-        df_rating = self.cache.get('中债隐含评级AAA&AAA+')
-        if df_rating is not None and 'wind代码' in df_rating.columns and '日期' in df_rating.columns:
-            df = df.merge(
-                df_rating[['wind代码', '日期', '中债隐含评级']],
-                left_on=['债务主体wind代码', '日期'],
-                right_on=['wind代码', '日期'],
-                how='left'
-            )
-            df = df.drop(columns=['wind代码'], errors='ignore')
-            logger.info(f"    ✓ 合并中债隐含评级")
-        
-        # 3. 合并风控部债券池（获取债券池、主体池）
-        df_bond_pool = self.cache.get('风控部债券池')
-        if df_bond_pool is not None:
-            df = df.merge(
-                df_bond_pool[['代码', '日期', '债券池', '主体池']],
-                left_on=['资产代码', '日期'],
-                right_on=['代码', '日期'],
-                how='left',
-                suffixes=('', '.0')
-            )
-            df = df.drop(columns=['代码'], errors='ignore')
-            logger.info(f"    ✓ 合并风控部债券池")
-        
-        # 4. 合并风控部主体池（通过债务主体获取主体池）
-        # M-code: 先用债券池的主体池(主体池.0)，再用发行人池(主体池.1)覆盖，匹配不到则回退到债券池值
-        df_issuer_pool = self.cache.get('风控部主体池')
-        if df_issuer_pool is not None:
-            # 先将当前主体池（来自债券池）保存为 主体池.0，供 fallback 使用
-            if '主体池' in df.columns:
-                df = df.rename(columns={'主体池': '主体池.0'})
-            
-            df = df.merge(
-                df_issuer_pool[['日期', '发行人名称', '主体池']],
-                left_on=['日期', '债务主体'],
-                right_on=['日期', '发行人名称'],
-                how='left'
-            )
-            df = df.drop(columns=['发行人名称'], errors='ignore')
-            
-            # 去重
-            df = df.drop_duplicates()
-            
-            # M-code: if 主体池(发行人池) <> null then 主体池 else 主体池.0(债券池)
-            if '主体池' in df.columns and '主体池.0' in df.columns:
-                df['主体池'] = df['主体池'].where(df['主体池'].notna(), df['主体池.0'])
-                df = df.drop(columns=['主体池.0'], errors='ignore')
-            elif '主体池.0' in df.columns:
-                df = df.rename(columns={'主体池.0': '主体池'})
-            
-            logger.info(f"    ✓ 合并风控部主体池")
-        
-        # 5. 合并担保人主体池
-        if df_issuer_pool is not None and '担保人wind代码' in df.columns:
-            # 关键修复：过滤掉主体wind代码为NaN的记录，避免NaN键笛卡尔积
-            df_issuer_pool_valid = df_issuer_pool[
-                df_issuer_pool['主体wind代码'].notna()
-            ].copy()
-            
-            df = df.merge(
-                df_issuer_pool_valid[['日期', '主体wind代码', '主体池']],
-                left_on=['日期', '担保人wind代码'],
-                right_on=['日期', '主体wind代码'],
-                how='left',
-                suffixes=('', '_担保')
-            )
-            df = df.drop(columns=['主体wind代码'], errors='ignore')
-            logger.info(f"    ✓ 合并担保人主体池")
-        
-        # 6. 替换空值为null
-        for col in ['债券池', '主体池', '主体池_担保']:
-            if col in df.columns:
-                df[col] = df[col].replace('', None)
-        
-        # 再次去重
-        df = df.drop_duplicates()
-        
-        # 7. 合并发行人类型调整表
-        df_issuer_type = self.cache.get('发行人类型调整表')
-        if df_issuer_type is not None:
-            df = df.merge(
-                df_issuer_type[['wind代码', '发行人类型']],
-                left_on='债务主体wind代码',
-                right_on='wind代码',
-                how='left',
-                suffixes=('', '.1')
-            )
-            df = df.drop(columns=['wind代码'], errors='ignore')
-            
-            # 处理发行人类型：如果调整表有值，使用调整表的值
-            if '发行人类型.1' in df.columns:
-                df['发行人类型_调整'] = df['发行人类型.1'].fillna(df.get('发行人类型', ''))
-                df = df.drop(columns=['发行人类型.1'], errors='ignore')
-            
-            logger.info(f"    ✓ 合并发行人类型调整表")
-        
-        # 8. 合并调整实控人名单
-        # 关键修复：merge 时临时标准化 wind 代码格式，确保匹配成功
-        # 底稿中可能是 F1000184.00，调整实控人名单中是 F1000184（阶段0已标准化）
-        df_controller = self.cache.get('调整实控人名单')
-        if df_controller is not None and '主体wind代码' in df_controller.columns:
-            # 记录合并前的行数
-            rows_before = len(df)
-            
-            # 临时标准化：创建标准化的 wind 代码列用于 merge
-            if '债务主体wind代码' in df.columns:
-                # 底稿 wind 代码标准化（去除 .SH, .SZ, .00 等后缀）
-                df['_债务主体wind代码_标准'] = df['债务主体wind代码'].astype(str).str.strip()
-                df['_债务主体wind代码_标准'] = df['_债务主体wind代码_标准'].str.split('.').str[0]
-                df['_债务主体wind代码_标准'] = df['_债务主体wind代码_标准'].apply(
-                    lambda x: None if x in ['nan', 'None', ''] else x
-                )
-            
-            # 使用标准化后的 wind 代码进行 merge
-            df = df.merge(
-                df_controller[['主体wind代码', '调整后实际控制人']],
-                left_on='_债务主体wind代码_标准',
-                right_on='主体wind代码',
-                how='left'
-            )
-            # 清理临时列
-            df = df.drop(columns=['主体wind代码', '_债务主体wind代码_标准'], errors='ignore')
-            
-            # 统计匹配情况
-            matched_count = df['调整后实际控制人'].notna().sum()
-            logger.info(f"    ✓ 合并调整实控人名单 (匹配 {matched_count}/{rows_before} 条)")
-        
-        # 8.4 合并单一担保公司规模限额（获取"是否准入"字段）
-        df_guarantee_limit = self.cache.get('单一担保公司规模限额')
-        if df_guarantee_limit is not None and '担保人wind代码' in df.columns:
-            df = df.merge(
-                df_guarantee_limit[['日期', '指标名称', '是否准入']],
-                left_on=['日期', '担保人wind代码'],
-                right_on=['日期', '指标名称'],
-                how='left',
-                suffixes=('', '_担保限额')
-            )
-            df = df.drop(columns=['指标名称'], errors='ignore')
-            logger.info(f"    ✓ 合并单一担保公司规模限额")
-        
-        # 9. 处理实际控制人名称_修正
-        # 逻辑（与 M 代码一致）：优先使用调整实控人名单的「调整后实际控制人」，未匹配时回退到底稿的「实际控制人名称_修正」，再回退到「实际控制人名称」
-        # 关键修复：使用完整的兜底链，避免 NaN 被覆盖
-        
-        # 步骤1：确保底稿有 实际控制人名称_修正 列
-        if '实际控制人名称_修正' not in df.columns:
-            # 底稿可能无此列，从「实际控制人名称」复制或初始化为空
-            if '实际控制人名称' in df.columns:
-                df['实际控制人名称_修正'] = df['实际控制人名称'].copy()
-                logger.info(f"    ✓ 初始化 实际控制人名称_修正 (从 实际控制人名称)")
-            else:
-                df['实际控制人名称_修正'] = pd.Series(dtype=object)
-                logger.info(f"    ✓ 初始化 实际控制人名称_修正 (空)")
-        
-        # 步骤2：应用兜底链 - 调整后实际控制人 > 实际控制人名称_修正 > 实际控制人名称
-        # 关键修复：只有当调整后实际控制人非空时才使用，避免 NaN 覆盖有效值
-        if '调整后实际控制人' in df.columns:
-            # 方式1：逐行判断，仅当 调整后实际控制人 非空时才使用
-            df['实际控制人名称_修正'] = df.apply(
-                lambda row: row['调整后实际控制人'] if pd.notna(row['调整后实际控制人']) and str(row['调整后实际控制人']).strip() not in ['', 'nan']
-                else row['实际控制人名称_修正'],
-                axis=1
-            )
-            logger.info(f"    ✓ 应用调整后实际控制人兜底 (第一优先级，仅非空)")
-        
-        # 第二兜底：实际控制人名称（底稿原始值）
-        if '实际控制人名称' in df.columns:
-            df['实际控制人名称_修正'] = df.apply(
-                lambda row: row['实际控制人名称'] if pd.notna(row['实际控制人名称']) and (pd.isna(row['实际控制人名称_修正']) or str(row['实际控制人名称_修正']).strip() in ['', 'nan'])
-                else row['实际控制人名称_修正'],
-                axis=1
-            )
-            logger.info(f"    ✓ 应用实际控制人名称兜底 (第二优先级)")
-        
-        # 步骤3：清理空字符串（仅替换真正的空字符串为 None，不影响有效值）
-        if '实际控制人名称_修正' in df.columns:
-            # 仅替换真正的空字符串（''）和字符串'nan'为 None，保留其他所有值（包括有效的实控人名称）
-            df['实际控制人名称_修正'] = df['实际控制人名称_修正'].apply(
-                lambda x: None if pd.isna(x) or (isinstance(x, str) and str(x).strip() in ['', 'nan']) else x
-            )
-            # 统计非空实控人数量
-            non_null_count = df['实际控制人名称_修正'].notna().sum()
-            logger.info(f"    ✓ 清理空字符串，非空实控人记录: {non_null_count}/{len(df)}")
-        
-        # 10. 替换其他列的空字符串为null（不包括实控人列，已在步骤9处理）
-        null_cols = ['担保人wind代码', '中债隐含评级', '债券池', '主体池', '主体池_担保']
-        for col in null_cols:
-            if col in df.columns:
-                df[col] = df[col].replace('', None)
-        
-        # 11. 添加担保公司是否准入列
-        # 根据Excel M代码逻辑：
-        # if [是否准入] <> null then [是否准入]  
-        # else if [担保人] <> "0" then "担保" 
-        # else null
-        if '担保人' in df.columns:
-            df['担保公司是否准入'] = df.apply(
-                lambda row: (
-                    row.get('是否准入') if pd.notna(row.get('是否准入')) 
-                    else ('担保' if pd.notna(row.get('担保人')) and str(row.get('担保人')) != '0' 
-                    else None)
-                ),
-                axis=1
-            )
-            # 删除中间列"是否准入"
-            df = df.drop(columns=['是否准入'], errors='ignore')
-        
-        # 12. 添加合并列（可选，但为了完全复现Excel逻辑）
-        if '资产代码' in df.columns and '资产名称' in df.columns and '债务主体' in df.columns:
-            df['代码/名称/债务主体'] = df['资产代码'].astype(str) + '/' + \
-                                      df['资产名称'].astype(str) + '/' + \
-                                      df['债务主体'].astype(str)
-        
-        # 13. 按源行号收敛merge展开，保留业务真实重复持仓
-        # 旧逻辑按 日期+资产代码+账户+库存数量 去重，会误删业务上真实存在的重复持仓。
-        df = self._collapse_credit_merged_to_source_rows(df)
-        logger.info(f"    ✓ 按{SOURCE_ROW_ID_COL}保留源持仓: {len(df)} 行")
-        
-        # 14. 关联高风险行业表（添加"行业类别"字段）
-        # 根据阶段2 M-code：通过wind行业字段关联
-        df_high_risk_industry = self.query_high_risk_industry()
-        if df_high_risk_industry is not None and 'wind行业' in df.columns:
-            # 确保wind行业字段为字符串类型
-            df['wind行业'] = df['wind行业'].astype(str).str.strip()
-            
-            df = df.merge(
-                df_high_risk_industry[['日期', '行业名称', '行业类别']],
-                left_on=['日期', 'wind行业'],
-                right_on=['日期', '行业名称'],
-                how='left'
-            )
-            df = df.drop(columns=['行业名称'], errors='ignore')
-            logger.info(f"    ✓ 合并高风险行业表")
-        
-        # 15. 关联高风险省份表（添加"省份类别"字段）
-        # 根据阶段2 M-code：通过省份字段关联
-        from ..common import ProvinceNormalizer  # 导入省份标准化工具
-        
-        df_high_risk_province = self.query_high_risk_province()
-        if df_high_risk_province is not None and '省份' in df.columns:
-            # 确保省份字段为字符串类型
-            df['省份'] = df['省份'].astype(str).str.strip()
-            
-            # ===== 新增：省份标准化 =====
-            # 1. 标准化债券持仓表中的省份字段
-            df = ProvinceNormalizer.add_normalized_column(
-                df, 
-                source_column='省份', 
-                target_column='省份_标准'
-            )
-            
-            # 2. 标准化配置表中的省份名称字段
-            df_high_risk_province = ProvinceNormalizer.add_normalized_column(
-                df_high_risk_province,
-                source_column='省份名称',
-                target_column='省份名称_标准'
-            )
-            
-            # 3. 使用标准化后的字段进行merge
-            df = df.merge(
-                df_high_risk_province[['日期', '省份名称_标准', '省份类别']],
-                left_on=['日期', '省份_标准'],
-                right_on=['日期', '省份名称_标准'],
-                how='left'
-            )
-            
-            # 4. 清理临时列
-            df = df.drop(columns=['省份_标准', '省份名称_标准'], errors='ignore')
-            
-            # 5. 验证合并效果（修正逻辑）
-            # 只验证配置表中定义的高风险省份是否都被正确匹配
-            high_risk_provinces = set(df_high_risk_province['省份名称'].unique())
-            
-            # 统计各高风险省份的匹配情况
-            matched_high_risk = df[df['省份类别'] == '高风险省份']['省份'].unique()
-            all_provinces_in_data = df['省份'].unique()
-            
-            # 找出配置表中定义的高风险省份，在数据中存在但未被标记的
-            unmatched_high_risk = []
-            for province in high_risk_provinces:
-                # 检查这个高风险省份是否在数据中存在
-                if province in all_provinces_in_data:
-                    # 如果存在，检查是否被正确标记
-                    province_records = df[df['省份'] == province]
-                    marked_count = province_records[province_records['省份类别'] == '高风险省份'].shape[0]
-                    total_count = province_records.shape[0]
-                    
-                    if marked_count < total_count:
-                        unmatched_high_risk.append(f"{province}({marked_count}/{total_count})")
-            
-            # 记录高风险省份标记情况
-            high_risk_count = df[df['省份类别'] == '高风险省份'].shape[0]
-            logger.info(f"    ✓ 合并高风险省份表 (高风险省份记录: {high_risk_count}条)")
-            
-            # 只有当配置的高风险省份未被完全匹配时才警告
-            if unmatched_high_risk:
-                logger.warning(f"    ⚠️  以下高风险省份部分记录未被标记: {unmatched_high_risk}")
-            else:
-                logger.info(f"    ✓ 所有高风险省份记录已正确标记")
-
-        self._validate_source_row_id(df, '债券持仓明细表_信用债_合并风险限额相关')
-        if len(df) != source_row_count:
-            raise ValueError(
-                "合并风险限额相关行数与信用债源持仓不一致: "
-                f"{len(df)} != {source_row_count}"
-            )
-        merged_inventory_sum = pd.to_numeric(
-            df.get('库存数量(万)_PR', pd.Series(dtype=float)),
-            errors='coerce'
-        ).sum()
-        if not np.isclose(float(merged_inventory_sum), float(source_inventory_sum), rtol=0, atol=1e-6):
-            raise ValueError(
-                "合并风险限额相关库存数量合计与信用债源持仓不一致: "
-                f"{merged_inventory_sum} != {source_inventory_sum}"
-            )
-        
-        logger.info(f"  合并风险限额相关: {len(df)} 行 × {len(df.columns)} 列")
-        if '行业类别' in df.columns:
-            logger.info(f"    高风险行业记录数: {df['行业类别'].notna().sum()}")
-        if '省份类别' in df.columns:
-            logger.info(f"    高风险省份记录数: {df['省份类别'].notna().sum()}")
-        
-        return df
-    
     def query_single_bond_concentration_limit(self) -> pd.DataFrame:
         """
         查询: 单一债券集中度限额

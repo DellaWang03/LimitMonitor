@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import pandas as pd
+import pandas.testing as pdt
 import pytest
 
+from src.risk_core.position_context import (
+    attach_isin_to_results,
+    build_credit_risk_context,
+    normalize_bond_position,
+    normalize_credit_position,
+    normalize_regulatory_position,
+)
 from src.stage1 import stage1_processor as stage1_module
 from src.stage1.stage1_processor import SOURCE_ROW_ID_COL
 
@@ -35,6 +43,8 @@ def test_query_bond_position_freezes_selection_cleaning_and_code_normalization(
     monkeypatch.setattr(stage1_module.pd, "read_excel", lambda *a, **k: raw.copy())
 
     result = stage1_processor.query_bond_position()
+    pure_result = normalize_bond_position(raw)
+    pdt.assert_frame_equal(pure_result, result, check_exact=True)
 
     assert result.columns.tolist() == [
         "日期",
@@ -82,6 +92,8 @@ def test_credit_and_regulatory_position_freeze_filter_asymmetry_and_source_ident
 
     credit = stage1_processor.query_bond_position_credit()
     regulatory = stage1_processor.query_bond_position_regulatory_full()
+    pdt.assert_frame_equal(normalize_credit_position(raw), credit, check_exact=True)
+    pdt.assert_frame_equal(normalize_regulatory_position(raw), regulatory, check_exact=True)
 
     assert credit["资产代码"].tolist() == ["123456.0"]
     assert credit["资产代码_标准"].tolist() == ["123456.0"]
@@ -179,6 +191,13 @@ def test_credit_risk_context_freezes_high_yield_pool_controller_and_risk_fallbac
     )
 
     result = stage1_processor.query_bond_position_credit_merged().set_index("资产代码")
+    pure_frames = {
+        **stage1_processor.cache,
+        "高风险行业": stage1_processor.query_high_risk_industry(),
+        "高风险省份": stage1_processor.query_high_risk_province(),
+    }
+    pure_result = build_credit_risk_context(pure_frames).set_index("资产代码")
+    pdt.assert_frame_equal(pure_result, result, check_exact=True)
 
     assert result["是否属于高收益"].to_dict() == {
         "ACCOUNT.IB": "是",
@@ -225,3 +244,28 @@ def test_source_row_validation_is_fail_closed(stage1_processor, bad_ids):
     frame = pd.DataFrame({SOURCE_ROW_ID_COL: bad_ids})
     with pytest.raises(ValueError):
         stage1_processor._validate_source_row_id(frame, "信用债")
+
+
+def test_attach_isin_to_results_preserves_existing_value_and_detaches_inputs():
+    source = pd.DataFrame(
+        [
+            {"资产代码": " A.IB ", "ISIN码": "EXISTING"},
+            {"资产代码": "B.IB", "ISIN码": None},
+        ]
+    )
+    untouched = pd.DataFrame({"值": [1]})
+    mapping = pd.DataFrame(
+        [
+            {"资产代码": "A.IB", "ISIN码": "MAPPED-A"},
+            {"资产代码": "B.IB", "ISIN码": "MAPPED-B"},
+        ]
+    )
+
+    result = attach_isin_to_results({"明细": source, "汇总": untouched}, mapping)
+
+    assert result["明细"]["资产代码"].tolist() == ["A.IB", "B.IB"]
+    assert result["明细"]["ISIN码"].tolist() == ["EXISTING", "MAPPED-B"]
+    pdt.assert_frame_equal(result["汇总"], untouched, check_exact=True)
+    result["明细"].loc[0, "ISIN码"] = "CHANGED"
+    assert source.loc[0, "ISIN码"] == "EXISTING"
+    assert mapping.loc[0, "ISIN码"] == "MAPPED-A"
