@@ -29,8 +29,10 @@ from sqlalchemy import (
     and_,
     insert,
     select,
+    text,
     update,
 )
+from sqlalchemy.dialects.mysql import LONGBLOB as MYSQL_LONGBLOB
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -99,7 +101,11 @@ PRETRADE_SNAPSHOT_DATASET_CHUNK = Table(
     ),
     Column("dataset_code", String(128), primary_key=True),
     Column("chunk_ordinal", Integer, primary_key=True),
-    Column("payload", LargeBinary, nullable=False),
+    Column(
+        "payload",
+        LargeBinary().with_variant(MYSQL_LONGBLOB(), "mysql"),
+        nullable=False,
+    ),
 )
 
 PRETRADE_SNAPSHOT_CURRENT = Table(
@@ -194,6 +200,28 @@ class PretradeContextStore:
         """幂等创建四张新表，不触碰任何既有归档表。"""
 
         PRETRADE_METADATA.create_all(self._engine)
+        if self._engine.dialect.name == "mysql":
+            self._upgrade_mysql_chunk_payload_column()
+
+    def _upgrade_mysql_chunk_payload_column(self) -> None:
+        """将历史测试创建的 BLOB 列无损扩容到 8 MiB 分块所需的 LONGBLOB。"""
+
+        with self._engine.begin() as conn:
+            data_type = conn.execute(
+                text(
+                    "SELECT data_type FROM information_schema.columns "
+                    "WHERE table_schema = DATABASE() "
+                    "AND table_name = 'pretrade_snapshot_dataset_chunk' "
+                    "AND column_name = 'payload'"
+                )
+            ).scalar_one_or_none()
+            if str(data_type).lower() != "longblob":
+                conn.execute(
+                    text(
+                        "ALTER TABLE `pretrade_snapshot_dataset_chunk` "
+                        "MODIFY COLUMN `payload` LONGBLOB NOT NULL"
+                    )
+                )
 
     def write_ready_snapshot(
         self,

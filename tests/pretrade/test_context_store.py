@@ -7,8 +7,11 @@ import pytest
 
 sqlalchemy = pytest.importorskip("sqlalchemy")
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.dialects import mysql
+from sqlalchemy.schema import CreateTable
 
 from src.pretrade.context_store import (
+    PRETRADE_SNAPSHOT_DATASET_CHUNK,
     PretradeContextIntegrityError,
     PretradeContextStore,
     PretradePublishError,
@@ -16,6 +19,12 @@ from src.pretrade.context_store import (
 from src.pretrade.input_contract import PretradeSnapshotRequest
 
 from .conftest import make_kernel_input
+
+
+def test_chunk_payload_schema_supports_the_eight_mebibyte_contract_on_mysql() -> None:
+    ddl = str(CreateTable(PRETRADE_SNAPSHOT_DATASET_CHUNK).compile(dialect=mysql.dialect()))
+
+    assert "LONGBLOB" in ddl
 
 
 @pytest.fixture
