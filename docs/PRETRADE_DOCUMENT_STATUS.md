@@ -55,6 +55,8 @@ MVP 数据库上下文已完成 `data_source_0123` 的正式库 `DEV` 零差异�
 
 下一阶段才可设计“单券和一揽子共同内核服务与 on-the-fly Wind”。该服务必须只读 `PretradeContextStore` 的 `PROD` 指针；未知账户必须拒绝；持仓债主数据只能来自交易前快照；非持仓债仅可按需获取最新 Wind 数据并在内存中校验，缺少必需字段即不可计算，且不得落库。`PROD` 日常实际接入、交易前服务、Wind 和两个页面均未在本阶段完成或发布。
 
+2026-07-15 交接门禁已完成：相关测试 114 项通过（另有 1 项全库跳过）；静态扫描确认 `src/pretrade`、日常运行期编排和 DEV 命令不含 pickle、展示快照读取、`ArchiveDB.write_batch()` 或旧归档写入。扫描唯一命中的 Wind 字样是静态 `issuer_wind_code_mapping.csv` 的来源清单记录；既有展示与展示快照代码不读取 `pretrade_` 表。后续服务设计不得放宽上述边界。
+
 ## 4. SUPERSEDED
 
 以下材料可能存在于 `delivery/clean-code-snapshot`、`codex/pretrade-bond-limits` 或其历史提交中。保留它们是为了审计追溯，不代表它们仍有效。
