@@ -3,4 +3,5 @@
 (allow process*)
 (allow file-read*)
 (allow sysctl-read)
+(allow file-write* (literal "/dev/null"))
 (allow file-write* (subpath (param "OUTPUT_ROOT")))

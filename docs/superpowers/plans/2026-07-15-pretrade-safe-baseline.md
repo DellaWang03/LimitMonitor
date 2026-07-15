@@ -660,10 +660,11 @@ git commit -m "test: fingerprint frozen baseline outputs"
 (allow process*)
 (allow file-read*)
 (allow sysctl-read)
+(allow file-write* (literal "/dev/null"))
 (allow file-write* (subpath (param "OUTPUT_ROOT")))
 ~~~
 
-The profile allows process execution and read access required by Python libraries and `mdb-export`; `sysctl-read` is the minimum macOS permission required by NumPy's import-time `os.uname()` call. All file writes are limited to the unique output root. Because no network rule is allowed, all network operations remain denied by default.
+The profile allows process execution and read access required by Python libraries and `mdb-export`; `sysctl-read` is the minimum macOS permission required by NumPy's import-time `os.uname()` call. The real Xcode Git binary requires `/dev/null`, a non-persistent device, for read/write; no other external write path is allowed. All persistent file writes remain limited to the unique output root. Because no network rule is allowed, all network operations remain denied by default.
 
 - [ ] **Step 2: Write failing parent-launcher tests**
 

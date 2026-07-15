@@ -76,6 +76,11 @@ def test_parent_launches_only_the_sandboxed_child(
     monkeypatch.setenv("ENV", "test")
     monkeypatch.setenv("LIMIT_MONITOR_PROFILE", "local")
     monkeypatch.setattr(runner, "_git_is_clean", lambda root: True)
+    monkeypatch.setattr(
+        runner,
+        "_resolve_real_git",
+        lambda: Path("/Applications/Xcode.app/Contents/Developer/usr/bin/git"),
+    )
     completed = subprocess.CompletedProcess(args=[], returncode=0)
     run = Mock(return_value=completed)
     monkeypatch.setattr(runner.subprocess, "run", run)
@@ -123,6 +128,11 @@ def test_parent_propagates_nonzero_sandbox_exit(
     monkeypatch.setenv("ENV", "test")
     monkeypatch.setenv("LIMIT_MONITOR_PROFILE", "local")
     monkeypatch.setattr(runner, "_git_is_clean", lambda root: True)
+    monkeypatch.setattr(
+        runner,
+        "_resolve_real_git",
+        lambda: Path("/Applications/Xcode.app/Contents/Developer/usr/bin/git"),
+    )
     monkeypatch.setattr(
         runner.subprocess,
         "run",

@@ -22,6 +22,7 @@ def test_real_sandbox_allows_only_output_and_denies_loopback(tmp_path: Path) -> 
     profile_sha = hashlib.sha256(runner.SANDBOX_PROFILE.read_bytes()).hexdigest()
     profile_text = runner.SANDBOX_PROFILE.read_text(encoding="utf-8")
     assert "(allow sysctl-read)" in profile_text
+    assert '(allow file-write* (literal "/dev/null"))' in profile_text
     assert "(allow network" not in profile_text
     env = {
         "ENV": "test",

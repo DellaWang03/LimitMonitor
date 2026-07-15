@@ -39,7 +39,7 @@ from src.utils.config_loader import ConfigLoader
 BASELINE_COMMIT = "579af695fb8727dec8249f66d07a8b0e723da137"
 PYTHON_EXECUTABLE = Path("/opt/homebrew/bin/python3")
 SANDBOX_EXECUTABLE = Path("/usr/bin/sandbox-exec")
-GIT_EXECUTABLE = Path("/usr/bin/git")
+DEFAULT_GIT_EXECUTABLE = Path("/usr/bin/git")
 SANDBOX_PROFILE = PROJECT_ROOT / "config/test_manifests/frozen-baseline-macos.sb"
 PRODUCTION_SCOPE = (
     "src/stage0",
@@ -78,6 +78,8 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--output-root", help=argparse.SUPPRESS)
     parser.add_argument("--sandbox-profile", help=argparse.SUPPRESS)
     parser.add_argument("--sandbox-profile-sha256", help=argparse.SUPPRESS)
+    parser.add_argument("--git-executable", help=argparse.SUPPRESS)
+    parser.add_argument("--git-executable-sha256", help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 
 
@@ -111,6 +113,8 @@ def _run_parent(args: argparse.Namespace) -> int:
     if not PYTHON_EXECUTABLE.is_file():
         raise UnsafeTestEnvironment(f"缺少冻结 Python: {PYTHON_EXECUTABLE}")
     profile_sha = _sha256_file(profile)
+    git_executable = _resolve_real_git()
+    git_sha = _sha256_file(git_executable)
 
     child_argv = [
         str(SANDBOX_EXECUTABLE),
@@ -137,6 +141,10 @@ def _run_parent(args: argparse.Namespace) -> int:
         str(profile),
         "--sandbox-profile-sha256",
         profile_sha,
+        "--git-executable",
+        str(git_executable),
+        "--git-executable-sha256",
+        git_sha,
     ]
     for protected in args.protected_root:
         child_argv.extend(("--protected-root", str(Path(protected).absolute())))
@@ -171,6 +179,8 @@ def _run_sandboxed_child(args: argparse.Namespace) -> int:
         "project_root",
         "sandbox_profile",
         "sandbox_profile_sha256",
+        "git_executable",
+        "git_executable_sha256",
     )
     output_root = Path(args.output_root).absolute()
     completed_guards: list[str] = []
@@ -189,15 +199,24 @@ def _run_sandboxed_child(args: argparse.Namespace) -> int:
             args.sandbox_profile_sha256,
         )
         completed_guards.append("sandbox_profile")
+        git_executable = _validate_binary(
+            Path(args.git_executable),
+            "Git",
+            args.git_executable_sha256,
+        )
+        completed_guards.append("git_binary")
 
-        git_head = _git_head(project_root)
-        clean_before = _git_is_clean(project_root)
+        git_head = _git_head(project_root, git_executable)
+        clean_before = _git_is_clean(project_root, git_executable)
         if not clean_before:
             raise UnsafeTestEnvironment("沙箱子进程要求干净工作树")
-        baseline_is_ancestor = _git_baseline_is_ancestor(project_root)
+        baseline_is_ancestor = _git_baseline_is_ancestor(project_root, git_executable)
         if not baseline_is_ancestor:
             raise UnsafeTestEnvironment("当前提交不包含冻结上线基线")
-        production_diff_empty = _git_production_scope_diff_empty(project_root)
+        production_diff_empty = _git_production_scope_diff_empty(
+            project_root,
+            git_executable,
+        )
         if not production_diff_empty:
             raise UnsafeTestEnvironment("生产计算范围相对上线基线存在差异")
         completed_guards.append("git_baseline")
@@ -245,7 +264,7 @@ def _run_sandboxed_child(args: argparse.Namespace) -> int:
         protected_unchanged = protected_before == protected_after
         if not protected_unchanged:
             raise UnsafeTestEnvironment("受保护目录在基线运行期间发生变化")
-        if not _git_is_clean(project_root):
+        if not _git_is_clean(project_root, git_executable):
             raise UnsafeTestEnvironment("基线运行后工作树不再干净")
         completed_guards.append("protected_after")
 
@@ -260,7 +279,7 @@ def _run_sandboxed_child(args: argparse.Namespace) -> int:
                 "worktree_clean_before": clean_before,
                 "worktree_clean_after": True,
             },
-            "runtime": _runtime_evidence(),
+            "runtime": _runtime_evidence(git_executable),
             "code": {
                 "settings_sha256": _sha256_file(project_root / "config/settings.yaml"),
                 "runner_sha256": _sha256_file(RUNNER_PATH),
@@ -384,7 +403,7 @@ def _manifest_evidence(manifest: ValidatedInputManifest) -> dict[str, Any]:
     }
 
 
-def _runtime_evidence() -> dict[str, Any]:
+def _runtime_evidence(git_executable: Path) -> dict[str, Any]:
     if Path(sys.executable).resolve() != PYTHON_EXECUTABLE.resolve():
         raise UnsafeTestEnvironment(
             f"Python 可执行文件不符合冻结要求: {sys.executable}"
@@ -401,6 +420,7 @@ def _runtime_evidence() -> dict[str, Any]:
         "profile": "local",
         "dependencies": dependencies,
         "mdb_export": _mdb_export_info(),
+        "git": _git_info(git_executable),
     }
 
 
@@ -446,6 +466,16 @@ def _validate_profile(path: Path, expected_sha: str) -> Path:
     return profile
 
 
+def _validate_binary(path: Path, label: str, expected_sha: str) -> Path:
+    binary = _resolve_file(path, label, allow_symlink=True)
+    actual_sha = _sha256_file(binary)
+    if actual_sha != expected_sha:
+        raise UnsafeTestEnvironment(
+            f"{label} 二进制哈希不一致: expected={expected_sha}; actual={actual_sha}"
+        )
+    return binary
+
+
 def _resolve_directory(path: Path, label: str) -> Path:
     if path.is_symlink():
         raise UnsafeTestEnvironment(f"{label}不得为符号链接: {path}")
@@ -484,10 +514,14 @@ def _require_args(args: argparse.Namespace, *names: str) -> None:
         raise UnsafeTestEnvironment(f"缺少参数: {', '.join(missing)}")
 
 
-def _git_command(project_root: Path, arguments: Sequence[str]) -> subprocess.CompletedProcess[str]:
+def _git_command(
+    project_root: Path,
+    arguments: Sequence[str],
+    git_executable: Path = DEFAULT_GIT_EXECUTABLE,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
-            str(GIT_EXECUTABLE),
+            str(git_executable),
             "-c",
             "core.fsmonitor=false",
             "-c",
@@ -506,41 +540,75 @@ def _git_command(project_root: Path, arguments: Sequence[str]) -> subprocess.Com
     )
 
 
-def _git_is_clean(project_root: Path) -> bool:
+def _git_is_clean(
+    project_root: Path,
+    git_executable: Path = DEFAULT_GIT_EXECUTABLE,
+) -> bool:
     completed = _git_command(
         project_root,
         ("status", "--porcelain=v1", "--untracked-files=all", "--no-ahead-behind"),
+        git_executable,
     )
     if completed.returncode != 0:
         raise UnsafeTestEnvironment(f"git status 失败: {completed.stderr}")
     return not completed.stdout
 
 
-def _git_head(project_root: Path) -> str:
-    completed = _git_command(project_root, ("rev-parse", "HEAD"))
+def _git_head(project_root: Path, git_executable: Path) -> str:
+    completed = _git_command(project_root, ("rev-parse", "HEAD"), git_executable)
     if completed.returncode != 0:
         raise UnsafeTestEnvironment(f"git rev-parse 失败: {completed.stderr}")
     return completed.stdout.strip()
 
 
-def _git_baseline_is_ancestor(project_root: Path) -> bool:
+def _git_baseline_is_ancestor(project_root: Path, git_executable: Path) -> bool:
     completed = _git_command(
         project_root,
         ("merge-base", "--is-ancestor", BASELINE_COMMIT, "HEAD"),
+        git_executable,
     )
     if completed.returncode not in {0, 1}:
         raise UnsafeTestEnvironment(f"git merge-base 失败: {completed.stderr}")
     return completed.returncode == 0
 
 
-def _git_production_scope_diff_empty(project_root: Path) -> bool:
+def _git_production_scope_diff_empty(project_root: Path, git_executable: Path) -> bool:
     completed = _git_command(
         project_root,
         ("diff", "--exit-code", BASELINE_COMMIT, "--", *PRODUCTION_SCOPE),
+        git_executable,
     )
     if completed.returncode not in {0, 1}:
         raise UnsafeTestEnvironment(f"git diff 失败: {completed.stderr}")
     return completed.returncode == 0
+
+
+def _resolve_real_git() -> Path:
+    completed = subprocess.run(
+        ["/usr/bin/xcrun", "--find", "git"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0 or not completed.stdout.strip():
+        raise UnsafeTestEnvironment(f"无法解析真实 Git: {completed.stderr}")
+    return _resolve_file(Path(completed.stdout.strip()), "真实 Git")
+
+
+def _git_info(git_executable: Path) -> dict[str, str]:
+    completed = subprocess.run(
+        [str(git_executable), "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise UnsafeTestEnvironment(f"git --version 失败: {completed.stderr}")
+    return {
+        "path": str(git_executable),
+        "version": completed.stdout.strip(),
+        "binary_sha256": _sha256_file(git_executable),
+    }
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
