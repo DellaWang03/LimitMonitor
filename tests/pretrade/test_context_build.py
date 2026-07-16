@@ -44,7 +44,7 @@ def _runtime() -> SimpleNamespace:
     )
 
 
-def test_build_writes_then_verifies_database_round_trip(source_manifest, monkeypatch) -> None:
+def test_build_writes_an_unpublished_snapshot(monkeypatch) -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
     store = PretradeContextStore(engine)
     store.prepare_schema()
@@ -55,13 +55,7 @@ def test_build_writes_then_verifies_database_round_trip(source_manifest, monkeyp
             raise AssertionError("正常构建路径不得重跑共同内核")
 
     monkeypatch.setattr(context_build, "ProductionRiskKernel", KernelMustNotRun)
-    snapshot_id = build_ready_context(
-        runtime,
-        store,
-        usage="DEV",
-        source_manifest=source_manifest,
-        code_commit="test-commit",
-    )
+    snapshot_id = build_ready_context(runtime, store)
 
     expected = capture_production_kernel_input(
         runtime.stage1_processor, runtime.stage2_processor
@@ -72,7 +66,7 @@ def test_build_writes_then_verifies_database_round_trip(source_manifest, monkeyp
     assert restored.parameters == expected.parameters
     for dataset_code in KERNEL_INPUT_DATASETS:
         assert restored.frames[dataset_code].equals(expected.frames[dataset_code])
-    assert store.get_current_snapshot("DEV") is None
+    assert store.get_current_snapshot() is None
     engine.dispose()
 
 

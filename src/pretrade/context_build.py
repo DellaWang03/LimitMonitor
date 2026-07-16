@@ -73,31 +73,16 @@ def verify_rehydrated_context(
 def build_ready_context(
     runtime: Any,
     store: PretradeContextStore,
-    *,
-    usage: str,
-    source_manifest: Mapping[str, object],
-    code_commit: str = "",
-    engine_version: str = "risk-core-v1",
-    input_contract_version: str = "pretrade-input-v1",
 ) -> UUID:
-    """捕获一次实际运行输入，存储并立即验证其数据库往返。"""
+    """捕获一次实际运行输入并写入未发布快照。"""
 
     stage1 = getattr(runtime, "stage1_processor", None)
     stage2 = getattr(runtime, "stage2_processor", None)
     if stage1 is None or stage2 is None:
         raise PretradeContextBuildError("日常运行结果缺少 Stage1 或 Stage2 处理器")
     kernel_input = capture_production_kernel_input(stage1, stage2)
-    request = PretradeSnapshotRequest.from_kernel_input(
-        kernel_input,
-        usage=usage,
-        source_manifest=source_manifest,
-        code_commit=code_commit,
-        engine_version=engine_version,
-        input_contract_version=input_contract_version,
-    )
-    snapshot_id = store.write_ready_snapshot(request)
-    verify_rehydrated_context(store, snapshot_id, kernel_input)
-    return snapshot_id
+    request = PretradeSnapshotRequest.from_kernel_input(kernel_input)
+    return store.write_snapshot(request)
 
 
 def replay_kernel_from_snapshot(
