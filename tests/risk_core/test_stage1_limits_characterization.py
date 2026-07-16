@@ -30,11 +30,18 @@ def test_stage1_limit_public_surface_is_frozen():
 def test_stage1_adapter_resolves_regulatory_parameter_before_building_engine(
     stage1_processor, monkeypatch
 ):
-    constructor_values: list[float | None] = []
+    constructor_values: list[tuple[float | None, object]] = []
+    stage_config = object()
+    stage1_processor.config = stage_config
 
     class FakeCalculator:
-        def __init__(self, cache, regulatory_concentration_limit=None):
-            constructor_values.append(regulatory_concentration_limit)
+        def __init__(
+            self,
+            cache,
+            regulatory_concentration_limit=None,
+            config=None,
+        ):
+            constructor_values.append((regulatory_concentration_limit, config))
 
         def _load_regulatory_concentration_limit(self):
             return 0.16
@@ -46,7 +53,10 @@ def test_stage1_adapter_resolves_regulatory_parameter_before_building_engine(
     calculator = stage1_processor._build_limit_calculator()
 
     assert isinstance(calculator, FakeCalculator)
-    assert constructor_values == [None, 0.16]
+    assert constructor_values == [
+        (None, stage_config),
+        (0.16, stage_config),
+    ]
     assert stage1_processor._runtime_regulatory_concentration_limit == 0.16
 
 

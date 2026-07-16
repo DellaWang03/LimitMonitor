@@ -16,6 +16,7 @@ class LimitDetailCalculator(Stage1LimitEngine):
         self,
         cache: Mapping[str, pd.DataFrame],
         regulatory_concentration_limit: float | None = None,
+        config=None,
     ):
         super().__init__(
             cache,
@@ -29,12 +30,13 @@ class LimitDetailCalculator(Stage1LimitEngine):
         self._regulatory_concentration_limit_override = (
             regulatory_concentration_limit
         )
+        self._config = config
 
     def _load_regulatory_concentration_limit(self) -> float:
         if self._regulatory_concentration_limit_override is not None:
             return self._regulatory_concentration_limit
 
-        config = ConfigLoader()
+        config = self._config if self._config is not None else ConfigLoader()
         df = load_limit_config(
             sheet_name="系统参数",
             config=config,

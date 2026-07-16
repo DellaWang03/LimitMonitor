@@ -4,7 +4,7 @@
 
 **Goal:** 每份已发布交易前快照保存当日实际使用的 限额配置_当前.xlsx 原件，审计可按快照逐字节回查，且不改变 Stage0/1/2 业务计算及 Wind 不落库边界。
 
-**Architecture:** 保持 27 份共同内核输入和三张原有 pretrade 计算表不变；新增一张与 pretrade_snapshot 一对一关联的 pretrade_config_workbook 表，保存原始 xlsx 字节、文件名和 SHA-256。该附件在同一事务写入、发布 current 前验证，但不传给共同内核。
+**Architecture:** 先统一 Stage1 的“系统参数”与其余配置 sheet 的路径，使其全部使用 Stage1Processor.config；这不改变任何限额算法。随后保持 27 份共同内核输入和三张原有 pretrade 计算表不变，新增一张与 pretrade_snapshot 一对一关联的 pretrade_config_workbook 表，保存原始 xlsx 字节、文件名和 SHA-256。该附件在同一事务写入、发布 current 前验证，但不传给共同内核。
 
 **Tech Stack:** Python 3、hashlib、SQLAlchemy、MySQL/SQLite、pytest。
 
@@ -13,6 +13,7 @@
 ## 文件与职责
 
 - Create: src/pretrade/config_workbook.py — 读取工作簿原件、计算 SHA-256、验证值对象。
+- Modify: src/stage1/stage1_limit_detail.py、src/stage1/stage1_processor.py — 将监管集中度参数读取统一到 Stage1 已持有的 config 对象。
 - Modify: src/pretrade/input_contract.py — PretradeSnapshotRequest 增加必填附件，27 项输入集合不变。
 - Modify: src/pretrade/context_build.py — 从 runtime.stage1_processor.config 捕获原件。
 - Modify: src/pretrade/context_store.py — 第四张附件表、事务写入、读回校验、发布前验证。
@@ -23,6 +24,105 @@
 - Modify: docs/PRETRADE_SHARED_CORE_SPEC.md、docs/PRETRADE_DOCUMENT_STATUS.md、docs/evidence/pretrade-context-minimal-reset-20260710.json — 四表设计和正式验收记录。
 
 不修改：archive_meta、16 张既有展示归档表、展示快照、前端、限额算法、Wind 查询与 Wind 落库。
+
+### Task 0: 统一 Stage1 配置来源而不改变计算规则
+
+**Files:**
+- Modify: src/stage1/stage1_limit_detail.py
+- Modify: src/stage1/stage1_processor.py
+- Modify: tests/risk_core/test_stage1_limits_characterization.py
+
+- [ ] **Step 1: 写失败测试**
+
+将 test_stage1_adapter_resolves_regulatory_parameter_before_building_engine 的 FakeCalculator
+替换为以下签名和断言：
+
+~~~python
+class FakeCalculator:
+    def __init__(
+        self,
+        cache,
+        regulatory_concentration_limit=None,
+        config=None,
+    ):
+        constructor_values.append((regulatory_concentration_limit, config))
+
+    def _load_regulatory_concentration_limit(self):
+        return 0.16
+
+
+calculator = stage1_processor._build_limit_calculator()
+
+assert isinstance(calculator, FakeCalculator)
+assert constructor_values == [
+    (None, stage1_processor.config),
+    (0.16, stage1_processor.config),
+]
+assert stage1_processor._runtime_regulatory_concentration_limit == 0.16
+~~~
+
+- [ ] **Step 2: 确认测试失败**
+
+Run: pytest tests/risk_core/test_stage1_limits_characterization.py::test_stage1_adapter_resolves_regulatory_parameter_before_building_engine -q
+
+Expected: FAIL，因为 Stage1 尚未向 LimitDetailCalculator 传入 config。
+
+- [ ] **Step 3: 仅统一读取路径**
+
+将 LimitDetailCalculator 构造函数改为：
+
+~~~python
+def __init__(
+    self,
+    cache: Mapping[str, pd.DataFrame],
+    regulatory_concentration_limit: float | None = None,
+    config=None,
+):
+    super().__init__(
+        cache,
+        0.0 if regulatory_concentration_limit is None
+        else regulatory_concentration_limit,
+    )
+    self.cache = cache
+    self._regulatory_concentration_limit_override = regulatory_concentration_limit
+    self._config = config
+~~~
+
+将 _load_regulatory_concentration_limit 中的 config = ConfigLoader() 改为：
+
+~~~python
+config = self._config if self._config is not None else ConfigLoader()
+~~~
+
+将 Stage1Processor._build_limit_calculator 改为：
+
+~~~python
+resolver = LimitDetailCalculator(self.cache, config=self.config)
+regulatory_limit = resolver._load_regulatory_concentration_limit()
+self._runtime_regulatory_concentration_limit = float(regulatory_limit)
+return LimitDetailCalculator(
+    self.cache,
+    regulatory_concentration_limit=regulatory_limit,
+    config=self.config,
+)
+~~~
+
+不要修改 Stage1LimitEngine、计算公式、限额值解析、既有不传 config 的兼容调用。
+
+- [ ] **Step 4: 验证并提交**
+
+Run:
+
+~~~bash
+pytest tests/risk_core/test_stage1_limits_characterization.py tests/test_stage_high_yield_and_specific_controller.py -q
+~~~
+
+Expected: PASS。
+
+~~~bash
+git add src/stage1/stage1_limit_detail.py src/stage1/stage1_processor.py tests/risk_core/test_stage1_limits_characterization.py
+git commit -m "fix: use stage config for regulatory limit"
+~~~
 
 ### Task 1: 原件值对象和读取入口
 

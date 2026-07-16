@@ -81,12 +81,13 @@ class Stage1Processor:
 
     def _build_limit_calculator(self) -> LimitDetailCalculator:
         """Resolve the legacy configuration outside the shared calculation engine."""
-        resolver = LimitDetailCalculator(self.cache)
+        resolver = LimitDetailCalculator(self.cache, config=self.config)
         regulatory_limit = resolver._load_regulatory_concentration_limit()
         self._runtime_regulatory_concentration_limit = float(regulatory_limit)
         return LimitDetailCalculator(
             self.cache,
             regulatory_concentration_limit=regulatory_limit,
+            config=self.config,
         )
 
     def _ensure_source_row_id(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
