@@ -14,7 +14,7 @@ from src.pretrade.context_store import (
 )
 from src.pretrade.input_contract import PretradeSnapshotRequest
 
-from .conftest import make_kernel_input
+from .conftest import make_config_workbook, make_kernel_input
 
 
 @pytest.fixture
@@ -28,7 +28,9 @@ def engine():
 
 @pytest.fixture
 def context_request():
-    return PretradeSnapshotRequest.from_kernel_input(make_kernel_input())
+    return PretradeSnapshotRequest.from_kernel_input(
+        make_kernel_input(), make_config_workbook()
+    )
 
 
 def _assert_kernel_input_equal(actual, expected) -> None:

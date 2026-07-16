@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pandas as pd
 import pandas.testing as pdt
@@ -22,7 +23,7 @@ from src.pretrade.input_contract import KERNEL_INPUT_DATASETS
 from src.risk_core import ProductionKernelResult
 
 
-def _runtime() -> SimpleNamespace:
+def _runtime(*, config=None) -> SimpleNamespace:
     stage1_cache: dict[str, pd.DataFrame] = {}
     stage2_cache: dict[str, pd.DataFrame] = {}
     for dataset_code, source in FRAME_SOURCE.items():
@@ -36,6 +37,7 @@ def _runtime() -> SimpleNamespace:
             cache=stage1_cache,
             _business_date=pd.Timestamp("2026-07-10"),
             _runtime_regulatory_concentration_limit=0.16,
+            config=config,
         ),
         stage2_processor=SimpleNamespace(
             cache=stage2_cache,
@@ -44,11 +46,15 @@ def _runtime() -> SimpleNamespace:
     )
 
 
-def test_build_writes_an_unpublished_snapshot(monkeypatch) -> None:
+def test_build_writes_an_unpublished_snapshot(monkeypatch, tmp_path) -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
     store = PretradeContextStore(engine)
     store.prepare_schema()
-    runtime = _runtime()
+    source = tmp_path / "限额配置_当前.xlsx"
+    source.write_bytes(b"PK\x03\x04runtime-config")
+    runtime = _runtime(
+        config=SimpleNamespace(get_data_file_path=lambda name: source)
+    )
 
     class KernelMustNotRun:
         def __init__(self):
@@ -68,6 +74,27 @@ def test_build_writes_an_unpublished_snapshot(monkeypatch) -> None:
         assert restored.frames[dataset_code].equals(expected.frames[dataset_code])
     assert store.get_current_snapshot() is None
     engine.dispose()
+
+
+def test_build_captures_workbook_from_stage1_config(tmp_path) -> None:
+    payload = b"PK\x03\x04runtime-config"
+    source = tmp_path / "限额配置_当前.xlsx"
+    source.write_bytes(payload)
+    runtime = _runtime(
+        config=SimpleNamespace(get_data_file_path=lambda name: source)
+    )
+
+    class CapturingStore:
+        request = None
+
+        def write_snapshot(self, request):
+            self.request = request
+            return uuid4()
+
+    store = CapturingStore()
+    build_ready_context(runtime, store)
+
+    assert store.request.config_workbook.payload == payload
 
 
 def test_replay_kernel_is_explicit_and_uses_only_rehydrated_input(monkeypatch) -> None:

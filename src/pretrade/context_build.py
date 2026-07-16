@@ -16,6 +16,7 @@ from src.risk_core import (
 
 from .context_capture import capture_production_kernel_input
 from .context_store import PretradeContextStore
+from .config_workbook import PretradeConfigWorkbookError, capture_config_workbook
 from .input_contract import PretradeSnapshotRequest
 
 
@@ -81,7 +82,11 @@ def build_ready_context(
     if stage1 is None or stage2 is None:
         raise PretradeContextBuildError("日常运行结果缺少 Stage1 或 Stage2 处理器")
     kernel_input = capture_production_kernel_input(stage1, stage2)
-    request = PretradeSnapshotRequest.from_kernel_input(kernel_input)
+    try:
+        config_workbook = capture_config_workbook(getattr(stage1, "config", None))
+    except PretradeConfigWorkbookError as exc:
+        raise PretradeContextBuildError("无法捕获当次 Stage1 限额配置原件") from exc
+    request = PretradeSnapshotRequest.from_kernel_input(kernel_input, config_workbook)
     return store.write_snapshot(request)
 
 

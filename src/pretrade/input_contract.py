@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .config_workbook import PretradeConfigWorkbook
 from src.risk_core import (
     STAGE1_REQUIRED_FRAMES,
     STAGE2_REQUIRED_FRAMES,
@@ -33,14 +34,19 @@ class PretradeSnapshotRequest:
     """一次待持久化交易前上下文的不可变描述。"""
 
     kernel_input: ProductionKernelInput
+    config_workbook: PretradeConfigWorkbook
 
     @classmethod
     def from_kernel_input(
-        cls, kernel_input: ProductionKernelInput
+        cls,
+        kernel_input: ProductionKernelInput,
+        config_workbook: PretradeConfigWorkbook,
     ) -> "PretradeSnapshotRequest":
-        """校验共同内核唯一的 27 项外部输入。"""
+        """校验共同内核唯一的 27 项外部输入及配置原件。"""
 
         if not isinstance(kernel_input, ProductionKernelInput):
             raise PretradeInputContractError("kernel_input 必须是 ProductionKernelInput")
+        if not isinstance(config_workbook, PretradeConfigWorkbook):
+            raise TypeError("config_workbook 必须是 PretradeConfigWorkbook")
         _validate_frames(kernel_input)
-        return cls(kernel_input=kernel_input)
+        return cls(kernel_input=kernel_input, config_workbook=config_workbook)
