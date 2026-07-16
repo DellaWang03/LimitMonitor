@@ -43,7 +43,7 @@ def _assert_kernel_input_equal(actual, expected) -> None:
         )
 
 
-def test_prepare_schema_creates_only_the_minimal_three_tables(engine) -> None:
+def test_prepare_schema_creates_only_the_minimal_four_tables(engine) -> None:
     PretradeContextStore(engine).prepare_schema()
 
     inspector = inspect(engine)
@@ -51,6 +51,7 @@ def test_prepare_schema_creates_only_the_minimal_three_tables(engine) -> None:
         "pretrade_snapshot",
         "pretrade_snapshot_dataset",
         "pretrade_snapshot_current",
+        "pretrade_config_workbook",
     }
     assert inspector.get_pk_constraint("pretrade_snapshot")["constrained_columns"] == [
         "snapshot_id"
@@ -62,6 +63,9 @@ def test_prepare_schema_creates_only_the_minimal_three_tables(engine) -> None:
     assert inspector.get_pk_constraint("pretrade_snapshot_current")["constrained_columns"] == [
         "pointer_id"
     ]
+    assert inspector.get_pk_constraint("pretrade_config_workbook")[
+        "constrained_columns"
+    ] == ["snapshot_id"]
 
 
 def test_write_snapshot_stores_one_payload_for_each_input(engine, context_request) -> None:
@@ -84,6 +88,15 @@ def test_write_snapshot_stores_one_payload_for_each_input(engine, context_reques
     assert all(size > 0 for _, size in rows)
 
 
+def test_config_workbook_round_trips_byte_for_byte(engine, context_request) -> None:
+    store = PretradeContextStore(engine)
+    store.prepare_schema()
+
+    snapshot_id = store.write_snapshot(context_request)
+
+    assert store.load_config_workbook(snapshot_id) == context_request.config_workbook
+
+
 def test_failed_dataset_write_rolls_back_and_keeps_current(engine, context_request) -> None:
     store = PretradeContextStore(engine)
     store.prepare_schema()
@@ -96,6 +109,32 @@ def test_failed_dataset_write_rolls_back_and_keeps_current(engine, context_reque
 
     assert store.list_snapshot_ids() == [old_snapshot]
     assert store.get_current_snapshot().snapshot_id == old_snapshot
+
+
+def test_failed_config_workbook_write_rolls_back_and_keeps_current(
+    engine, context_request
+) -> None:
+    store = PretradeContextStore(engine)
+    store.prepare_schema()
+    old_snapshot = store.write_snapshot(context_request)
+    _create_current_archive(engine, "2026-07-10")
+    store.publish_current(old_snapshot)
+
+    with pytest.raises(RuntimeError, match="injected config workbook failure"):
+        store.write_snapshot(context_request, fail_after_config_workbook=True)
+
+    assert store.list_snapshot_ids() == [old_snapshot]
+    assert store.get_current_snapshot().snapshot_id == old_snapshot
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM pretrade_snapshot")).scalar() == 1
+        assert (
+            conn.execute(text("SELECT count(*) FROM pretrade_snapshot_dataset")).scalar()
+            == 27
+        )
+        assert (
+            conn.execute(text("SELECT count(*) FROM pretrade_config_workbook")).scalar()
+            == 1
+        )
 
 
 def test_snapshots_are_append_only_even_for_same_input(engine, context_request) -> None:
@@ -131,6 +170,42 @@ def test_load_rejects_corrupt_payload_hash(engine, context_request) -> None:
 
     with pytest.raises(PretradeContextIntegrityError, match="摘要"):
         store.load_kernel_input(snapshot_id)
+
+
+def test_corrupt_config_workbook_hash_is_rejected(engine, context_request) -> None:
+    store = PretradeContextStore(engine)
+    store.prepare_schema()
+    snapshot_id = store.write_snapshot(context_request)
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE pretrade_config_workbook SET payload_hash = :payload_hash "
+                "WHERE snapshot_id = :snapshot_id"
+            ),
+            {"payload_hash": "0" * 64, "snapshot_id": str(snapshot_id)},
+        )
+
+    with pytest.raises(PretradeContextIntegrityError, match="配置工作簿"):
+        store.load_config_workbook(snapshot_id)
+
+
+def test_publish_rejects_snapshot_without_config_workbook(engine, context_request) -> None:
+    store = PretradeContextStore(engine)
+    store.prepare_schema()
+    snapshot_id = store.write_snapshot(context_request)
+    _create_current_archive(engine, "2026-07-10")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "DELETE FROM pretrade_config_workbook "
+                "WHERE snapshot_id = :snapshot_id"
+            ),
+            {"snapshot_id": str(snapshot_id)},
+        )
+
+    with pytest.raises(PretradePublishError, match="配置工作簿"):
+        store.publish_current(snapshot_id)
 
 
 def test_publish_current_requires_same_archive_date_and_guards_reads(

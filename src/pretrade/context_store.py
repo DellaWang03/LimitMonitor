@@ -30,6 +30,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.risk_core import ProductionKernelInput, ProductionKernelParameters
 
+from .config_workbook import PretradeConfigWorkbook, PretradeConfigWorkbookError
 from .frame_codec import FrameCodecError, SerializedFrame, deserialize_frame, serialize_frame
 from .input_contract import KERNEL_INPUT_DATASETS, PretradeSnapshotRequest
 
@@ -56,6 +57,24 @@ PRETRADE_SNAPSHOT_DATASET = Table(
     ),
     Column("dataset_code", String(128), primary_key=True),
     Column("schema_json", Text, nullable=False),
+    Column("payload_hash", String(64), nullable=False),
+    Column(
+        "payload",
+        LargeBinary().with_variant(MYSQL_LONGBLOB(), "mysql"),
+        nullable=False,
+    ),
+)
+
+PRETRADE_CONFIG_WORKBOOK = Table(
+    "pretrade_config_workbook",
+    PRETRADE_METADATA,
+    Column(
+        "snapshot_id",
+        String(36),
+        ForeignKey("pretrade_snapshot.snapshot_id"),
+        primary_key=True,
+    ),
+    Column("file_name", String(255), nullable=False),
     Column("payload_hash", String(64), nullable=False),
     Column(
         "payload",
@@ -122,7 +141,7 @@ def _snapshot_from_row(row: Any) -> PretradeContextSnapshot:
 
 
 class PretradeContextStore:
-    """对三张交易前上下文表的唯一读写入口。"""
+    """对四张交易前上下文表的唯一读写入口。"""
 
     def __init__(self, engine: Engine) -> None:
         if not isinstance(engine, Engine):
@@ -130,7 +149,7 @@ class PretradeContextStore:
         self._engine = engine
 
     def prepare_schema(self) -> None:
-        """幂等创建三张新增表，不触碰既有归档表。"""
+        """幂等创建四张新增表，不触碰既有归档表。"""
 
         PRETRADE_METADATA.create_all(self._engine)
 
@@ -139,8 +158,9 @@ class PretradeContextStore:
         request: PretradeSnapshotRequest,
         *,
         fail_after_dataset: int | None = None,
+        fail_after_config_workbook: bool = False,
     ) -> UUID:
-        """在一个事务中写入 header 和全部 27 项输入。"""
+        """在一个事务中写入 header、27 项输入和配置原件。"""
 
         if not isinstance(request, PretradeSnapshotRequest):
             raise TypeError("request 必须是 PretradeSnapshotRequest")
@@ -182,6 +202,17 @@ class PretradeContextStore:
                         and ordinal >= fail_after_dataset
                     ):
                         raise RuntimeError("injected dataset failure")
+                workbook = request.config_workbook
+                conn.execute(
+                    insert(PRETRADE_CONFIG_WORKBOOK).values(
+                        snapshot_id=snapshot_id_text,
+                        file_name=workbook.file_name,
+                        payload_hash=workbook.payload_hash,
+                        payload=workbook.payload,
+                    )
+                )
+                if fail_after_config_workbook:
+                    raise RuntimeError("injected config workbook failure")
         except (PretradeContextStoreError, RuntimeError):
             raise
         except (SQLAlchemyError, FrameCodecError, ValueError, TypeError) as exc:
@@ -200,6 +231,20 @@ class PretradeContextStore:
             raise
         except (SQLAlchemyError, FrameCodecError, ValueError, TypeError) as exc:
             raise PretradeContextIntegrityError("交易前快照读取失败") from exc
+
+    def load_config_workbook(
+        self, snapshot_id: UUID | str
+    ) -> PretradeConfigWorkbook:
+        """读回并校验一份快照所附的原始限额配置工作簿。"""
+
+        normalized_snapshot_id = _as_uuid(snapshot_id)
+        try:
+            with self._engine.connect() as conn:
+                return self._load_config_workbook(conn, normalized_snapshot_id)
+        except PretradeContextStoreError:
+            raise
+        except (SQLAlchemyError, PretradeConfigWorkbookError, TypeError, ValueError) as exc:
+            raise PretradeContextIntegrityError("原始配置工作簿读取失败") from exc
 
     def get_current_snapshot(self) -> PretradeContextSnapshot | None:
         """取得唯一 current；与既有归档不同日时拒绝读取。"""
@@ -243,6 +288,10 @@ class PretradeContextStore:
             with self._engine.begin() as conn:
                 snapshot = self._get_snapshot_row(conn, normalized_snapshot_id)
                 self._load_kernel_input(conn, normalized_snapshot_id)
+                try:
+                    self._load_config_workbook(conn, normalized_snapshot_id)
+                except PretradeContextIntegrityError as exc:
+                    raise PretradePublishError("交易前快照原始配置工作簿无效") from exc
                 archive_data_date = self._current_archive_data_date(conn, for_publish=True)
                 if archive_data_date != snapshot.data_date:
                     raise PretradePublishError(
@@ -345,6 +394,28 @@ class PretradeContextStore:
             )
         except (TypeError, ValueError) as exc:
             raise PretradeContextIntegrityError("交易前快照元数据无法重建") from exc
+
+    @staticmethod
+    def _load_config_workbook(
+        conn: Connection, snapshot_id: UUID
+    ) -> PretradeConfigWorkbook:
+        row = conn.execute(
+            select(PRETRADE_CONFIG_WORKBOOK).where(
+                PRETRADE_CONFIG_WORKBOOK.c.snapshot_id == str(snapshot_id)
+            )
+        ).mappings().one_or_none()
+        if row is None:
+            raise PretradeContextIntegrityError("交易前快照缺少原始配置工作簿")
+        try:
+            return PretradeConfigWorkbook(
+                file_name=str(row["file_name"]),
+                payload=bytes(row["payload"]),
+                payload_hash=str(row["payload_hash"]),
+            )
+        except PretradeConfigWorkbookError as exc:
+            raise PretradeContextIntegrityError(
+                "原始配置工作簿完整性校验失败"
+            ) from exc
 
     @staticmethod
     def _current_archive_data_date(
