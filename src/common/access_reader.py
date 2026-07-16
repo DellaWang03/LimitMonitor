@@ -206,27 +206,34 @@ class AccessDatabaseReader:
         需要系统已安装 mdb-tools (brew install mdbtools)。返回 True 表示写入成功。
         """
         out_file = export_dir / f"{table_name}.csv"
+        tmp_file = export_dir / f".{table_name}.csv.tmp"
         try:
-            result = subprocess.run(
-                ["mdb-export", str(accdb_path), table_name],
-                capture_output=True,
-                text=True,
-                timeout=600,
-            )
-            if result.returncode != 0:
-                logger.warning(f"mdb-export 失败: {result.stderr or result.stdout}")
-                return False
             export_dir.mkdir(parents=True, exist_ok=True)
-            out_file.write_text(result.stdout, encoding="utf-8")
+            with tmp_file.open("w", encoding="utf-8") as handle:
+                result = subprocess.run(
+                    ["mdb-export", str(accdb_path), table_name],
+                    stdout=handle,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=600,
+                )
+            if result.returncode != 0:
+                tmp_file.unlink(missing_ok=True)
+                logger.warning(f"mdb-export 失败: {result.stderr}")
+                return False
+            tmp_file.replace(out_file)
             logger.info(f"✓ mdb-export 已写入: {out_file}")
             return True
         except FileNotFoundError:
+            tmp_file.unlink(missing_ok=True)
             logger.warning("未找到 mdb-export，请安装: brew install mdbtools")
             return False
         except subprocess.TimeoutExpired:
+            tmp_file.unlink(missing_ok=True)
             logger.warning("mdb-export 超时")
             return False
         except Exception as e:
+            tmp_file.unlink(missing_ok=True)
             logger.warning(f"mdb-export 异常: {e}")
             return False
 
