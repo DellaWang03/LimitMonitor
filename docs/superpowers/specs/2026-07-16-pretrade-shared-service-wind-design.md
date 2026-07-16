@@ -1,6 +1,6 @@
 # 交易前共同内核服务与 WindPy 主数据设计
 
-状态：已获业务确认，待评审本文件后编制实施计划  
+状态：服务实施中；WindPy 字段能力门禁未通过
 日期：2026-07-16  
 权威依据：[交易前试算共同内核权威规格](../../PRETRADE_SHARED_CORE_SPEC.md)
 
@@ -99,7 +99,7 @@
 9. 不读取 Excel、ACCDB、`data/current`、展示快照或本地业务配置；
 10. 真实 Wind 环境仅验证 `WindPy` 连通性和字段完整性，不以实时结果作为回归预期。
 
-本机当前 Python 环境未安装 `WindPy`，因此自动化测试必须使用内存响应夹具；真实连通性验收在安装 Wind 终端授权与 `WindPy` 的运行环境执行。
+2026-07-16 已新增只读探针 `scripts/probe_windpy_bond_master.py`，并通过其不导入 WindPy 的解析器测试。本机执行 `importlib.util.find_spec("WindPy")` 返回 `None`，因此未发起真实请求、未固化任何 `internal → vendor` 字段映射，生产适配器继续在未显式传入已验证映射时返回 `MISSING_MASTER`。真实连通性验收只能在安装 Wind 终端授权与 `WindPy` 的运行环境，以本节字段契约为准重新执行；不得以候选字段名替代验收结果。
 
 ## 7. 非目标
 

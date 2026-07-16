@@ -55,7 +55,7 @@
 
 旧 MVP 数据库上下文的 `DEV` 验收记录保留在 `docs/evidence/pretrade-db-context-20260710.json`，但其四表/用途模型已重置，不再是运行契约。当前有效证据为 `docs/evidence/pretrade-context-minimal-reset-20260710.json`：快照 `aa721fc5-7db7-40e9-9bac-d57accbf4d34` 含 27 项输入和 1 个原始配置附件，重放 Stage1/Stage2 分别为 35/22 张表，逻辑指纹与金样一致；原件逐字节读回等于冻结输入中的 `限额配置_当前.xlsx`（29,504 字节、16 个 sheet），唯一 current 未切换，既有展示归档、`archive_meta`、16 张归档表和展示快照保持原样。附件不参与共同内核重放，也不保存 Wind 实时主数据。
 
-已评审的下一阶段是“单券和一揽子共同内核服务与 on-the-fly Wind”。该服务必须只读 `PretradeContextStore` 的唯一 current 指针；账户分类必须严格复用上线的 `做市交易部做市业务 → 做市业务，其他 → 自营业务` 映射，不得新增未知账户拒绝规则；持仓债主数据只能来自交易前快照；非持仓债仅可按需获取最新 Wind 数据并在内存中校验，缺少必需字段即不可计算，且不得落库。日常 current 实际接入、交易前服务、Wind 和两个页面均未在本阶段完成或发布。
+已评审的下一阶段是“单券和一揽子共同内核服务与 on-the-fly Wind”。该服务必须只读 `PretradeContextStore` 的唯一 current 指针；账户分类必须严格复用上线的 `做市交易部做市业务 → 做市业务，其他 → 自营业务` 映射，不得新增未知账户拒绝规则；持仓债主数据只能来自交易前快照；非持仓债仅可按需获取最新 Wind 数据并在内存中校验，缺少必需字段即不可计算，且不得落库。共同内核服务与其冻结快照边界验收已完成；日常 current 实际接入、真实 Wind 字段映射和两个页面仍未发布。
 
 2026-07-16 服务阶段已完成的冻结快照边界验收：
 
@@ -66,6 +66,8 @@ RUN_FROZEN_PRETRADE_INTEGRATION=1 ENV=test LIMIT_MONITOR_PROFILE=local \
 ```
 
 该验收使用冻结清单 `data_source_0123-20260710-v1`，先按既有 Stage0/1/2 构建真实 27 项共同内核输入和原始配置附件，再写入本地内存 SQLite 的四张 `pretrade_` 表并发布该测试指针。随后封禁 `open`、`pandas.read_excel`、`read_csv` 和 `read_parquet`，以持仓债 `102480811.IB` 调用单券服务；验收通过，返回快照日期 `2026-07-10`、非空维度、未调用 Wind，且最终可购额度为非负数或不可计算。此阶段没有页面变更，也没有对既有展示快照、展示归档或唯一生产 current 指针的读写。
+
+2026-07-16 WindPy 能力门禁：`tests/scripts/test_probe_windpy_bond_master.py` 的 4 项无网络测试通过；本机 Python 运行环境的 `importlib.util.find_spec("WindPy")` 为 `None`。因此没有执行实时 Wind 请求、没有记录任何响应、没有写入字段映射或默认值；`WindPyBondMasterProvider` 保持“无已验证映射即 `MISSING_MASTER`”。这不是业务失败，而是明确阻止非持仓债上线计算的外部依赖门禁；必须在具备 WindPy 授权的环境重新验证全部必填字段后，才能为非持仓债启用该路径。
 
 2026-07-15 交接门禁已完成：相关测试 114 项通过（另有 1 项全库跳过）；静态扫描确认 `src/pretrade`、日常运行期编排和冻结验收命令不含 pickle、展示快照读取、`ArchiveDB.write_batch()` 或旧归档写入。扫描唯一命中的 Wind 字样是静态 `issuer_wind_code_mapping.csv` 的来源清单记录；既有展示与展示快照代码不读取 `pretrade_` 表。后续服务设计不得放宽上述边界。
 
