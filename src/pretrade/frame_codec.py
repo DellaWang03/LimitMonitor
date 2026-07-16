@@ -2,15 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from base64 import b64decode, b64encode
 from dataclasses import dataclass
-from datetime import date, datetime, time
-from decimal import Decimal
 from hashlib import sha256
 from io import BytesIO
 import json
-from math import isfinite
 from numbers import Integral, Real
 
 import pandas as pd
@@ -19,7 +14,6 @@ import pyarrow.parquet as pq
 
 
 SERIALIZER_VERSION = "parquet-arrow-v1"
-MAX_CHUNK_SIZE_BYTES = 8 * 1024 * 1024
 
 
 class FrameCodecError(ValueError):
@@ -31,11 +25,8 @@ class SerializedFrame:
     """可落库的一张输入表及其完整性信息。"""
 
     payload: bytes
-    content_hash: str
+    payload_hash: str
     schema_json: str
-    row_count: int
-    payload_size_bytes: int
-    serializer_version: str = SERIALIZER_VERSION
 
 
 def _sha256(payload: bytes) -> str:
@@ -53,8 +44,6 @@ def _schema_metadata(
         "columns": [str(column) for column in frame.columns],
         "dtypes": [str(dtype) for dtype in frame.dtypes],
         "index_name": frame.index.name,
-        "index_dtype": str(frame.index.dtype),
-        "object_cell_encoding": "tagged-json-v1" if tagged_object_column_positions else None,
         "tagged_object_column_positions": list(tagged_object_column_positions),
     }
     return json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -73,27 +62,10 @@ def _encode_object_cell(value: object) -> dict[str, object]:
         return {"type": "bool", "value": value}
     if isinstance(value, str):
         return {"type": "str", "value": value}
-    if isinstance(value, bytes):
-        return {"type": "bytes", "value": b64encode(value).decode("ascii")}
-    if isinstance(value, Decimal):
-        return {"type": "decimal", "value": str(value)}
-    if isinstance(value, pd.Timestamp):
-        return {"type": "pd_timestamp", "value": value.isoformat()}
-    if isinstance(value, pd.Timedelta):
-        return {"type": "pd_timedelta", "value": value.isoformat()}
-    if isinstance(value, datetime):
-        return {"type": "datetime", "value": value.isoformat()}
-    if isinstance(value, date):
-        return {"type": "date", "value": value.isoformat()}
-    if isinstance(value, time):
-        return {"type": "time", "value": value.isoformat()}
     if isinstance(value, Integral):
         return {"type": "int", "value": str(int(value))}
     if isinstance(value, Real):
-        numeric = float(value)
-        if not isfinite(numeric):
-            return {"type": "float", "value": repr(numeric)}
-        return {"type": "float", "value": repr(numeric)}
+        return {"type": "float", "value": repr(float(value))}
     raise FrameCodecError(f"object 列包含不支持的单元格类型: {type(value).__name__}")
 
 
@@ -118,20 +90,6 @@ def _decode_object_cell(encoded: str) -> object:
             return raw
         if cell_type == "str" and isinstance(raw, str):
             return raw
-        if cell_type == "bytes" and isinstance(raw, str):
-            return b64decode(raw.encode("ascii"), validate=True)
-        if cell_type == "decimal" and isinstance(raw, str):
-            return Decimal(raw)
-        if cell_type == "pd_timestamp" and isinstance(raw, str):
-            return pd.Timestamp(raw)
-        if cell_type == "pd_timedelta" and isinstance(raw, str):
-            return pd.Timedelta(raw)
-        if cell_type == "datetime" and isinstance(raw, str):
-            return datetime.fromisoformat(raw)
-        if cell_type == "date" and isinstance(raw, str):
-            return date.fromisoformat(raw)
-        if cell_type == "time" and isinstance(raw, str):
-            return time.fromisoformat(raw)
         if cell_type == "int" and isinstance(raw, str):
             return int(raw)
         if cell_type == "float" and isinstance(raw, str):
@@ -186,13 +144,11 @@ def serialize_frame(frame: pd.DataFrame) -> SerializedFrame:
 
     return SerializedFrame(
         payload=payload,
-        content_hash=_sha256(payload),
+        payload_hash=_sha256(payload),
         schema_json=_schema_metadata(
             frame,
             tagged_object_column_positions=tagged_object_column_positions,
         ),
-        row_count=len(frame),
-        payload_size_bytes=len(payload),
     )
 
 
@@ -201,12 +157,8 @@ def deserialize_frame(serialized: SerializedFrame) -> pd.DataFrame:
 
     if not isinstance(serialized, SerializedFrame):
         raise FrameCodecError("输入必须是 SerializedFrame")
-    if serialized.payload_size_bytes != len(serialized.payload):
-        raise FrameCodecError("Parquet 载荷长度校验失败")
-    if serialized.content_hash != _sha256(serialized.payload):
+    if serialized.payload_hash != _sha256(serialized.payload):
         raise FrameCodecError("Parquet 载荷摘要校验失败")
-    if serialized.serializer_version != SERIALIZER_VERSION:
-        raise FrameCodecError(f"不支持的序列化版本: {serialized.serializer_version}")
 
     try:
         metadata = json.loads(serialized.schema_json)
@@ -247,27 +199,4 @@ def deserialize_frame(serialized: SerializedFrame) -> pd.DataFrame:
             raise FrameCodecError(f"无法恢复列类型: {column} -> {dtype}") from exc
 
     frame.index.name = metadata.get("index_name")
-    if len(frame) != serialized.row_count:
-        raise FrameCodecError("Parquet 行数校验失败")
     return frame
-
-
-def split_payload(payload: bytes, *, chunk_size: int = MAX_CHUNK_SIZE_BYTES) -> tuple[bytes, ...]:
-    """按数据库行安全上限切分 Parquet 载荷。"""
-
-    if not isinstance(payload, bytes):
-        raise FrameCodecError("载荷必须是 bytes")
-    if chunk_size <= 0:
-        raise FrameCodecError("分块大小必须大于零")
-    if not payload:
-        return (b"",)
-    return tuple(payload[offset : offset + chunk_size] for offset in range(0, len(payload), chunk_size))
-
-
-def join_payload(chunks: Iterable[bytes]) -> bytes:
-    """按序合并数据库中读取的 Parquet 分块。"""
-
-    normalized_chunks = tuple(chunks)
-    if not all(isinstance(chunk, bytes) for chunk in normalized_chunks):
-        raise FrameCodecError("Parquet 分块必须是 bytes")
-    return b"".join(normalized_chunks)
