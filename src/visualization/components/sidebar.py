@@ -128,6 +128,7 @@ def render_sidebar(current_page=None) -> tuple[str, Optional[date]]:
             ("地域类明细", "🗺️"),
             ("高收益明细", "💰"),
             ("单券可购额度查询", "🔍"),
+            ("一揽子债券超限试算", "🧺"),
         ]
         
         # 使用radio按钮组

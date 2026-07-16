@@ -1,101 +1,33 @@
 from __future__ import annotations
 
-import sys
-import types
 from datetime import date
 from pathlib import Path
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
-fake_streamlit = types.SimpleNamespace(
-    fragment=lambda func: func,
-    session_state={},
-    markdown=lambda *args, **kwargs: None,
-)
-sys.modules.setdefault("streamlit", fake_streamlit)
+from types import SimpleNamespace
 
 from src.visualization.pages import page8_bond_quota
-from src.visualization.pages.page8_bond_quota import _build_query_cache_key
 
 
-class LoaderWithDataDate:
-    target_date = date(2026, 4, 27)
-    archive_date_str = "2026-04-27"
-    data_date_str = "2026-04-26"
-    _snapshot_version = "snapshot-a"
+def test_page8_does_not_retain_legacy_parallel_quota_query() -> None:
+    source = Path("src/visualization/pages/page8_bond_quota.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "query_bond_remaining_quota" not in source
+    assert "get_pretrade_risk_service" in source
 
 
-class LoaderWithDifferentDataDate:
-    target_date = date(2026, 4, 28)
-    archive_date_str = "2026-04-28"
-    data_date_str = "2026-04-27"
-    _snapshot_version = "snapshot-b"
+def test_page8_historical_mode_does_not_call_current_pretrade_service(monkeypatch) -> None:
+    messages: list[str] = []
+    fake_streamlit = SimpleNamespace(info=messages.append)
+    monkeypatch.setattr(page8_bond_quota, "st", fake_streamlit)
+    monkeypatch.setattr(page8_bond_quota, "inject_compact_controls_css", lambda _key: None)
+    monkeypatch.setattr(page8_bond_quota, "_render_title", lambda: None)
+    monkeypatch.setattr(
+        page8_bond_quota,
+        "get_pretrade_risk_service",
+        lambda: (_ for _ in ()).throw(AssertionError("must not call service")),
+    )
 
+    page8_bond_quota.render({}, SimpleNamespace(target_date=date(2026, 7, 10)))
 
-def test_page8_query_cache_key_includes_data_date_and_snapshot_version():
-    first_key = _build_query_cache_key("240001", LoaderWithDataDate())
-    second_key = _build_query_cache_key("240001", LoaderWithDifferentDataDate())
-
-    assert first_key != second_key
-    assert first_key == ("240001", "2026-04-26", "snapshot-a")
-    assert second_key == ("240001", "2026-04-27", "snapshot-b")
-
-
-class _Context:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-
-class _ResultSlot:
-    def warning(self, *_args, **_kwargs):
-        return None
-
-    def info(self, *_args, **_kwargs):
-        return None
-
-    def container(self):
-        return _Context()
-
-
-class _FakeStreamlit:
-    def __init__(self):
-        self.session_state = {
-            "page8_bond_quota_input": "26津渤海MTN003",
-            "page8_query_requested": True,
-        }
-
-    def columns(self, *_args, **_kwargs):
-        return [_Context(), _Context()]
-
-    def text_input(self, *_args, **_kwargs):
-        return self.session_state["page8_bond_quota_input"]
-
-    def button(self, *_args, **_kwargs):
-        return False
-
-    def markdown(self, *_args, **_kwargs):
-        return None
-
-    def empty(self):
-        return _ResultSlot()
-
-
-def test_page8_query_uses_snapshot_data_date_instead_of_archive_date(monkeypatch):
-    captured = {}
-
-    def fake_query(_loader, _query_text, target_date=None):
-        captured["target_date"] = target_date
-        return {"success": True}
-
-    fake_st = _FakeStreamlit()
-    monkeypatch.setattr(page8_bond_quota, "st", fake_st)
-    monkeypatch.setattr(page8_bond_quota, "query_bond_remaining_quota", fake_query)
-    monkeypatch.setattr(page8_bond_quota, "_render_query_result", lambda _result: None)
-
-    page8_bond_quota._render_query_area(LoaderWithDifferentDataDate())
-
-    assert captured["target_date"] is None
+    assert messages == ["交易前试算仅支持已发布的最新交易前快照；请在侧边栏切换到「最新数据」。"]
