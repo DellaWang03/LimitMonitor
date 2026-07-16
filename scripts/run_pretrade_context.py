@@ -1,15 +1,13 @@
 #!/opt/homebrew/bin/python3
-"""用冻结 data_source_0123 构建并验收一份交易前 DEV 上下文。"""
+"""用冻结 data_source_0123 构建并验收一份交易前上下文。"""
 
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 from typing import Sequence
 
@@ -27,13 +25,13 @@ from src.pretrade.context_build import (
 from src.pretrade.context_capture import capture_production_kernel_input
 from src.pretrade.context_store import PretradeContextStore
 from src.pretrade.frame_codec import serialize_frame
-from src.pretrade.input_contract import KERNEL_INPUT_DATASETS, PretradeSnapshotRequest
+from src.pretrade.input_contract import KERNEL_INPUT_DATASETS
 from src.testing.current_issuer_resolver import (
     stage_current_issuer_resolver,
     validate_current_issuer_resolver,
 )
 from src.testing.frozen_config import FrozenInputConfig
-from src.testing.frozen_manifest import FrozenInputManifest, ValidatedInputManifest
+from src.testing.frozen_manifest import FrozenInputManifest
 from src.testing.legacy_local_compat import (
     cleanup_legacy_local_limit_config,
     stage_legacy_local_limit_config,
@@ -57,7 +55,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--allow-output-root", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--usage", choices=("DEV",), default="DEV")
     parser.add_argument("--note", default="")
     return parser
 
@@ -114,41 +111,26 @@ def _run(args: argparse.Namespace) -> int:
         os.chdir(previous_cwd)
         cleanup_legacy_local_limit_config(compatibility)
 
-    source_manifest = _source_manifest(manifest, resolver)
     store = PretradeContextStore(ArchiveDB.from_env().engine)
     store.prepare_schema()
-    snapshot_id = build_ready_context(
-        runtime,
-        store,
-        usage="DEV",
-        source_manifest=source_manifest,
-        code_commit=_git_commit(),
-    )
+    snapshot_id = build_ready_context(runtime, store)
     replayed = replay_kernel_from_snapshot(store, snapshot_id)
     assert_replay_matches_runtime(replayed, runtime)
 
     inputs = capture_production_kernel_input(
         runtime.stage1_processor, runtime.stage2_processor
     )
-    request = PretradeSnapshotRequest.from_kernel_input(
-        inputs,
-        usage="DEV",
-        source_manifest=source_manifest,
-        code_commit=_git_commit(),
-    )
     summary = {
         "snapshot_id": str(snapshot_id),
-        "usage": "DEV",
         "data_date": inputs.business_date.date().isoformat(),
-        "input_hash": request.input_hash,
         "note": args.note,
         "datasets": [
             {
                 "dataset_code": dataset_code,
                 "row_count": len(inputs.frames[dataset_code]),
-                "content_hash": serialize_frame(
+                "payload_hash": serialize_frame(
                     inputs.frames[dataset_code]
-                ).content_hash,
+                ).payload_hash,
             }
             for dataset_code in KERNEL_INPUT_DATASETS
         ],
@@ -158,7 +140,7 @@ def _run(args: argparse.Namespace) -> int:
             "stage2_table_count": len(replayed.stage2_tables),
         },
     }
-    (output_root / "pretrade_context_dev_summary.json").write_text(
+    (output_root / "pretrade_context_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
@@ -174,31 +156,6 @@ def _frozen_issuer_resolver():
         reference / "stage0" / "issuer_wind_code_mapping.csv",
         reference / "stage0" / "风控部债券池_主体.xlsx",
     )
-
-
-def _source_manifest(manifest: ValidatedInputManifest, resolver) -> dict[str, object]:
-    captured_at = datetime.now(UTC).isoformat()
-    return {
-        "files": [
-            {"name": item.name, "sha256": item.sha256, "size": item.size}
-            for item in manifest.files
-        ],
-        "static_issuer_mapping": {
-            "sha256": resolver.mapping_sha256,
-            "row_count": resolver.mapping_row_count,
-            "validated_at": captured_at,
-        },
-        "captured_at": captured_at,
-    }
-
-
-def _git_commit() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT, text=True
-        ).strip()
-    except (OSError, subprocess.SubprocessError):
-        return ""
 
 
 if __name__ == "__main__":

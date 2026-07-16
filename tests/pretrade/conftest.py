@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import pandas as pd
-import pytest
 
 from src.risk_core import (
     STAGE1_REQUIRED_FRAMES,
@@ -36,16 +35,3 @@ def make_kernel_input(
         frames=make_all_kernel_frames() if frames is None else frames,
         parameters=ProductionKernelParameters(regulatory_limit),
     )
-
-
-@pytest.fixture
-def source_manifest() -> dict[str, object]:
-    return {
-        "files": [{"name": "input.xlsx", "sha256": "a" * 64}],
-        "static_issuer_mapping": {
-            "sha256": "b" * 64,
-            "row_count": 4,
-            "validated_at": "2026-07-15T12:00:00+08:00",
-        },
-        "captured_at": "2026-07-15T12:00:00+08:00",
-    }
