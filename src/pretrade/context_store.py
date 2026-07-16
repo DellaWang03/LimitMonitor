@@ -21,7 +21,6 @@ from sqlalchemy import (
     Text,
     insert,
     select,
-    text,
     update,
 )
 from sqlalchemy.dialects.mysql import LONGBLOB as MYSQL_LONGBLOB
@@ -106,10 +105,6 @@ class PretradeContextIntegrityError(PretradeContextStoreError):
 
 class PretradePublishError(PretradeContextStoreError):
     """交易前当前指针不能安全发布。"""
-
-
-class PretradeDataSyncError(PretradeContextStoreError):
-    """展示归档和交易前上下文不是同一数据日。"""
 
 
 @dataclass(frozen=True)
@@ -247,7 +242,7 @@ class PretradeContextStore:
             raise PretradeContextIntegrityError("原始配置工作簿读取失败") from exc
 
     def get_current_snapshot(self) -> PretradeContextSnapshot | None:
-        """取得唯一 current；与既有归档不同日时拒绝读取。"""
+        """取得唯一 current，并只校验该交易前快照自身。"""
 
         try:
             with self._engine.connect() as conn:
@@ -258,15 +253,7 @@ class PretradeContextStore:
                 ).mappings().one_or_none()
                 if pointer is None:
                     return None
-                snapshot = self._get_snapshot_row(conn, UUID(pointer["snapshot_id"]))
-                archive_data_date = self._current_archive_data_date(
-                    conn, for_publish=False
-                )
-                if archive_data_date != snapshot.data_date:
-                    raise PretradeDataSyncError(
-                        "数据同步中：展示归档与交易前上下文的数据日期不一致"
-                    )
-                return snapshot
+                return self._get_snapshot_row(conn, UUID(pointer["snapshot_id"]))
         except PretradeContextStoreError:
             raise
         except SQLAlchemyError as exc:
@@ -281,22 +268,17 @@ class PretradeContextStore:
         return self.load_kernel_input(snapshot.snapshot_id)
 
     def publish_current(self, snapshot_id: UUID | str) -> None:
-        """读回验证快照且确认归档日期一致后，切换唯一 current。"""
+        """读回验证完整快照后，切换唯一 current。"""
 
         normalized_snapshot_id = _as_uuid(snapshot_id)
         try:
             with self._engine.begin() as conn:
-                snapshot = self._get_snapshot_row(conn, normalized_snapshot_id)
+                self._get_snapshot_row(conn, normalized_snapshot_id)
                 self._load_kernel_input(conn, normalized_snapshot_id)
                 try:
                     self._load_config_workbook(conn, normalized_snapshot_id)
                 except PretradeContextIntegrityError as exc:
                     raise PretradePublishError("交易前快照原始配置工作簿无效") from exc
-                archive_data_date = self._current_archive_data_date(conn, for_publish=True)
-                if archive_data_date != snapshot.data_date:
-                    raise PretradePublishError(
-                        "交易前快照与 archive_meta 当前数据日期不一致"
-                    )
                 values = {"snapshot_id": str(normalized_snapshot_id)}
                 updated = conn.execute(
                     update(PRETRADE_SNAPSHOT_CURRENT)
@@ -416,25 +398,3 @@ class PretradeContextStore:
             raise PretradeContextIntegrityError(
                 "原始配置工作簿完整性校验失败"
             ) from exc
-
-    @staticmethod
-    def _current_archive_data_date(
-        conn: Connection, *, for_publish: bool
-    ) -> str:
-        try:
-            rows = conn.execute(select_text_current_archive_date()).scalars().all()
-        except SQLAlchemyError as exc:
-            if for_publish:
-                raise PretradePublishError("无法读取 archive_meta 当前数据日期") from exc
-            raise PretradeDataSyncError("数据同步中：无法读取 archive_meta 当前数据日期") from exc
-        if len(rows) != 1 or rows[0] is None:
-            if for_publish:
-                raise PretradePublishError("archive_meta 必须恰有一条当前数据")
-            raise PretradeDataSyncError("数据同步中：archive_meta 当前数据不可用")
-        return str(rows[0])
-
-
-def select_text_current_archive_date():
-    """延迟构造旧表只读查询，避免注册到新增表 DDL。"""
-
-    return text("SELECT data_date FROM archive_meta WHERE is_current = 1")

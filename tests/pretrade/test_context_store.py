@@ -9,7 +9,6 @@ from sqlalchemy import create_engine, inspect, text
 from src.pretrade.context_store import (
     PretradeContextIntegrityError,
     PretradeContextStore,
-    PretradeDataSyncError,
     PretradePublishError,
 )
 from src.pretrade.input_contract import PretradeSnapshotRequest
@@ -101,7 +100,6 @@ def test_failed_dataset_write_rolls_back_and_keeps_current(engine, context_reque
     store = PretradeContextStore(engine)
     store.prepare_schema()
     old_snapshot = store.write_snapshot(context_request)
-    _create_current_archive(engine, "2026-07-10")
     store.publish_current(old_snapshot)
 
     with pytest.raises(RuntimeError, match="injected dataset failure"):
@@ -117,7 +115,6 @@ def test_failed_config_workbook_write_rolls_back_and_keeps_current(
     store = PretradeContextStore(engine)
     store.prepare_schema()
     old_snapshot = store.write_snapshot(context_request)
-    _create_current_archive(engine, "2026-07-10")
     store.publish_current(old_snapshot)
 
     with pytest.raises(RuntimeError, match="injected config workbook failure"):
@@ -194,7 +191,6 @@ def test_publish_rejects_snapshot_without_config_workbook(engine, context_reques
     store = PretradeContextStore(engine)
     store.prepare_schema()
     snapshot_id = store.write_snapshot(context_request)
-    _create_current_archive(engine, "2026-07-10")
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -208,41 +204,19 @@ def test_publish_rejects_snapshot_without_config_workbook(engine, context_reques
         store.publish_current(snapshot_id)
 
 
-def test_publish_current_requires_same_archive_date_and_guards_reads(
+def test_current_snapshot_is_read_and_published_without_archive_meta(
     engine, context_request
 ) -> None:
     store = PretradeContextStore(engine)
     store.prepare_schema()
     snapshot_id = store.write_snapshot(context_request)
 
-    with pytest.raises(PretradePublishError, match="archive_meta"):
-        store.publish_current(snapshot_id)
-
-    _create_current_archive(engine, "2026-07-09")
-    with pytest.raises(PretradePublishError, match="数据日期"):
-        store.publish_current(snapshot_id)
-
-    with engine.begin() as conn:
-        conn.execute(text("UPDATE archive_meta SET data_date = '2026-07-10'"))
     store.publish_current(snapshot_id)
 
-    assert store.get_current_snapshot().snapshot_id == snapshot_id
+    current = store.get_current_snapshot()
+    assert current is not None
+    assert current.snapshot_id == snapshot_id
     _assert_kernel_input_equal(
         store.load_current_kernel_input(), context_request.kernel_input
     )
-
-    with engine.begin() as conn:
-        conn.execute(text("UPDATE archive_meta SET data_date = '2026-07-09'"))
-    with pytest.raises(PretradeDataSyncError, match="数据同步中"):
-        store.get_current_snapshot()
-
-
-def _create_current_archive(engine, data_date: str) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            text("CREATE TABLE archive_meta (data_date VARCHAR(10), is_current INTEGER)")
-        )
-        conn.execute(
-            text("INSERT INTO archive_meta (data_date, is_current) VALUES (:data_date, 1)"),
-            {"data_date": data_date},
-        )
+    assert "archive_meta" not in inspect(engine).get_table_names()
