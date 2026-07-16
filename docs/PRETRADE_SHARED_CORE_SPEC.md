@@ -190,6 +190,7 @@ GitHub 分支：`DellaWang03/LimitMonitor / main`
 ### 4.1 范围与数据边界
 
 - 每次完整日常运行沿用同一份 Stage0/Stage1/Stage2 生产逻辑，并从本次实际加载的运行期缓存冻结共同内核的 27 个唯一外部输入、业务日期和监管集中度参数；不得在计算后重新打开“当前 Excel”拼装另一版本。
+- 同次运行还须从 `Stage1Processor.config` 已解析的路径读取完整 `限额配置_当前.xlsx` 原始字节，作为独立审计附件保存。Stage1 的“系统参数/监管集中度限额”与其余配置 sheet 必须使用同一 `config`；该附件不构成共同内核的第二输入来源。
 - 交易前上下文是计算输入，不是展示长表或结果表。既有 `archive_meta`、4 张 Stage0 归档表、12 张展示结果表、展示快照和既有页面完全保持原有读写路径；交易前代码不得读取它们作为共同内核输入。
 - 27 个输入为 `STAGE1_REQUIRED_FRAMES ∪ STAGE2_REQUIRED_FRAMES` 的按序去重并集。它们覆盖完整持仓、池、调整、配置、分类、评级、净资产、分母和系统参数；Stage2 的两张 Stage1 交接表由共同内核重算，不另存为外部输入。
 - 同时被 Stage1/Stage2 消费的外部输入以 Stage1 在同次运行中实际使用的内存帧为唯一快照来源。现有 Stage2 适配器为保持已上线展示，会从 Stage1 导出的 Excel 重读部分上下文；该重读副本不能替代共同内核输入，也不构成第二套业务口径。
@@ -197,27 +198,28 @@ GitHub 分支：`DellaWang03/LimitMonitor / main`
 - 持仓债必须仅以完整持仓输入判断；持仓但主数据不完整时返回 `MISSING_SNAPSHOT`，不得以 Wind 覆盖冻结快照。非持仓债在当次调用 Wind；Wind 缺少共同内核必需字段时返回不可计算，不得补零、默认分类或解释为不适用。
 - `issuer_wind_code_mapping.csv` 是静态解析依赖，不另建历史表，也不在交易前快照重复保存来源清单；冻结金样对其版本的校验保留在独立基线证据中。
 
-### 4.2 三表快照
+### 4.2 三张计算上下文表与一张审计附件表
 
 只允许新增下列 `pretrade_` 前缀表及必要索引：
 
 1. `pretrade_snapshot`：`snapshot_id`、`data_date`、监管集中度参数和 `captured_at`；
 2. `pretrade_snapshot_dataset`：每个 `(snapshot_id, dataset_code)` 的 Parquet `schema_json`、`payload_hash` 与单条 `LONGBLOB payload`；
 3. `pretrade_snapshot_current`：固定 `pointer_id = 1` 的唯一 `snapshot_id`。
+4. `pretrade_config_workbook`：每个 `snapshot_id` 恰有一条的 `限额配置_当前.xlsx` 原始文件名、SHA-256 和完整 `LONGBLOB` 字节。
 
-Parquet 使用固定 Arrow 编码，禁止 pickle 和静默类型降级。快照写入先在内存完成 27 项编码，再在一个事务内插入快照头和全部单载荷；任一步失败整体回滚。读取时必须校验 27 项精确集合、每项 payload SHA-256、schema 和 Parquet 可读性。快照只追加；同日修数生成新的 `snapshot_id`。不保存分块、状态机、用途、来源清单、整体输入 hash、行数、载荷长度或版本字段。
+Parquet 使用固定 Arrow 编码，禁止 pickle 和静默类型降级。快照写入先在内存完成 27 项编码，再在一个事务内插入快照头、全部单载荷和原始工作簿；任一步失败整体回滚。读取时必须校验 27 项精确集合、每项 payload SHA-256、schema 和 Parquet 可读性，并校验工作簿 SHA-256。原件保留全部 16 个 sheet、格式、公式和备注，但不属于 27 项共同内核输入，不参与计算或重放。快照只追加；同日修数生成新的 `snapshot_id`。不保存分块、状态机、用途、来源清单、整体输入 hash、行数、载荷长度或版本字段。
 
 ### 4.3 构建、发布与读取
 
 - 正常日常运行只对每个完成的业务数据日构建一次交易前快照。冻结验收和人工数据库验证只写未发布快照；不新增 TEST schema、账号或实例。
-- 日常生产编排器先写交易前快照，再执行既有归档；归档成功后，以短事务读回校验 27 项输入、确认日期一致，并切换唯一 `pretrade_snapshot_current(pointer_id = 1)`。
+- 日常生产编排器先写交易前快照，再执行既有归档；归档成功后，以短事务读回校验 27 项输入和原始配置附件、确认日期一致，并切换唯一 `pretrade_snapshot_current(pointer_id = 1)`。缺少或哈希不符的历史附件不可补造，且该快照不得发布为 current。
 - 发布前必须确认 `snapshot.data_date` 等于 `archive_meta.is_current = 1` 的 `data_date`。交易前读取端也必须执行相同检查；两者不一致时只返回“数据同步中”，不能使用新旧批次混算。
 - 日常数据使用最新完整的已有业务数据，不以 T-1/T-2 新鲜度作为阻断归档条件；实际 `data_date` 必须可解析并展示。缺少必需输入、日期不一致、输入集合不完整、Parquet 往返失败或哈希不符仍必须失败。
 - 在线交易前服务只通过唯一 current 指针读取 27 项数据库输入；它不得读取 Excel、ACCDB、`data/current`、公盘、本地业务配置或展示快照。Wind 是唯一按请求进入内存的外部输入。
 
 ### 4.4 MVP 明确不做的事项
 
-本阶段不实现事实表、34 张兼容投影、旧页面迁移、`ArchiveDB` 改造、原始文件入库、对象存储、Wind 表/缓存、逐笔审计、发布审计流水、并发发布/回滚体系、独立 TEST 账号或全站 UI 改版。它们如有需要，必须在本 MVP 零差异验收后另立规格。
+本阶段不实现事实表、34 张兼容投影、旧页面迁移、`ArchiveDB` 改造、除当次 `限额配置_当前.xlsx` 审计附件之外的原始文件入库、对象存储、Wind 表/缓存、逐笔审计、发布审计流水、并发发布/回滚体系、独立 TEST 账号或全站 UI 改版。它们如有需要，必须在本 MVP 零差异验收后另立规格。
 
 ## 附录 A（SUPERSEDED）：原全量闭包架构草案
 

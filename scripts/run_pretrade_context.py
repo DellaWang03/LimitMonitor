@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -121,11 +122,19 @@ def _run(args: argparse.Namespace) -> int:
     verify_rehydrated_context(store, snapshot_id, inputs)
     replayed = replay_kernel_from_snapshot(store, snapshot_id)
     assert_replay_matches_runtime(replayed, runtime)
+    workbook = store.load_config_workbook(snapshot_id)
+    if workbook.payload_hash != sha256(workbook.payload).hexdigest():
+        raise RuntimeError("冻结验收配置工作簿摘要不一致")
 
     summary = {
         "snapshot_id": str(snapshot_id),
         "data_date": inputs.business_date.date().isoformat(),
         "note": args.note,
+        "config_workbook": {
+            "file_name": workbook.file_name,
+            "payload_hash": workbook.payload_hash,
+            "byte_count": len(workbook.payload),
+        },
         "datasets": [
             {
                 "dataset_code": dataset_code,

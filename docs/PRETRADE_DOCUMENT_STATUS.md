@@ -33,6 +33,7 @@
 | `docs/superpowers/plans/2026-07-15-production-shared-kernel-extraction.md` | 已完成 | Stage1/Stage2 生产业务转换已抽成无文件 I/O 的共同内核；两次独立候选均通过逐表、逐行、逐字段零差异门禁 |
 | `docs/superpowers/plans/2026-07-15-pretrade-mvp-db-context.md` | 已完成（DEV 零差异验收） | 以同次日常运行的 27 项实际输入构建 `pretrade_` 快照；开发和验收只写 `DEV`，不改既有归档/展示读路径 |
 | `docs/superpowers/plans/2026-07-16-pretrade-context-simplification.md` | 已完成（最小三表重置验收） | 已重置旧四张新增验收表，冻结数据在正式库创建 1 个未发布三表快照；数据库读回、共同内核重放和 10/35/22 金样指纹均为零差异 |
+| `docs/superpowers/plans/2026-07-16-pretrade-config-workbook-audit.md` | 实施中 | 在不改变共同内核的前提下，将每次实际使用的 `限额配置_当前.xlsx` 原件作为第四张、独立于 27 输入的审计附件表保存 |
 
 完成证据：`docs/evidence/pretrade-baseline-20260710.json`。正式双跑总逻辑指纹均为
 `2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85`，Stage0/1/2
@@ -51,13 +52,13 @@
 `2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85`，Stage0/1/2
 分别输出 10、35、22 张表，所有文件、表、schema、行序、字段及浮点序列化差异均为 0。
 
-旧 MVP 数据库上下文的 `DEV` 验收记录保留在 `docs/evidence/pretrade-db-context-20260710.json`，但其四表/用途模型已重置，不再是运行契约。当前有效证据为 `docs/evidence/pretrade-context-minimal-reset-20260710.json`：快照 `924a5848-0c21-4ea0-b105-3664a7d8cd30` 含 27 项输入，重放 Stage1/Stage2 分别为 35/22 张表，逻辑指纹与金样一致；唯一 current 未切换，既有展示归档、`archive_meta`、16 张归档表和展示快照保持原样。
+旧 MVP 数据库上下文的 `DEV` 验收记录保留在 `docs/evidence/pretrade-db-context-20260710.json`，但其四表/用途模型已重置，不再是运行契约。当前有效证据为 `docs/evidence/pretrade-context-minimal-reset-20260710.json`：快照 `924a5848-0c21-4ea0-b105-3664a7d8cd30` 含 27 项输入，重放 Stage1/Stage2 分别为 35/22 张表，逻辑指纹与金样一致；唯一 current 未切换，既有展示归档、`archive_meta`、16 张归档表和展示快照保持原样。正在实施的原始工作簿附件将把该最小计算上下文扩展为“三张计算上下文表加一张审计附件表”；附件保存完整 `限额配置_当前.xlsx`，不参与共同内核重放，也不保存 Wind 实时主数据。
 
 下一阶段才可设计“单券和一揽子共同内核服务与 on-the-fly Wind”。该服务必须只读 `PretradeContextStore` 的唯一 current 指针；未知账户必须拒绝；持仓债主数据只能来自交易前快照；非持仓债仅可按需获取最新 Wind 数据并在内存中校验，缺少必需字段即不可计算，且不得落库。日常 current 实际接入、交易前服务、Wind 和两个页面均未在本阶段完成或发布。
 
 2026-07-15 交接门禁已完成：相关测试 114 项通过（另有 1 项全库跳过）；静态扫描确认 `src/pretrade`、日常运行期编排和 DEV 命令不含 pickle、展示快照读取、`ArchiveDB.write_batch()` 或旧归档写入。扫描唯一命中的 Wind 字样是静态 `issuer_wind_code_mapping.csv` 的来源清单记录；既有展示与展示快照代码不读取 `pretrade_` 表。后续服务设计不得放宽上述边界。
 
-2026-07-16 最小化重置门禁已完成：全量测试 `281 passed, 1 skipped`；静态扫描确认三表存储、日常编排和冻结验收命令不含 pickle、展示快照读取、旧归档写入或 Wind 请求。唯一 `Wind` 命中是冻结验收复制/验证静态 `issuer_wind_code_mapping.csv` 的路径；既有展示与展示快照仍不读取 `pretrade_` 表。
+2026-07-16 最小化重置门禁已完成：全量测试 `281 passed, 1 skipped`；静态扫描确认三表计算上下文存储、日常编排和冻结验收命令不含 pickle、展示快照读取、旧归档写入或 Wind 请求。唯一 `Wind` 命中是冻结验收复制/验证静态 `issuer_wind_code_mapping.csv` 的路径；既有展示与展示快照仍不读取 `pretrade_` 表。原始 `限额配置_当前.xlsx` 审计附件的正式冻结验收完成后，将以四表证据更新本段和对应证据文件。
 
 ## 4. SUPERSEDED
 
