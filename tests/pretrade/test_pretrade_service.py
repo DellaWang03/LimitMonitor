@@ -1,14 +1,52 @@
 from __future__ import annotations
 
+import builtins
+import os
+from pathlib import Path
+import shutil
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
+sqlalchemy = pytest.importorskip("sqlalchemy")
+from sqlalchemy import create_engine
+
+from src.pipeline.daily_runtime import run_daily_runtime
+from src.pipeline.paths import PipelinePaths
+from src.pretrade.context_build import build_ready_context
+from src.pretrade.context_store import PretradeContextStore
 from src.pretrade.pretrade_service import PretradeRiskService
 from src.pretrade.service_models import BondMaster, MasterResolution, MasterSource, PretradeLine
+from src.testing.current_issuer_resolver import stage_current_issuer_resolver
+from src.testing.frozen_config import FrozenInputConfig
+from src.testing.frozen_manifest import FrozenInputManifest
+from src.testing.legacy_local_compat import (
+    cleanup_legacy_local_limit_config,
+    stage_legacy_local_limit_config,
+)
+from src.utils.config_loader import ConfigLoader
+
+from scripts.run_pretrade_context import _frozen_issuer_resolver
 
 from .conftest import make_kernel_input
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+FROZEN_INPUT_ROOT = (
+    Path.home() / "Desktop" / "LimitMonitorAutomation" / "data_source_0123"
+)
+FROZEN_MANIFEST = (
+    PROJECT_ROOT / "config" / "test_manifests" / "data_source_0123-20260710-v1.json"
+)
+FROZEN_BASELINE_ROOT = (
+    Path.home()
+    / "Desktop"
+    / "LimitMonitorAutomation-test-output"
+    / "pretrade-baseline-20260710-main1"
+)
+_RUN_FROZEN_INTEGRATION = os.environ.get("RUN_FROZEN_PRETRADE_INTEGRATION") == "1"
+_FROZEN_FIXTURES_AVAILABLE = FROZEN_INPUT_ROOT.is_dir() and FROZEN_BASELINE_ROOT.is_dir()
 
 
 def _master(code: str, *, issuer: str = "共同发行人") -> BondMaster:
@@ -252,3 +290,84 @@ def test_high_yield_without_full_price_keeps_pr_and_blocks_annual_cost(service) 
         and item.calculation_status.value == "UNCOMPUTABLE"
         for item in result.dimensions
     )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not _RUN_FROZEN_INTEGRATION or not _FROZEN_FIXTURES_AVAILABLE,
+    reason="set RUN_FROZEN_PRETRADE_INTEGRATION=1 with frozen data_source_0123 fixtures",
+)
+def test_frozen_held_bond_service_reads_only_persisted_snapshot(
+    monkeypatch, tmp_path
+) -> None:
+    """建立真实 27 项快照后，服务路径不得再读取任何业务文件。"""
+
+    manifest = FrozenInputManifest.load(FROZEN_MANIFEST).validate(FROZEN_INPUT_ROOT)
+    pipeline_root = tmp_path / "pipeline"
+    pipeline_root.mkdir()
+    paths = PipelinePaths.create(pipeline_root)
+    current_dir = tmp_path / "current"
+    current_dir.mkdir()
+
+    resolver = _frozen_issuer_resolver()
+    stage_current_issuer_resolver(resolver, paths)
+    runtime_stage0_dir = current_dir / "stage0_output"
+    runtime_stage0_dir.mkdir()
+    shutil.copy2(
+        paths.stage0 / "issuer_wind_code_mapping.csv",
+        runtime_stage0_dir / "issuer_wind_code_mapping.csv",
+    )
+
+    compatibility = stage_legacy_local_limit_config(manifest, PROJECT_ROOT)
+    previous_cwd = Path.cwd()
+    try:
+        config = FrozenInputConfig(
+            base=ConfigLoader(config_dir=str(PROJECT_ROOT / "config")),
+            manifest=manifest,
+            pipeline_root=paths.root,
+            access_export_dir=paths.access_export,
+        )
+        monkeypatch.setenv("ENV", "test")
+        monkeypatch.setenv("LIMIT_MONITOR_PROFILE", "local")
+        os.chdir(paths.tmp)
+        runtime = run_daily_runtime(
+            config=config,
+            data_dir=manifest.input_root,
+            current_dir=current_dir,
+            target_date=manifest.expected_business_date.isoformat(),
+        )
+    finally:
+        os.chdir(previous_cwd)
+        cleanup_legacy_local_limit_config(compatibility)
+
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    store = PretradeContextStore(engine)
+    store.prepare_schema()
+    snapshot_id = build_ready_context(runtime, store)
+    store.publish_current(snapshot_id)
+
+    class NoWindForHeldBond:
+        calls: list[str] = []
+
+        def resolve(self, bond_code: str):
+            self.calls.append(bond_code)
+            raise AssertionError("持仓债不应请求 Wind")
+
+    fake_wind = NoWindForHeldBond()
+    service = PretradeRiskService(store=store, wind_provider=fake_wind)
+
+    def _forbidden_read(*args, **kwargs):
+        raise AssertionError("service must read snapshot only")
+
+    monkeypatch.setattr(builtins, "open", _forbidden_read)
+    monkeypatch.setattr(pd, "read_excel", _forbidden_read)
+    monkeypatch.setattr(pd, "read_csv", _forbidden_read)
+    monkeypatch.setattr(pd, "read_parquet", _forbidden_read)
+
+    quote = service.quote_single_bond("102480811.IB", "自营部交易性")
+
+    assert quote.snapshot_data_date == "2026-07-10"
+    assert quote.dimensions
+    assert fake_wind.calls == []
+    assert quote.purchasable_pr_cap_wan is None or quote.purchasable_pr_cap_wan >= 0
+    engine.dispose()
