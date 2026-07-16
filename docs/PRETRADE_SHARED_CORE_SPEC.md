@@ -195,26 +195,25 @@ GitHub 分支：`DellaWang03/LimitMonitor / main`
 - 同时被 Stage1/Stage2 消费的外部输入以 Stage1 在同次运行中实际使用的内存帧为唯一快照来源。现有 Stage2 适配器为保持已上线展示，会从 Stage1 导出的 Excel 重读部分上下文；该重读副本不能替代共同内核输入，也不构成第二套业务口径。
 - 已验证的 Excel 往返边界仅为 `债券持仓明细表_信用债` 和 `债券持仓明细表_信用债_合并风险限额相关` 两张 Stage2 原始上下文输出：允许与共同内核同名帧有不超过 `1e-12` 的绝对浮点尾差。该例外只用于验证旧展示读取边界；共同内核的输入、Stage1 全部输出和 Stage2 所有限额计算结果仍逐字段严格相等，业务判断不得使用容差。
 - 持仓债必须仅以完整持仓输入判断；持仓但主数据不完整时返回 `MISSING_SNAPSHOT`，不得以 Wind 覆盖冻结快照。非持仓债在当次调用 Wind；Wind 缺少共同内核必需字段时返回不可计算，不得补零、默认分类或解释为不适用。
-- `issuer_wind_code_mapping.csv` 是静态解析依赖，不另建历史表；每次构建只记录 SHA-256、行数和验证时间。
+- `issuer_wind_code_mapping.csv` 是静态解析依赖，不另建历史表，也不在交易前快照重复保存来源清单；冻结金样对其版本的校验保留在独立基线证据中。
 
-### 4.2 四表快照
+### 4.2 三表快照
 
 只允许新增下列 `pretrade_` 前缀表及必要索引：
 
-1. `pretrade_snapshot`：`snapshot_id`、`usage`（`DEV`/`PROD`）、`data_date`、`status`（`LOADING`/`READY`）、代码/内核/契约版本、来源与输入哈希、监管集中度参数、创建/就绪时间和说明；
-2. `pretrade_snapshot_dataset`：每个 `(snapshot_id, dataset_code)` 的顺序、行数、serializer/schema/content hash、来源元数据、payload 大小；
-3. `pretrade_snapshot_dataset_chunk`：按顺序保存每个 Parquet 二进制块，单块不超过 8 MiB；
-4. `pretrade_snapshot_current`：每个 `usage` 一行的 `snapshot_id` 与切换时间。
+1. `pretrade_snapshot`：`snapshot_id`、`data_date`、监管集中度参数和 `captured_at`；
+2. `pretrade_snapshot_dataset`：每个 `(snapshot_id, dataset_code)` 的 Parquet `schema_json`、`payload_hash` 与单条 `LONGBLOB payload`；
+3. `pretrade_snapshot_current`：固定 `pointer_id = 1` 的唯一 `snapshot_id`。
 
-Parquet 使用版本化 Arrow 编码，禁止 pickle 和静默类型降级。快照写入在一个事务内完成 `LOADING → 27 条元数据和全部块 → 数据库读回哈希/行数/schema 校验 → READY`；任一步失败整体回滚，不保留可读取的半成品。`READY` 不更新、不覆盖；同日修数生成新的 `snapshot_id`。
+Parquet 使用固定 Arrow 编码，禁止 pickle 和静默类型降级。快照写入先在内存完成 27 项编码，再在一个事务内插入快照头和全部单载荷；任一步失败整体回滚。读取时必须校验 27 项精确集合、每项 payload SHA-256、schema 和 Parquet 可读性。快照只追加；同日修数生成新的 `snapshot_id`。不保存分块、状态机、用途、来源清单、整体输入 hash、行数、载荷长度或版本字段。
 
 ### 4.3 构建、发布与读取
 
-- 正常日常运行只对每个完成的业务数据日构建一次交易前快照；开发、自动化验收和人工数据库验证仅写 `DEV`，不新增 TEST schema、账号或实例。
-- `PROD` 构建与发布仅由日常生产编排器显式执行。它先构建并校验 `READY` 快照，再执行既有归档，最后以短事务切换 `pretrade_snapshot_current.PROD`。
+- 正常日常运行只对每个完成的业务数据日构建一次交易前快照。冻结验收和人工数据库验证只写未发布快照；不新增 TEST schema、账号或实例。
+- 日常生产编排器先写交易前快照，再执行既有归档；归档成功后，以短事务读回校验 27 项输入、确认日期一致，并切换唯一 `pretrade_snapshot_current(pointer_id = 1)`。
 - 发布前必须确认 `snapshot.data_date` 等于 `archive_meta.is_current = 1` 的 `data_date`。交易前读取端也必须执行相同检查；两者不一致时只返回“数据同步中”，不能使用新旧批次混算。
 - 日常数据使用最新完整的已有业务数据，不以 T-1/T-2 新鲜度作为阻断归档条件；实际 `data_date` 必须可解析并展示。缺少必需输入、日期不一致、输入集合不完整、Parquet 往返失败或哈希不符仍必须失败。
-- 在线交易前服务只通过明确 `snapshot_id`/`PROD` 指针读取 27 项数据库输入；它不得读取 Excel、ACCDB、`data/current`、公盘、本地业务配置或展示快照。Wind 是唯一按请求进入内存的外部输入。
+- 在线交易前服务只通过唯一 current 指针读取 27 项数据库输入；它不得读取 Excel、ACCDB、`data/current`、公盘、本地业务配置或展示快照。Wind 是唯一按请求进入内存的外部输入。
 
 ### 4.4 MVP 明确不做的事项
 

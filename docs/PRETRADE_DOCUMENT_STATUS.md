@@ -1,6 +1,6 @@
 # 交易前试算文档状态登记
 
-状态日期：2026-07-15
+状态日期：2026-07-16
 
 适用分支：`main`（后续实施分支从包含权威规格与安全金样的 `main` 创建）
 
@@ -22,7 +22,6 @@
 | 文档 | 状态 | 用途 |
 |---|---|---|
 | `docs/PRETRADE_SHARED_CORE_SPEC.md` | 已冻结 | 唯一业务口径、共同内核、MVP 数据库上下文、Wind 边界和总体验收规格 |
-| `docs/superpowers/specs/2026-07-15-pretrade-mvp-db-context-design.md` | 已批准 | `PRETRADE_SHARED_CORE_SPEC.md` 第 4 节的详细设计附件；定义 27 输入、四张 `pretrade_` 表、日常发布顺序和明确后置项 |
 
 权威规格所引用的生产事实来自 GitHub `main@579af695...` 的 Stage0、Stage1、Stage2 行为；若自然语言与已冻结生产特征测试发生歧义，必须暂停并补充规格评审，不能自行选择更严或更松的解释。
 
@@ -33,6 +32,7 @@
 | `docs/superpowers/plans/2026-07-15-pretrade-safe-baseline.md` | 已完成 | 已在零生产逻辑修改下生成 `data_source_0123` 的双跑可重复金样；已按权威规格 2.1 纳入静态主体代码解析依赖 |
 | `docs/superpowers/plans/2026-07-15-production-shared-kernel-extraction.md` | 已完成 | Stage1/Stage2 生产业务转换已抽成无文件 I/O 的共同内核；两次独立候选均通过逐表、逐行、逐字段零差异门禁 |
 | `docs/superpowers/plans/2026-07-15-pretrade-mvp-db-context.md` | 已完成（DEV 零差异验收） | 以同次日常运行的 27 项实际输入构建 `pretrade_` 快照；开发和验收只写 `DEV`，不改既有归档/展示读路径 |
+| `docs/superpowers/plans/2026-07-16-pretrade-context-simplification.md` | 已完成（最小三表重置验收） | 已重置旧四张新增验收表，冻结数据在正式库创建 1 个未发布三表快照；数据库读回、共同内核重放和 10/35/22 金样指纹均为零差异 |
 
 完成证据：`docs/evidence/pretrade-baseline-20260710.json`。正式双跑总逻辑指纹均为
 `2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85`，Stage0/1/2
@@ -51,11 +51,13 @@
 `2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85`，Stage0/1/2
 分别输出 10、35、22 张表，所有文件、表、schema、行序、字段及浮点序列化差异均为 0。
 
-MVP 数据库上下文已完成 `data_source_0123` 的正式库 `DEV` 零差异重放，证据为 `docs/evidence/pretrade-db-context-20260710.json`：快照 `15b9eec7-c20f-41d9-908c-2c07c240b112` 含 27 项输入，重放 Stage1/Stage2 分别为 35/22 张表，逻辑指纹与金样一致。验收未移动 `PROD` 指针，既有展示归档、`archive_meta`、16 张归档表和展示快照保持原样。
+旧 MVP 数据库上下文的 `DEV` 验收记录保留在 `docs/evidence/pretrade-db-context-20260710.json`，但其四表/用途模型已重置，不再是运行契约。当前有效证据为 `docs/evidence/pretrade-context-minimal-reset-20260710.json`：快照 `924a5848-0c21-4ea0-b105-3664a7d8cd30` 含 27 项输入，重放 Stage1/Stage2 分别为 35/22 张表，逻辑指纹与金样一致；唯一 current 未切换，既有展示归档、`archive_meta`、16 张归档表和展示快照保持原样。
 
-下一阶段才可设计“单券和一揽子共同内核服务与 on-the-fly Wind”。该服务必须只读 `PretradeContextStore` 的 `PROD` 指针；未知账户必须拒绝；持仓债主数据只能来自交易前快照；非持仓债仅可按需获取最新 Wind 数据并在内存中校验，缺少必需字段即不可计算，且不得落库。`PROD` 日常实际接入、交易前服务、Wind 和两个页面均未在本阶段完成或发布。
+下一阶段才可设计“单券和一揽子共同内核服务与 on-the-fly Wind”。该服务必须只读 `PretradeContextStore` 的唯一 current 指针；未知账户必须拒绝；持仓债主数据只能来自交易前快照；非持仓债仅可按需获取最新 Wind 数据并在内存中校验，缺少必需字段即不可计算，且不得落库。日常 current 实际接入、交易前服务、Wind 和两个页面均未在本阶段完成或发布。
 
 2026-07-15 交接门禁已完成：相关测试 114 项通过（另有 1 项全库跳过）；静态扫描确认 `src/pretrade`、日常运行期编排和 DEV 命令不含 pickle、展示快照读取、`ArchiveDB.write_batch()` 或旧归档写入。扫描唯一命中的 Wind 字样是静态 `issuer_wind_code_mapping.csv` 的来源清单记录；既有展示与展示快照代码不读取 `pretrade_` 表。后续服务设计不得放宽上述边界。
+
+2026-07-16 最小化重置门禁已完成：全量测试 `281 passed, 1 skipped`；静态扫描确认三表存储、日常编排和冻结验收命令不含 pickle、展示快照读取、旧归档写入或 Wind 请求。唯一 `Wind` 命中是冻结验收复制/验证静态 `issuer_wind_code_mapping.csv` 的路径；既有展示与展示快照仍不读取 `pretrade_` 表。
 
 ## 4. SUPERSEDED
 
@@ -72,6 +74,7 @@ MVP 数据库上下文已完成 `data_source_0123` 的正式库 `DEV` 零差异�
 | `docs/superpowers/specs/2026-07-15-pretrade-latest-available-snapshot-design.md` | 同上 |
 | `docs/superpowers/specs/2026-07-15-pretrade-business-parity-remediation-design.md` | 仍以修补交易前平行引擎为主，未达到零业务差异目标 |
 | `docs/superpowers/plans/2026-07-15-pretrade-db-only-context.md` | 已完成的过渡性只读上下文计划，按 `data_date` 覆盖且依赖本地 Wind 缓存，不是最终不可变数据库设计 |
+| `docs/superpowers/specs/2026-07-15-pretrade-mvp-db-context-design.md` | 四表、DEV/PROD、来源清单与分块设计，已由三表唯一 current 的最小契约替代 |
 | `docs/superpowers/specs/2026-07-14-pretrade-db-only-context-design.md` | 同上；可保留字段映射、列校验和事务经验，但不能保留第二套公式或最终快照身份模型 |
 | `PRETRADE_SHARED_CORE_SPEC.md` 附录 A | 原全量闭包、34 投影、类型化事实、Wind 落库与独立 TEST 物理隔离草案；已由当前 MVP 数据库上下文契约替代 |
 
