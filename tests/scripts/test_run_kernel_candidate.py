@@ -53,11 +53,12 @@ def test_cli_exposes_no_manifest_mapping_database_wind_or_archive_override() -> 
     )
 
 
-def test_source_diff_accepts_only_planned_kernel_extraction_paths() -> None:
+def test_source_diff_accepts_only_planned_kernel_and_runtime_paths() -> None:
     entries = runner._validate_source_diff_entries(
         (
             ("A", "src/risk_core/kernel.py"),
             ("M", "src/common/__init__.py"),
+            ("M", "src/common/access_reader.py"),
             ("M", "src/common/financial_tool_pool.py"),
             ("A", "src/common/financial_tool_pool_rules.py"),
             ("M", "src/stage1/stage1_processor.py"),
@@ -68,6 +69,7 @@ def test_source_diff_accepts_only_planned_kernel_extraction_paths() -> None:
 
     assert [entry["path"] for entry in entries] == [
         "src/common/__init__.py",
+        "src/common/access_reader.py",
         "src/common/financial_tool_pool.py",
         "src/common/financial_tool_pool_rules.py",
         "src/risk_core/kernel.py",
