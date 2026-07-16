@@ -21,6 +21,7 @@ from src.pretrade.context_build import (
     assert_replay_matches_runtime,
     build_ready_context,
     replay_kernel_from_snapshot,
+    verify_rehydrated_context,
 )
 from src.pretrade.context_capture import capture_production_kernel_input
 from src.pretrade.context_store import PretradeContextStore
@@ -111,15 +112,16 @@ def _run(args: argparse.Namespace) -> int:
         os.chdir(previous_cwd)
         cleanup_legacy_local_limit_config(compatibility)
 
-    store = PretradeContextStore(ArchiveDB.from_env().engine)
-    store.prepare_schema()
-    snapshot_id = build_ready_context(runtime, store)
-    replayed = replay_kernel_from_snapshot(store, snapshot_id)
-    assert_replay_matches_runtime(replayed, runtime)
-
     inputs = capture_production_kernel_input(
         runtime.stage1_processor, runtime.stage2_processor
     )
+    store = PretradeContextStore(ArchiveDB.from_env().engine)
+    store.prepare_schema()
+    snapshot_id = build_ready_context(runtime, store)
+    verify_rehydrated_context(store, snapshot_id, inputs)
+    replayed = replay_kernel_from_snapshot(store, snapshot_id)
+    assert_replay_matches_runtime(replayed, runtime)
+
     summary = {
         "snapshot_id": str(snapshot_id),
         "data_date": inputs.business_date.date().isoformat(),
