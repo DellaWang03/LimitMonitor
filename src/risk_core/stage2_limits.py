@@ -10,6 +10,10 @@ from ..common.financial_tool_pool_rules import (
 )
 from ..common.security_code_normalizer import normalize_security_code_series
 from .contracts import _copy_frame
+from .high_yield_capital_sources import (
+    append_high_yield_capital_sources,
+    select_accounting_high_yield_capital_rows,
+)
 
 
 class _NullLogger:
@@ -1076,47 +1080,26 @@ class Stage2RiskEngine:
             logger.warning("    ⚠️  未找到债券持仓表_核算系统，请确保已加载")
             return pd.DataFrame()
 
-        df_src = df_src.copy()
-        if '日期' in df_src.columns:
-            df_src['日期'] = pd.to_datetime(df_src['日期'], errors='coerce')
-
-        # 列名与 M 一致：账户、简称、代码、持仓面额(元)、全价成本(元)（核算系统表已有）
-        if '账户' not in df_src.columns and '内部证券账户名称' in df_src.columns:
-            df_src['账户'] = df_src['内部证券账户名称']
-        if '简称' not in df_src.columns and '资产名称' in df_src.columns:
-            df_src['简称'] = df_src['资产名称']
-        if '代码' not in df_src.columns and '资产代码' in df_src.columns:
-            df_src['代码'] = df_src['资产代码'].astype(str).str.split('.').str[0]
-        if '代码' in df_src.columns and df_src['代码'].dtype != object:
-            df_src['代码'] = df_src['代码'].astype(str).str.split('.').str[0]
-        need_src = ['日期', '账户', '简称', '代码', '持仓面额(元)', '全价成本(元)']
-        missing_src = [c for c in need_src if c not in df_src.columns]
+        required_sources = {
+            '日期': ('日期',),
+            '账户': ('账户', '内部证券账户名称'),
+            '简称': ('简称', '资产名称'),
+            '代码': ('代码', '资产代码'),
+            '持仓面额(元)': ('持仓面额(元)',),
+            '全价成本(元)': ('全价成本(元)',),
+        }
+        missing_src = [
+            target
+            for target, candidates in required_sources.items()
+            if not any(candidate in df_src.columns for candidate in candidates)
+        ]
         if missing_src:
             logger.warning(f"    债券持仓表_核算系统缺少列: {missing_src}")
             return pd.DataFrame()
 
-        tool_pool_names, tool_pool_codes = build_financial_tool_pool_sets(
-            self.cache.get('金融工具池设置')
+        part_accounting = select_accounting_high_yield_capital_rows(
+            df_src, self.cache.get('金融工具池设置')
         )
-        if tool_pool_names or tool_pool_codes:
-            df_src['高收益量化可转债'] = df_src.apply(
-                lambda row: (
-                    row.get('简称')
-                    if row_in_financial_tool_pool(row, tool_pool_names, tool_pool_codes)
-                    else pd.NA
-                ),
-                axis=1,
-            )
-        else:
-            df_src['高收益量化可转债'] = pd.NA
-
-        # 筛选：账户包含"高收益" or 高收益量化可转债 <> null（M: Table.SelectRows）
-        account_contains = df_src['账户'].astype(str).str.contains('高收益', na=False)
-        has_convertible = df_src['高收益量化可转债'].notna()
-        df_src = df_src[account_contains | has_convertible].copy()
-        df_src = df_src[need_src]
-
-        part_accounting = df_src.drop_duplicates()
 
         part_penetrate = _copy_frame(
             self.cache.get('穿透高收益_投资本金规模', pd.DataFrame())
@@ -1126,9 +1109,7 @@ class Stage2RiskEngine:
         part_accounting = part_accounting[[c for c in out_cols if c in part_accounting.columns]]
         if len(part_penetrate) > 0:
             part_penetrate = part_penetrate[[c for c in out_cols if c in part_penetrate.columns]]
-            df = pd.concat([part_accounting, part_penetrate], ignore_index=True)
-        else:
-            df = part_accounting
+        df = append_high_yield_capital_sources(part_accounting, part_penetrate)
 
         if '代码' in df.columns:
             df['代码'] = df['代码'].astype(str).str.split('.').str[0]

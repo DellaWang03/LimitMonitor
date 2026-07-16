@@ -3,6 +3,9 @@ from __future__ import annotations
 import pandas as pd
 import pandas.testing as pdt
 
+from src.risk_core.high_yield_capital_sources import (
+    append_high_yield_capital_sources,
+)
 from src.risk_core.stage2_limits import Stage2RiskEngine
 from src.stage2 import stage2_processor as stage2_module
 from src.stage2.stage2_processor import SOURCE_ROW_ID_COL, Stage2Processor
@@ -299,6 +302,68 @@ def _high_yield_config() -> pd.DataFrame:
             {"指标": "单一主体票面规模", "限额(万)": 200.0},
         ]
     )
+
+
+def test_high_yield_capital_appends_identical_codes_from_two_sources() -> None:
+    accounting = pd.DataFrame(
+        [
+            {
+                "日期": pd.Timestamp("2026-07-10"),
+                "账户": "高收益账户",
+                "简称": "样例债",
+                "代码": "100001",
+                "持仓面额(元)": 100_000.0,
+                "全价成本(元)": 100_000.0,
+            }
+        ]
+    )
+    penetration = accounting.assign(账户="自营部交易性")
+
+    actual = append_high_yield_capital_sources(accounting, penetration)
+
+    assert len(actual) == 2
+    assert actual["代码"].tolist() == ["100001", "100001"]
+    assert actual["全价成本(元)"].sum() == 200_000.0
+
+
+def test_high_yield_capital_keeps_penetration_when_accounting_selects_no_rows(
+    business_date,
+) -> None:
+    engine = Stage2RiskEngine(
+        {
+            "债券持仓表_核算系统": pd.DataFrame(
+                [
+                    {
+                        "日期": business_date,
+                        "账户": "自营部交易性",
+                        "简称": "普通债",
+                        "代码": "ORD.IB",
+                        "持仓面额(元)": 100_000.0,
+                        "全价成本(元)": 100_000.0,
+                    }
+                ]
+            ),
+            "金融工具池设置": pd.DataFrame(columns=["代码", "简称"]),
+            "穿透高收益_投资本金规模": pd.DataFrame(
+                [
+                    {
+                        "日期": business_date,
+                        "账户": "自营部交易性",
+                        "简称": "穿透高收益债",
+                        "代码": "PEN.IB",
+                        "持仓面额(元)": 200_000.0,
+                        "全价成本(元)": 200_000.0,
+                    }
+                ]
+            ),
+            "高收益限额": _high_yield_config(),
+        }
+    )
+
+    actual = engine.query_high_yield_capital()
+
+    assert actual["代码"].tolist() == ["PEN"]
+    assert actual["高收益年度总投资本金(万)"].tolist() == [20.0]
 
 
 def test_high_yield_detail_freezes_three_paths_keep_last_and_strict_boundary(

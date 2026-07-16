@@ -12,11 +12,12 @@ from typing import Dict, Optional, Any
 import zipfile
 import xml.etree.ElementTree as ET
 from ..common.financial_tool_pool import (
-    build_financial_tool_pool_sets,
     load_financial_tool_pool,
-    row_in_financial_tool_pool,
 )
 from ..common.security_code_normalizer import normalize_security_code_series
+from ..risk_core.high_yield_capital_sources import (
+    select_penetration_high_yield_capital_rows,
+)
 from ..risk_core.stage2_limits import Stage2RiskEngine
 from ..utils.limit_config_loader import load_limit_config
 
@@ -643,39 +644,17 @@ class Stage2Processor:
             return pd.DataFrame()
         
         df_src = pd.read_excel(file_path, sheet_name="债券_含穿透持仓")
-        if '日期' in df_src.columns:
-            df_src['日期'] = pd.to_datetime(df_src['日期'], errors='coerce')
-        
-        need_cols = ['日期', 'ISIN码', '资产代码', '资产名称', '内部证券账户名称', '库存数量(万)_PR', '本币成本']
-        missing = [c for c in need_cols if c not in df_src.columns]
-        if missing:
-            logger.warning(f"  穿透高收益_投资本金规模: 缺少列 {missing}")
-            return pd.DataFrame()
-        
-        df_src = df_src[need_cols].copy()
-        df_src = df_src.dropna(subset=['ISIN码'])
-        
-        isin_col_penetrate = 'ISIN代码' if 'ISIN代码' in df_penetrate.columns else 'ISIN码'
-        if isin_col_penetrate not in df_penetrate.columns:
-            logger.warning("  穿透高收益_投资本金规模: 穿透表无 ISIN 列")
-            return pd.DataFrame()
-        
-        penetrate_isin = df_penetrate[[isin_col_penetrate]].drop_duplicates(keep='last')
-        penetrate_isin = penetrate_isin.dropna(subset=[isin_col_penetrate])
-        penetrate_isin.columns = ['ISIN码']
-        
-        df = df_src.merge(penetrate_isin, on='ISIN码', how='inner')
-        df = df.rename(columns={
-            '内部证券账户名称': '账户',
-            '资产名称': '简称',
-            '资产代码': '代码'
-        })
-        df['持仓面额(元)'] = df['库存数量(万)_PR'] * 10000
-        df = df.drop(columns=['库存数量(万)_PR'], errors='ignore')
-        df = df.rename(columns={'本币成本': '全价成本(元)'})
-        
-        out_cols = ['日期', '账户', '简称', '代码', '持仓面额(元)', '全价成本(元)']
-        df = df[[c for c in out_cols if c in df.columns]]
+        df = select_penetration_high_yield_capital_rows(df_src, df_penetrate)
+        if df.empty:
+            needed = [
+                '日期', 'ISIN码', '资产代码', '资产名称',
+                '内部证券账户名称', '库存数量(万)_PR', '本币成本',
+            ]
+            missing = [column for column in needed if column not in df_src.columns]
+            if missing:
+                logger.warning(f"  穿透高收益_投资本金规模: 缺少列 {missing}")
+            elif 'ISIN代码' not in df_penetrate.columns and 'ISIN码' not in df_penetrate.columns:
+                logger.warning("  穿透高收益_投资本金规模: 穿透表无 ISIN 列")
         
         logger.info(f"  穿透高收益_投资本金规模: {len(df)} 行")
         return df
