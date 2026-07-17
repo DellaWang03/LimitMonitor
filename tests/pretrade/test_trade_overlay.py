@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pandas as pd
 
 from src.pretrade.service_models import BondMaster, MasterResolution, MasterSource, PretradeLine
@@ -77,6 +79,31 @@ def test_overlay_appends_only_raw_position_frames_and_keeps_else_account_mapping
     positions = calculate_single_bond_total_position(normalized)
     assert positions["业务分类"].tolist() == ["自营业务"]
     assert len(kernel_input.frames["债券持仓明细表_信用债"]) == 0
+
+
+def test_overlay_keeps_asset_and_anchor_fields_distinct() -> None:
+    master = replace(
+        _master(),
+        input_code="184072.SH",
+        main_security_code="2180399.IB",
+        bond_name="不应写入原始行的旧名称",
+        asset_name="21台州01",
+        main_security_name="21台州债01",
+        controller_name="原始实控人",
+    )
+    overlay = TradeOverlayBuilder().build(
+        _overlay_input(),
+        [PretradeLine(1, "184072.SH", "自营部交易性", 10.0)],
+        {1: MasterResolution(MasterSource.WIND, master, None)},
+    )
+
+    row = overlay.frames["债券持仓明细表_信用债"].iloc[-1]
+    assert row["资产代码"] == "184072.SH"
+    assert row["资产名称"] == "21台州01"
+    assert row["主证券代码"] == "2180399.IB"
+    assert row["主证券名称"] == "21台州债01"
+    assert row["实际控制人名称"] == "原始实控人"
+    assert row["实际控制人名称_修正"] == "原始实控人"
 
 
 def test_full_price_cost_uses_both_existing_high_yield_source_routes() -> None:

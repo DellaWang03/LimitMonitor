@@ -136,11 +136,21 @@ class FixedProvider:
         self.missing = missing
         self.calls: list[str] = []
 
-    def resolve(self, code: str) -> MasterResolution:
+    def resolve(self, code: str, business_date: pd.Timestamp) -> MasterResolution:
         self.calls.append(code)
         if code in self.missing:
             return MasterResolution(MasterSource.MISSING_MASTER, None, "Wind 无记录")
         return MasterResolution(MasterSource.WIND, self.masters[code], None)
+
+
+class DateRecordingProvider:
+    def __init__(self, master: BondMaster) -> None:
+        self.master = master
+        self.calls: list[tuple[str, pd.Timestamp]] = []
+
+    def resolve(self, code: str, business_date: pd.Timestamp) -> MasterResolution:
+        self.calls.append((code, business_date))
+        return MasterResolution(MasterSource.WIND, self.master, None)
 
 
 class ProjectionKernel:
@@ -277,6 +287,19 @@ def test_nonheld_missing_master_is_not_silently_excluded(service) -> None:
 
     assert result.status == "不可计算"
     assert result.line_reasons == {1: "MISSING_MASTER"}
+
+
+def test_nonheld_master_resolution_receives_snapshot_business_date() -> None:
+    provider = DateRecordingProvider(_master("900002.IB"))
+    service = PretradeRiskService(
+        store=FakeStore(_service_input()),
+        wind_provider=provider,
+        kernel=ProjectionKernel(),
+    )
+
+    service.check_basket([PretradeLine(1, "900002.IB", "自营部交易性", 10.0)])
+
+    assert provider.calls == [("900002.IB", pd.Timestamp("2026-07-10"))]
 
 
 def test_high_yield_without_full_price_keeps_pr_and_blocks_annual_cost(service) -> None:

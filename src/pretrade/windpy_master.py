@@ -1,44 +1,50 @@
-"""仅请求一次的 WindPy 债券主数据边界。
+"""非持仓债的请求内 Wind 主数据适配器。
 
-字段代码必须先经只读连通性验收后由调用方显式传入。本模块不保留 Wind
-响应，也不读写文件或数据库。
+该模块只复现持仓底稿的原始字段来源；它不计算限额、不写数据库、不缓存
+Wind 返回，也不修改日常 Stage0 的发行人代码解析器。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import csv
+from dataclasses import dataclass
 from datetime import UTC, datetime
+import importlib
 from math import isfinite, isnan
+import os
+from pathlib import Path
+import sys
 from typing import Any, Mapping, Protocol
 
-from .service_models import BondMaster, MasterResolution, MasterSource
+import pandas as pd
 
-
-_MASTER_ATTRIBUTES = (
-    "main_security_code",
-    "isin_code",
-    "bond_name",
-    "issuer_name",
-    "issuer_wind_code",
-    "controller_name",
-    "guarantor_name",
-    "guarantor_wind_code",
-    "outstanding_balance_yi",
-    "bond_classification",
-    "bond_type",
-    "issuer_type",
-    "is_city_investment_bond",
-    "bond_category",
-    "wind_industry",
-    "province",
+from .master_derivations import (
+    derive_bond_category,
+    derive_classifications,
+    derive_isin,
+    derive_issuer_type,
 )
-_OPTIONAL_MASTER_ATTRIBUTES = frozenset(
-    {"isin_code", "guarantor_name", "guarantor_wind_code"}
+from .service_models import BondMaster, MasterResolution, MasterSource
+from .wind_excel_master import ExcelWindMasterGateway
+
+
+DEFAULT_WIND_FIELDS = (
+    "SEC_NAME,ISIN_CODE,ISSUER,ISSUERUPDATED,HOLDER_CONTROLLER,"
+    "AGENCY_GUARANTOR,WINDL1TYPE,WINDL2TYPE,NATURE1,MUNICIPALBONDWIND"
+)
+_WINDPY_PATH_ENV = "LIMIT_MONITOR_WINDPY_PATH"
+_OFFICIAL_MACOS_WINDPY_PATH = Path("/Applications/Wind API.app/Contents/python")
+_STATIC_ISSUER_MAPPING = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "current"
+    / "stage0_output"
+    / "issuer_wind_code_mapping.csv"
 )
 
 
 class WindGateway(Protocol):
-    """WindPy 的最小可替换接口，避免在导入时初始化 Wind。"""
+    """WindPy 的最小可替换接口，避免导入时初始化 Wind。"""
 
     def start(self) -> Any:
         raise NotImplementedError
@@ -48,75 +54,43 @@ class WindGateway(Protocol):
 
 
 @dataclass(frozen=True)
-class WindFieldMap:
-    """一个已经通过能力门禁验证的 Wind 字段映射。"""
-
-    main_security_code: str
-    isin_code: str
-    bond_name: str
-    issuer_name: str
-    issuer_wind_code: str
-    controller_name: str
+class _WindRawFields:
+    asset_name: str
+    isin_code: object
+    issuer: str | None
+    issuer_updated: str | None
+    controller_name: str | None
     guarantor_name: str
-    guarantor_wind_code: str
-    outstanding_balance_yi: str
-    bond_classification: str
     bond_type: str
-    issuer_type: str
-    is_city_investment_bond: str
-    bond_category: str
-    wind_industry: str
-    province: str
-    wind_data_date: str | None = None
-    optional_attributes: frozenset[str] = field(
-        default_factory=lambda: _OPTIONAL_MASTER_ATTRIBUTES
-    )
-
-    def __post_init__(self) -> None:
-        unknown_optional = set(self.optional_attributes) - set(_MASTER_ATTRIBUTES)
-        if unknown_optional:
-            raise ValueError(f"Wind 可选字段未知: {sorted(unknown_optional)}")
-        for attribute in _MASTER_ATTRIBUTES:
-            vendor_field = getattr(self, attribute)
-            if not isinstance(vendor_field, str) or not vendor_field.strip():
-                raise ValueError(f"Wind 字段映射为空: {attribute}")
-        if self.wind_data_date is not None and not self.wind_data_date.strip():
-            raise ValueError("Wind 数据日期字段不能为空字符串")
-
-    @property
-    def request_fields(self) -> str:
-        fields = [getattr(self, attribute) for attribute in _MASTER_ATTRIBUTES]
-        if self.wind_data_date is not None:
-            fields.append(self.wind_data_date)
-        return ",".join(fields)
-
-    @property
-    def required_attributes(self) -> tuple[str, ...]:
-        return tuple(
-            attribute
-            for attribute in _MASTER_ATTRIBUTES
-            if attribute not in self.optional_attributes
-        )
+    bond_type2: str
+    nature1: str
+    is_city_investment_bond: str | None
 
 
 class WindPyBondMasterProvider:
-    """对一只确认非持仓债进行一次 WindPy 主数据请求。"""
+    """以一次 WindPy 原始字段请求和两批 Excel 公式构造一笔非持仓债。"""
 
     def __init__(
         self,
         *,
         gateway: WindGateway | None = None,
-        field_map: WindFieldMap | None = None,
+        excel_gateway: ExcelWindMasterGateway | None = None,
+        issuer_wind_code_mapping: Mapping[str, str] | None = None,
     ) -> None:
         self._gateway = gateway
-        self._field_map = field_map
+        self._excel = excel_gateway or ExcelWindMasterGateway()
+        self._issuer_wind_code_mapping = (
+            dict(issuer_wind_code_mapping)
+            if issuer_wind_code_mapping is not None
+            else _load_static_issuer_wind_code_mapping()
+        )
 
-    def resolve(self, bond_code: str) -> MasterResolution:
-        input_code = _normalize_input_code(bond_code)
+    def resolve(
+        self, bond_code: str, business_date: pd.Timestamp
+    ) -> MasterResolution:
+        input_code = _normalized_text(bond_code)
         if input_code is None:
             return _missing("债券代码为空或非法")
-        if self._field_map is None:
-            return _missing("Wind 字段映射尚未通过连通性验收")
 
         gateway = self._gateway or self._load_production_gateway()
         if gateway is None:
@@ -124,99 +98,192 @@ class WindPyBondMasterProvider:
         try:
             if _error_code(gateway.start()) != 0:
                 return _missing("WindPy 启动失败")
-            response = gateway.wss(
-                input_code, self._field_map.request_fields, usedf=True
-            )
+            response = gateway.wss(input_code, DEFAULT_WIND_FIELDS, usedf=True)
         except Exception as exc:
             return _missing(f"Wind 请求失败: {type(exc).__name__}")
 
-        error_code, raw_rows = _parse_wss_response(response)
+        error_code, rows = _parse_wss_response(response)
         if error_code != 0:
             return _missing(f"Wind 返回错误码: {error_code}")
-        if len(raw_rows) != 1:
+        if len(rows) != 1:
             return _missing("Wind 主数据返回记录数不是 1")
 
-        record = raw_rows[0]
-        values = {
-            attribute: _clean_value(record.get(getattr(self._field_map, attribute)))
-            for attribute in _MASTER_ATTRIBUTES
-        }
-        missing = [
-            attribute
-            for attribute in self._field_map.required_attributes
-            if values[attribute] is None
-        ]
-        if missing:
-            return _missing(f"Wind 主数据缺少必填字段: {', '.join(missing)}")
+        raw, reason = _parse_raw_fields(rows[0])
+        if raw is None:
+            return _missing(reason or "Wind 主数据缺少结构性字段")
 
+        issuer_name = raw.issuer if raw.bond_type2 == "资产支持证券" else raw.issuer_updated
+        if issuer_name is None:
+            return _missing("Wind 主数据缺少债务主体")
+
+        mapped_issuer_code = _source_text(
+            self._issuer_wind_code_mapping.get(issuer_name)
+        )
+        excel_issuer_name = None if mapped_issuer_code is not None else issuer_name
+        excel_guarantor_name = (
+            None if raw.guarantor_name == "0" else raw.guarantor_name
+        )
+        try:
+            initial = self._excel.resolve_initial(
+                input_code,
+                issuer_name=excel_issuer_name,
+                guarantor_name=excel_guarantor_name,
+            )
+        except Exception as exc:
+            return _missing(f"Excel Wind 主数据请求失败: {type(exc).__name__}")
+
+        main_security_code = _source_text(initial.main_security_code)
+        if main_security_code is None or main_security_code == "0":
+            return _missing("Wind Excel 主数据缺少主证券代码")
+        issuer_wind_code = (
+            mapped_issuer_code
+            if mapped_issuer_code is not None
+            else _source_text(initial.issuer_wind_code)
+        )
+        if issuer_wind_code is None:
+            return _missing("Wind Excel 主数据缺少债务主体wind代码")
+
+        try:
+            anchor = self._excel.resolve_anchor_attributes(
+                main_security_code, pd.Timestamp(business_date)
+            )
+        except Exception as exc:
+            return _missing(f"Excel Wind 主证券属性请求失败: {type(exc).__name__}")
+
+        base_classification, bond_classification = derive_classifications(raw.bond_type2)
+        issuer_type = derive_issuer_type(raw.nature1)
+        wind_industry = _source_text(initial.wind_industry)
+        city_investment = raw.is_city_investment_bond
+        bond_category = derive_bond_category(
+            base_classification,
+            city_investment or "",
+            wind_industry or "",
+            issuer_type,
+        )
         try:
             master = BondMaster(
                 input_code=input_code,
-                main_security_code=_normalize_main_security_code(
-                    _as_text(values["main_security_code"])
+                main_security_code=main_security_code,
+                isin_code=derive_isin(input_code, raw.isin_code),
+                bond_name=raw.asset_name,
+                issuer_name=issuer_name,
+                issuer_wind_code=issuer_wind_code,
+                controller_name=raw.controller_name,
+                guarantor_name=raw.guarantor_name,
+                guarantor_wind_code=_guarantor_code(
+                    raw.guarantor_name, initial.guarantor_wind_code
                 ),
-                isin_code=_as_optional_text(values["isin_code"]),
-                bond_name=_as_text(values["bond_name"]),
-                issuer_name=_as_text(values["issuer_name"]),
-                issuer_wind_code=_as_optional_text(values["issuer_wind_code"]),
-                controller_name=_as_optional_text(values["controller_name"]),
-                guarantor_name=_as_optional_text(values["guarantor_name"]),
-                guarantor_wind_code=_as_optional_text(values["guarantor_wind_code"]),
-                outstanding_balance_yi=_as_optional_finite_float(
-                    values["outstanding_balance_yi"]
-                ),
-                bond_classification=_as_optional_text(values["bond_classification"]),
-                bond_type=_as_optional_text(values["bond_type"]),
-                issuer_type=_as_optional_text(values["issuer_type"]),
-                is_city_investment_bond=_as_optional_text(
-                    values["is_city_investment_bond"]
-                ),
-                bond_category=_as_optional_text(values["bond_category"]),
-                wind_industry=_as_optional_text(values["wind_industry"]),
-                province=_as_optional_text(values["province"]),
+                outstanding_balance_yi=_finite_float(anchor.outstanding_balance_yi),
+                bond_classification=bond_classification,
+                bond_type=raw.bond_type,
+                issuer_type=issuer_type,
+                is_city_investment_bond=city_investment,
+                bond_category=bond_category,
+                wind_industry=wind_industry,
+                province=_source_text(initial.province),
+                asset_name=raw.asset_name,
+                main_security_name=_source_text(anchor.main_security_name),
             )
         except (TypeError, ValueError) as exc:
             return _missing(f"Wind 主数据规范化失败: {exc}")
-        if not master.main_security_code:
-            return _missing("Wind 主数据缺少主证券代码")
-
-        wind_data_date = None
-        if self._field_map.wind_data_date is not None:
-            wind_data_date = _as_optional_text(
-                _clean_value(record.get(self._field_map.wind_data_date))
-            )
         return MasterResolution(
             source=MasterSource.WIND,
             master=master,
             reason=None,
             wind_fetched_at=datetime.now(UTC),
-            wind_data_date=wind_data_date,
         )
 
     @staticmethod
     def _load_production_gateway() -> WindGateway | None:
-        try:
-            from WindPy import w  # type: ignore[import-not-found]
-        except Exception:
-            return None
-        return w
+        module = _import_windpy()
+        return getattr(module, "w", None) if module is not None else None
 
 
-def _missing(reason: str) -> MasterResolution:
-    return MasterResolution(
-        source=MasterSource.MISSING_MASTER,
-        master=None,
-        reason=reason,
+def _parse_raw_fields(record: Mapping[str, Any]) -> tuple[_WindRawFields | None, str | None]:
+    asset_name = _source_text(record.get("SEC_NAME"))
+    bond_type = _source_text(record.get("WINDL1TYPE"))
+    bond_type2 = _source_text(record.get("WINDL2TYPE"))
+    nature1 = _source_text(record.get("NATURE1"))
+    if asset_name is None:
+        return None, "Wind 主数据缺少资产名称"
+    if bond_type is None:
+        return None, "Wind 主数据缺少债券类型1"
+    if bond_type2 is None:
+        return None, "Wind 主数据缺少债券类型2"
+    if nature1 is None:
+        return None, "Wind 主数据缺少发行人类型原始值"
+
+    # 底稿 b_agency_guarantor 的无担保输出为 0；WSS 的空输出在此处同义化。
+    guarantor_name = _source_text(record.get("AGENCY_GUARANTOR")) or "0"
+    return (
+        _WindRawFields(
+            asset_name=asset_name,
+            isin_code=record.get("ISIN_CODE"),
+            issuer=_source_text(record.get("ISSUER")),
+            issuer_updated=_source_text(record.get("ISSUERUPDATED")),
+            controller_name=_source_text(record.get("HOLDER_CONTROLLER")),
+            guarantor_name=guarantor_name,
+            bond_type=bond_type,
+            bond_type2=bond_type2,
+            nature1=nature1,
+            is_city_investment_bond=_source_text(record.get("MUNICIPALBONDWIND")),
+        ),
+        None,
     )
 
 
-def _normalize_input_code(value: object) -> str | None:
-    normalized = _as_optional_text(_clean_value(value))
-    return normalized.upper() if normalized is not None else None
+def _guarantor_code(guarantor_name: str, value: object) -> str | None:
+    if guarantor_name == "0":
+        return None
+    code = _source_text(value)
+    # 底稿的 IF(To_WindCode(担保人)=0, "", To_WindCode(担保人)) 明确把 0 置空。
+    return None if code in {None, "0"} else code
 
 
-def _normalize_main_security_code(value: str) -> str:
-    return value.upper().split(".", maxsplit=1)[0].strip()
+def _load_static_issuer_wind_code_mapping() -> dict[str, str]:
+    if not _STATIC_ISSUER_MAPPING.is_file():
+        return {}
+    try:
+        with _STATIC_ISSUER_MAPPING.open(encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            return {
+                issuer: code
+                for row in reader
+                if (issuer := _source_text(row.get("发行人"))) is not None
+                and (code := _source_text(row.get("wind代码"))) is not None
+            }
+    except OSError:
+        return {}
+
+
+def _import_windpy() -> Any | None:
+    """加载官方 WindPy，不触发登录或数据请求。"""
+
+    try:
+        return importlib.import_module("WindPy")
+    except Exception:
+        pass
+
+    for directory in _windpy_search_paths():
+        if not directory.is_dir():
+            continue
+        directory_text = str(directory)
+        if directory_text not in sys.path:
+            sys.path.insert(0, directory_text)
+        try:
+            return importlib.import_module("WindPy")
+        except Exception:
+            continue
+    return None
+
+
+def _windpy_search_paths() -> tuple[Path, ...]:
+    configured = os.environ.get(_WINDPY_PATH_ENV, "").strip()
+    candidates = [
+        *( [Path(configured).expanduser()] if configured else [] ),
+        _OFFICIAL_MACOS_WINDPY_PATH,
+    ]
+    return tuple(dict.fromkeys(candidates))
 
 
 def _parse_wss_response(response: Any) -> tuple[int, list[Mapping[str, Any]]]:
@@ -248,36 +315,35 @@ def _error_code(result: Any) -> int:
         return 1
 
 
-def _clean_value(value: Any) -> Any | None:
+def _normalized_text(value: object) -> str | None:
+    text = _source_text(value)
+    return text.upper() if text is not None else None
+
+
+def _source_text(value: object) -> str | None:
     if value is None:
         return None
     if isinstance(value, float) and isnan(value):
         return None
-    if isinstance(value, str):
-        value = value.strip()
-        return None if value.lower() in {"", "nan", "none", "null", "nat"} else value
-    return value
+    text = str(value).strip()
+    return text if text and text.lower() not in {"nan", "none", "null", "nat"} else None
 
 
-def _as_text(value: Any | None) -> str:
-    normalized = _as_optional_text(value)
-    if normalized is None:
-        raise ValueError("文本字段为空")
-    return normalized
-
-
-def _as_optional_text(value: Any | None) -> str | None:
-    value = _clean_value(value)
-    return str(value).strip() if value is not None else None
-
-
-def _as_optional_finite_float(value: Any | None) -> float | None:
+def _finite_float(value: object) -> float | None:
     if value is None:
         return None
     try:
-        numeric = float(value)
+        number = float(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError("数值字段不是数字") from exc
-    if not isfinite(numeric):
-        raise ValueError("数值字段不是有限数")
-    return numeric
+        raise ValueError("债券余额不是数值") from exc
+    if not isfinite(number):
+        raise ValueError("债券余额不是有限数")
+    return number
+
+
+def _missing(reason: str) -> MasterResolution:
+    return MasterResolution(
+        source=MasterSource.MISSING_MASTER,
+        master=None,
+        reason=reason,
+    )

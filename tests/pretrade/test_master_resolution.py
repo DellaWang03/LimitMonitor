@@ -70,7 +70,7 @@ class CountingProvider:
         self.master = master
         self.calls: list[str] = []
 
-    def resolve(self, bond_code: str) -> MasterResolution:
+    def resolve(self, bond_code: str, business_date: pd.Timestamp) -> MasterResolution:
         self.calls.append(bond_code)
         return MasterResolution(MasterSource.WIND, self.master, None)
 
@@ -83,8 +83,29 @@ def test_complete_held_bond_uses_snapshot_without_wind() -> None:
     assert result.source is MasterSource.SNAPSHOT
     assert result.master is not None
     assert result.master.issuer_name == "测试发行人"
-    assert result.master.main_security_code == "102480811"
+    assert result.master.main_security_code == "102480811.IB"
     assert wind.calls == []
+
+
+def test_held_master_preserves_anchor_fields_and_raw_controller() -> None:
+    frames = _kernel_input().detached_frames()
+    frames["债券持仓明细表_信用债"].loc[0, "资产代码"] = "184072.SH"
+    frames["债券持仓明细表_信用债"].loc[0, "资产名称"] = "21台州01"
+    frames["债券持仓明细表_信用债"].loc[0, "主证券代码"] = "2180399.IB"
+    frames["债券持仓明细表_信用债"].loc[0, "主证券名称"] = "21台州债01"
+    frames["债券持仓明细表_信用债"].loc[0, "实际控制人名称"] = "原始实控人"
+    frames["债券持仓明细表_信用债"].loc[0, "实际控制人名称_修正"] = "修正后实控人"
+
+    result = SnapshotBondMasterResolver(
+        CountingProvider(_complete_master("900001.IB"))
+    ).resolve(make_kernel_input(frames), "184072.SH")
+
+    assert result.source is MasterSource.SNAPSHOT
+    assert result.master is not None
+    assert result.master.main_security_code == "2180399.IB"
+    assert result.master.asset_name == "21台州01"
+    assert result.master.main_security_name == "21台州债01"
+    assert result.master.controller_name == "原始实控人"
 
 
 def test_incomplete_held_bond_never_falls_back_to_wind() -> None:
@@ -108,7 +129,7 @@ def test_confirmed_nonheld_bond_calls_wind_once() -> None:
     assert wind.calls == ["900003.IB"]
 
 
-def test_held_master_keeps_production_corrected_controller_precedence() -> None:
+def test_held_master_keeps_raw_controller_for_common_kernel_adjustment() -> None:
     frames = _kernel_input().detached_frames()
     frames["债券持仓明细表_信用债"].loc[
         0, "实际控制人名称"
@@ -124,4 +145,4 @@ def test_held_master_keeps_production_corrected_controller_precedence() -> None:
 
     assert result.source is MasterSource.SNAPSHOT
     assert result.master is not None
-    assert result.master.controller_name == "修正后实控人"
+    assert result.master.controller_name == "原始实控人"

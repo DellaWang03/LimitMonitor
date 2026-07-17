@@ -23,10 +23,12 @@ _CODE_COLUMNS = ("资产代码", "主证券代码")
 _MASTER_COLUMNS = {
     "main_security_code": ("主证券代码",),
     "isin_code": ("ISIN码",),
-    "bond_name": ("主证券名称", "资产名称"),
+    "bond_name": ("资产名称", "主证券名称"),
+    "asset_name": ("资产名称",),
+    "main_security_name": ("主证券名称",),
     "issuer_name": ("债务主体",),
     "issuer_wind_code": ("债务主体wind代码",),
-    "controller_name": ("实际控制人名称_修正", "实际控制人名称"),
+    "controller_name": ("实际控制人名称", "实际控制人名称_修正"),
     "guarantor_name": ("担保人",),
     "guarantor_wind_code": ("担保人wind代码",),
     "outstanding_balance_yi": ("债券余额(亿)",),
@@ -70,7 +72,7 @@ class SnapshotBondMasterResolver:
             matched |= normalize_security_code_series(frame[column]) == normalized_code
         held_rows = frame.loc[matched].copy()
         if held_rows.empty:
-            return self._wind_provider.resolve(normalized_code)
+            return self._wind_provider.resolve(normalized_code, inputs.business_date)
         return _master_from_held_rows(normalized_code, held_rows)
 
 
@@ -79,8 +81,9 @@ def _master_from_held_rows(
 ) -> MasterResolution:
     values: dict[str, Any | None] = {}
     for attribute, candidates in _MASTER_COLUMNS.items():
-        # 候选列是生产口径的优先级链（例如“实际控制人名称_修正”优先于
-        # 原字段），并非需相互一致的多份同义数据。
+        # 候选列是生产口径的优先级链（例如实际控制人保留原字段，
+        # 仅在其缺失时回退“实际控制人名称_修正”），并非需相互一致的
+        # 多份同义数据。
         distinct: list[Any] = []
         for column in candidates:
             if column not in held_rows:
@@ -108,9 +111,7 @@ def _master_from_held_rows(
     try:
         master = BondMaster(
             input_code=input_code,
-            main_security_code=_strip_security_suffix(
-                _as_required_text(values["main_security_code"])
-            ),
+            main_security_code=_as_required_text(values["main_security_code"]),
             isin_code=_as_optional_text(values["isin_code"]),
             bond_name=_as_required_text(values["bond_name"]),
             issuer_name=_as_required_text(values["issuer_name"]),
@@ -130,6 +131,8 @@ def _master_from_held_rows(
             bond_category=_as_optional_text(values["bond_category"]),
             wind_industry=_as_optional_text(values["wind_industry"]),
             province=_as_optional_text(values["province"]),
+            asset_name=_as_required_text(values["asset_name"]),
+            main_security_name=_as_required_text(values["main_security_name"]),
         )
     except (TypeError, ValueError) as exc:
         return _missing_snapshot(f"持仓快照主数据规范化失败: {exc}")
@@ -146,10 +149,6 @@ def _normalize_code(value: object) -> str | None:
     if _clean_value(value) is None:
         return None
     return str(value).strip().upper()
-
-
-def _strip_security_suffix(value: str) -> str:
-    return value.strip().upper().split(".", maxsplit=1)[0]
 
 
 def _clean_value(value: Any) -> Any | None:

@@ -1,139 +1,257 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import importlib
+import sys
 
 import pandas as pd
 import pytest
 
+from src.pretrade import windpy_master
 from src.pretrade.service_models import MasterSource
-from src.pretrade.windpy_master import WindFieldMap, WindPyBondMasterProvider
+from src.pretrade.wind_excel_master import AnchorExcelValues, InitialExcelValues
+from src.pretrade.windpy_master import DEFAULT_WIND_FIELDS, WindPyBondMasterProvider
 
 
-FIELD_MAP = WindFieldMap(
-    main_security_code="SECURITY_CODE",
-    isin_code="ISIN",
-    bond_name="SEC_NAME",
-    issuer_name="ISSUER",
-    issuer_wind_code="ISSUER_CODE",
-    controller_name="CONTROLLER",
-    guarantor_name="GUARANTOR",
-    guarantor_wind_code="GUARANTOR_CODE",
-    outstanding_balance_yi="OUTSTANDING",
-    bond_classification="BOND_CLASS",
-    bond_type="BOND_TYPE",
-    issuer_type="ISSUER_TYPE",
-    is_city_investment_bond="CITY_INVESTMENT",
-    bond_category="BOND_CATEGORY",
-    wind_industry="WIND_INDUSTRY",
-    province="PROVINCE",
-    wind_data_date="TRADE_DATE",
-)
+DAY = pd.Timestamp("2026-07-10")
 
 
-COMPLETE_WIND_ROW = {
-    "SECURITY_CODE": "102480811.IB",
-    "ISIN": "CND1000TEST1",
-    "SEC_NAME": "24测试MTN001",
-    "ISSUER": "测试发行人",
-    "ISSUER_CODE": "10000001.WI",
-    "CONTROLLER": "测试实控人",
-    "GUARANTOR": None,
-    "GUARANTOR_CODE": None,
-    "OUTSTANDING": 123.45,
-    "BOND_CLASS": "信用债",
-    "BOND_TYPE": "中期票据",
-    "ISSUER_TYPE": "地方国企",
-    "CITY_INVESTMENT": "否",
-    "BOND_CATEGORY": "产业债",
-    "WIND_INDUSTRY": "公用事业",
-    "PROVINCE": "河北省",
-    "TRADE_DATE": "2026-07-10",
-}
+def _write_windpy_module(directory, marker: str) -> None:
+    (directory / "WindPy.py").write_text(
+        "class Gateway:\n"
+        f"    marker = {marker!r}\n"
+        "w = Gateway()\n",
+        encoding="utf-8",
+    )
+
+
+def _clear_test_windpy_module(directory) -> object | None:
+    importlib.invalidate_caches()
+    original = sys.modules.pop("WindPy", None)
+    directory_text = str(directory)
+    while directory_text in sys.path:
+        sys.path.remove(directory_text)
+    return original
+
+
+def _restore_test_windpy_module(original: object | None) -> None:
+    sys.modules.pop("WindPy", None)
+    if original is not None:
+        sys.modules["WindPy"] = original
+
+
+def test_provider_loads_windpy_from_configured_official_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _write_windpy_module(tmp_path, "configured-official-install")
+    monkeypatch.setenv("LIMIT_MONITOR_WINDPY_PATH", str(tmp_path))
+    original = _clear_test_windpy_module(tmp_path)
+
+    try:
+        gateway = WindPyBondMasterProvider._load_production_gateway()
+        assert gateway is not None
+        assert gateway.marker == "configured-official-install"
+    finally:
+        _restore_test_windpy_module(original)
+        _clear_test_windpy_module(tmp_path)
+
+
+def test_provider_loads_windpy_from_default_macos_official_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _write_windpy_module(tmp_path, "macos-official-install")
+    monkeypatch.delenv("LIMIT_MONITOR_WINDPY_PATH", raising=False)
+    monkeypatch.setattr(
+        windpy_master, "_OFFICIAL_MACOS_WINDPY_PATH", tmp_path, raising=False
+    )
+    original = _clear_test_windpy_module(tmp_path)
+
+    try:
+        gateway = WindPyBondMasterProvider._load_production_gateway()
+        assert gateway is not None
+        assert gateway.marker == "macos-official-install"
+    finally:
+        _restore_test_windpy_module(original)
+        _clear_test_windpy_module(tmp_path)
+
+
+def _wind_row(**overrides: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "SEC_NAME": "21台州01",
+        "ISIN_CODE": "CND1000TEST1",
+        "ISSUER": "原始权益人",
+        "ISSUERUPDATED": "更新债务主体",
+        "HOLDER_CONTROLLER": "原始实控人",
+        "AGENCY_GUARANTOR": 0,
+        "WINDL1TYPE": "中期票据",
+        "WINDL2TYPE": "一般中期票据",
+        "NATURE1": "地方国有企业",
+        "MUNICIPALBONDWIND": "否",
+    }
+    row.update(overrides)
+    return row
 
 
 @dataclass
 class FakeGateway:
+    row: dict[str, object]
     start_result: object = 0
-    wss_result: object | None = None
-    calls: list[tuple[str, str, bool]] | None = None
-
-    def __post_init__(self) -> None:
-        self.calls = []
-
-    @classmethod
-    def single(cls, row: dict[str, object]) -> "FakeGateway":
-        return cls(wss_result=(0, pd.DataFrame([row])))
-
-    @classmethod
-    def start_failure(cls) -> "FakeGateway":
-        return cls(start_result=-1)
-
-    @classmethod
-    def error(cls) -> "FakeGateway":
-        return cls(wss_result=(-40522017, pd.DataFrame()))
-
-    @classmethod
-    def multiple_rows(cls) -> "FakeGateway":
-        return cls(wss_result=(0, pd.DataFrame([COMPLETE_WIND_ROW, COMPLETE_WIND_ROW])))
+    calls: list[tuple[str, str, bool]] = field(default_factory=list)
 
     def start(self):
         return self.start_result
 
     def wss(self, bond_code: str, fields: str, *, usedf: bool):
-        assert self.calls is not None
         self.calls.append((bond_code, fields, usedf))
-        return self.wss_result
+        return 0, pd.DataFrame([self.row])
 
 
-def test_provider_normalizes_one_complete_wind_record() -> None:
-    gateway = FakeGateway.single(COMPLETE_WIND_ROW)
-    provider = WindPyBondMasterProvider(gateway=gateway, field_map=FIELD_MAP)
+@dataclass
+class FakeExcelGateway:
+    initial: InitialExcelValues
+    anchor: AnchorExcelValues
+    initial_calls: list[tuple[str, str | None, str | None]] = field(default_factory=list)
+    anchor_calls: list[tuple[str, pd.Timestamp]] = field(default_factory=list)
 
-    result = provider.resolve("102480811.IB")
+    def resolve_initial(
+        self, bond_code: str, *, issuer_name: str | None, guarantor_name: str | None
+    ) -> InitialExcelValues:
+        self.initial_calls.append((bond_code, issuer_name, guarantor_name))
+        return self.initial
+
+    def resolve_anchor_attributes(
+        self, main_security_code: str, business_date: pd.Timestamp
+    ) -> AnchorExcelValues:
+        self.anchor_calls.append((main_security_code, business_date))
+        return self.anchor
+
+
+def _excel(
+    *,
+    main_code: object = "2180399.IB",
+    industry: object = "公用事业",
+    province: object = "浙江省",
+    issuer_code: object = "F1000001.00",
+    guarantor_code: object = None,
+    main_name: object = "21台州债01",
+    balance: object = 100.0,
+) -> FakeExcelGateway:
+    return FakeExcelGateway(
+        InitialExcelValues(
+            main_security_code=main_code,
+            wind_industry=industry,
+            province=province,
+            issuer_wind_code=issuer_code,
+            guarantor_wind_code=guarantor_code,
+        ),
+        AnchorExcelValues(
+            main_security_name=main_name,
+            outstanding_balance_yi=balance,
+        ),
+    )
+
+
+def test_provider_constructs_source_shaped_master_for_ordinary_bond() -> None:
+    gateway = FakeGateway(_wind_row())
+    excel = _excel()
+
+    result = WindPyBondMasterProvider(
+        gateway=gateway,
+        excel_gateway=excel,
+        issuer_wind_code_mapping={"更新债务主体": "F0999999.00"},
+    ).resolve("184072.SH", DAY)
 
     assert result.source is MasterSource.WIND
     assert result.master is not None
-    assert result.master.input_code == "102480811.IB"
-    assert result.master.main_security_code == "102480811"
-    assert result.master.issuer_name == "测试发行人"
-    assert result.wind_fetched_at is not None
-    assert result.wind_data_date == "2026-07-10"
-    assert gateway.calls == [("102480811.IB", FIELD_MAP.request_fields, True)]
+    assert result.master.input_code == "184072.SH"
+    assert result.master.asset_name == "21台州01"
+    assert result.master.main_security_code == "2180399.IB"
+    assert result.master.main_security_name == "21台州债01"
+    assert result.master.outstanding_balance_yi == 100.0
+    assert result.master.issuer_name == "更新债务主体"
+    assert result.master.issuer_wind_code == "F0999999.00"
+    assert result.master.controller_name == "原始实控人"
+    assert result.master.guarantor_name == "0"
+    assert result.master.guarantor_wind_code is None
+    assert result.master.bond_classification == "信用债"
+    assert result.master.bond_type == "中期票据"
+    assert result.master.issuer_type == "国企"
+    assert result.master.bond_category == "国企债"
+    assert result.master.isin_code is None
+    assert excel.initial_calls == [("184072.SH", None, None)]
+    assert excel.anchor_calls == [("2180399.IB", DAY)]
+    assert gateway.calls == [("184072.SH", DEFAULT_WIND_FIELDS, True)]
 
 
-@pytest.mark.parametrize(
-    "gateway",
-    [FakeGateway.start_failure(), FakeGateway.error(), FakeGateway.multiple_rows()],
-)
-def test_provider_returns_missing_master_without_fallback(gateway: FakeGateway) -> None:
-    result = WindPyBondMasterProvider(gateway=gateway, field_map=FIELD_MAP).resolve(
-        "102480811.IB"
-    )
-
-    assert result.source is MasterSource.MISSING_MASTER
-    assert result.master is None
-    assert result.reason
-
-
-def test_provider_rejects_required_source_field_missing() -> None:
-    incomplete = COMPLETE_WIND_ROW.copy()
-    incomplete["ISSUER"] = None
-
+def test_provider_uses_issuer_only_for_exact_asset_backed_type2() -> None:
     result = WindPyBondMasterProvider(
-        gateway=FakeGateway.single(incomplete), field_map=FIELD_MAP
-    ).resolve("102480811.IB")
+        gateway=FakeGateway(_wind_row(WINDL2TYPE="资产支持证券")),
+        excel_gateway=_excel(),
+    ).resolve("X.IB", DAY)
+
+    assert result.master is not None
+    assert result.master.issuer_name == "原始权益人"
+
+
+def test_provider_keeps_issuerupdated_for_non_exact_abs_type2() -> None:
+    result = WindPyBondMasterProvider(
+        gateway=FakeGateway(_wind_row(WINDL2TYPE="证监会主管ABS")),
+        excel_gateway=_excel(),
+    ).resolve("159636.SH", DAY)
+
+    assert result.master is not None
+    assert result.master.issuer_name == "更新债务主体"
+    assert result.master.bond_classification == "信用债"
+
+
+def test_provider_uses_excel_code_only_when_static_issuer_mapping_misses() -> None:
+    excel = _excel(issuer_code="F1000001.00", guarantor_code=0)
+    result = WindPyBondMasterProvider(
+        gateway=FakeGateway(_wind_row(AGENCY_GUARANTOR="测试担保人")),
+        excel_gateway=excel,
+        issuer_wind_code_mapping={},
+    ).resolve("X.IB", DAY)
+
+    assert result.master is not None
+    assert result.master.issuer_wind_code == "F1000001.00"
+    assert result.master.guarantor_name == "测试担保人"
+    assert result.master.guarantor_wind_code is None
+    assert excel.initial_calls == [("X.IB", "更新债务主体", "测试担保人")]
+
+
+def test_provider_preserves_zero_main_name_and_balance_without_input_fallback() -> None:
+    excel = _excel(main_code="UULB.SG", main_name=0, balance=0)
+    result = WindPyBondMasterProvider(
+        gateway=FakeGateway(_wind_row(SEC_NAME="26大华银行债01")),
+        excel_gateway=excel,
+    ).resolve("292680009.IB", DAY)
+
+    assert result.master is not None
+    assert result.master.main_security_code == "UULB.SG"
+    assert result.master.main_security_name == "0"
+    assert result.master.outstanding_balance_yi == 0.0
+    assert excel.anchor_calls == [("UULB.SG", DAY)]
+
+
+def test_provider_returns_missing_for_true_required_wind_or_anchor_absence() -> None:
+    missing_issuer = WindPyBondMasterProvider(
+        gateway=FakeGateway(_wind_row(ISSUERUPDATED=None)),
+        excel_gateway=_excel(),
+    ).resolve("X.IB", DAY)
+    missing_anchor = WindPyBondMasterProvider(
+        gateway=FakeGateway(_wind_row()),
+        excel_gateway=_excel(main_code=None),
+    ).resolve("X.IB", DAY)
+
+    assert missing_issuer.source is MasterSource.MISSING_MASTER
+    assert missing_anchor.source is MasterSource.MISSING_MASTER
+
+
+def test_provider_returns_missing_when_wind_start_fails() -> None:
+    result = WindPyBondMasterProvider(
+        gateway=FakeGateway(_wind_row(), start_result=-1),
+        excel_gateway=_excel(),
+    ).resolve("X.IB", DAY)
 
     assert result.source is MasterSource.MISSING_MASTER
     assert result.master is None
-    assert "issuer_name" in (result.reason or "")
-
-
-def test_provider_does_not_issue_guessed_request_without_verified_field_map() -> None:
-    gateway = FakeGateway.single(COMPLETE_WIND_ROW)
-
-    result = WindPyBondMasterProvider(gateway=gateway).resolve("102480811.IB")
-
-    assert result.source is MasterSource.MISSING_MASTER
-    assert result.master is None
-    assert result.reason == "Wind 字段映射尚未通过连通性验收"
-    assert gateway.calls == []

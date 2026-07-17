@@ -49,6 +49,10 @@ class BondMaster:
     bond_category: str | None
     wind_industry: str | None
     province: str | None
+    # 旧测试和高收益附加源暂时仍使用 bond_name；交易原始行必须使用下列
+    # 两个有明确语义的名称，不能再将二者混为一谈。
+    asset_name: str | None = None
+    main_security_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -65,5 +69,5 @@ class MasterResolution:
 class BondMasterProvider(Protocol):
     """非持仓债主数据边界；实现不得持久化或缓存响应。"""
 
-    def resolve(self, bond_code: str) -> MasterResolution:
+    def resolve(self, bond_code: str, business_date: datetime) -> MasterResolution:
         raise NotImplementedError

@@ -67,17 +67,18 @@ def _position_row(
     business_date: pd.Timestamp, line: PretradeLine, master
 ) -> dict[str, object]:
     code = _normalized_code(line.bond_code)
+    asset_name = master.asset_name or master.bond_name
+    main_security_name = master.main_security_name or master.bond_name
     return {
         "日期": business_date,
         "内部证券账户名称": line.account,
         "资产代码": code,
         "ISIN码": master.isin_code,
-        "资产名称": master.bond_name,
+        "资产名称": asset_name,
         "债券分类2": master.bond_classification,
         "债券类型1": master.bond_type,
-        # 交易代码携带市场后缀，是当前生产归并键可用的原始主证券代码。
-        "主证券代码": code,
-        "主证券名称": master.bond_name,
+        "主证券代码": master.main_security_code,
+        "主证券名称": main_security_name,
         "库存数量(万)_PR": line.pr_wan,
         "债券余额(亿)": master.outstanding_balance_yi,
         "发行人类型": master.issuer_type,
@@ -118,12 +119,13 @@ def _append_high_yield_cost_rows(
     if not isfinite(full_price_cost_wan):
         raise TradeOverlayError("拟买全价成本必须是有限数")
 
+    asset_name = master.asset_name or master.bond_name
     accounting_source = pd.DataFrame(
         [
             {
                 "日期": business_date,
                 "账户": line.account,
-                "简称": master.bond_name,
+                "简称": asset_name,
                 "代码": master.main_security_code,
                 "持仓面额(元)": line.pr_wan * 10_000,
                 "全价成本(元)": full_price_cost_wan * 10_000,
@@ -146,7 +148,7 @@ def _append_high_yield_cost_rows(
                 "日期": business_date,
                 "ISIN码": master.isin_code,
                 "资产代码": _normalized_code(line.bond_code),
-                "资产名称": master.bond_name,
+                "资产名称": asset_name,
                 "内部证券账户名称": line.account,
                 "库存数量(万)_PR": line.pr_wan,
                 "本币成本": full_price_cost_wan * 10_000,
