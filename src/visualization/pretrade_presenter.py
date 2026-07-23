@@ -11,6 +11,7 @@ from src.pretrade.result_adapter import (
     BasketCheck,
     CalculationStatus,
     DimensionResult,
+    InputLineAudit,
     SingleBondQuote,
 )
 from src.pretrade.service_models import PretradeLine
@@ -88,11 +89,44 @@ def dimension_frame(
 
 
 def single_quote_status(quote: SingleBondQuote) -> str:
-    if quote.purchasable_pr_cap_wan is None:
-        return "不可计算"
-    if quote.raw_pr_remaining_wan is not None and quote.raw_pr_remaining_wan < 0:
-        return "当前已超限"
-    return "可计算"
+    """原样返回后端总体状态，不从金额字段推导。"""
+
+    return quote.status
+
+
+def line_audit_frame(audits: Sequence[InputLineAudit]) -> pd.DataFrame:
+    """将后端逐输入行审计契约直接投影为稳定展示文本。"""
+
+    rows = [
+        {
+            "输入行": item.line_id,
+            "主数据解析状态": item.master_status,
+            "master_source": (
+                item.master_source.value
+                if item.master_source is not None
+                else "—"
+            ),
+            "wind_fetched_at": (
+                item.wind_fetched_at.isoformat(sep=" ", timespec="seconds")
+                if item.wind_fetched_at is not None
+                else "—"
+            ),
+            "wind_data_date": item.wind_data_date or "—",
+            "uncomputable_reason": item.uncomputable_reason or "—",
+        }
+        for item in audits
+    ]
+    return pd.DataFrame(
+        rows,
+        columns=(
+            "输入行",
+            "主数据解析状态",
+            "master_source",
+            "wind_fetched_at",
+            "wind_data_date",
+            "uncomputable_reason",
+        ),
+    )
 
 
 def basket_summary(result: BasketCheck) -> dict[str, Any]:

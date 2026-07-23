@@ -123,6 +123,7 @@ def test_adapter_uses_raw_remaining_and_does_not_apply_tolerance() -> None:
 def test_adapter_keeps_full_price_out_of_pr_minimum() -> None:
     quote = PretradeResultAdapter().single_from_probe(_run(include_annual=True))
 
+    assert quote.status == "已超限"
     assert quote.raw_pr_remaining_wan == -1.0
     assert quote.purchasable_pr_cap_wan == 0.0
     assert quote.full_price_cost_remaining_wan == 50.0
@@ -151,6 +152,71 @@ def test_adapter_surfaces_missing_master_as_uncomputable_not_zero() -> None:
     assert result.status == "不可计算"
     assert result.line_reasons == {1: "MISSING_MASTER"}
     assert result.dimensions[0].calculation_status is CalculationStatus.MISSING_MASTER
+
+
+def test_high_yield_missing_cost_keeps_master_status_narrow() -> None:
+    run = _run(include_annual=True)
+    overlay = run.overlay_stage1[
+        "限额明细_债券持仓明细表_信用债1_2"
+    ].copy()
+    overlay.loc[0, "单一主体规模剩余额度(万)"] = 1.0
+    overlay.loc[0, "单一主体是否超限"] = "否"
+    missing_cost = replace(
+        run,
+        lines=(replace(run.lines[0], full_price_cost_wan=None),),
+        overlay_stage1={
+            "限额明细_债券持仓明细表_信用债1_2": overlay
+        },
+    )
+
+    result = PretradeResultAdapter().basket_from_kernel(missing_cost)
+
+    annual = next(
+        item
+        for item in result.dimensions
+        if item.name == "高收益年度全价成本"
+        and item.calculation_status is CalculationStatus.UNCOMPUTABLE
+    )
+    assert result.status == "不可计算"
+    assert annual.reason == "高收益债券缺少拟买全价成本"
+    assert result.line_audits[0].master_status == "主数据可用"
+    assert result.line_audits[0].uncomputable_reason is None
+
+
+def test_single_quote_exposes_backend_overall_status() -> None:
+    run = _run()
+    non_breaching_overlay = run.overlay_stage1[
+        "限额明细_债券持仓明细表_信用债1_2"
+    ].copy()
+    non_breaching_overlay.loc[0, "单一主体规模剩余额度(万)"] = 1.0
+    non_breaching_overlay.loc[0, "单一主体是否超限"] = "否"
+    non_breaching = replace(
+        run,
+        overlay_stage1={
+            "限额明细_债券持仓明细表_信用债1_2": non_breaching_overlay
+        },
+    )
+    missing_master = replace(
+        run,
+        lines=(replace(run.lines[0], bond_code="900099.IB"),),
+        resolutions={
+            1: MasterResolution(
+                MasterSource.MISSING_MASTER,
+                None,
+                "Wind 返回记录缺少省份",
+            )
+        },
+    )
+
+    assert (
+        PretradeResultAdapter().single_from_probe(non_breaching).status
+        == "未超限"
+    )
+    assert PretradeResultAdapter().single_from_probe(run).status == "已超限"
+    assert (
+        PretradeResultAdapter().single_from_probe(missing_master).status
+        == "不可计算"
+    )
 
 
 def test_adapter_exposes_existing_master_resolution_audit_for_every_input_line() -> None:
@@ -200,6 +266,7 @@ def test_adapter_exposes_existing_master_resolution_audit_for_every_input_line()
     assert [
         (
             item.line_id,
+            item.master_status,
             item.master_source,
             item.wind_fetched_at,
             item.wind_data_date,
@@ -207,16 +274,18 @@ def test_adapter_exposes_existing_master_resolution_audit_for_every_input_line()
         )
         for item in basket.line_audits
     ] == [
-        (1, MasterSource.SNAPSHOT, None, None, None),
-        (2, MasterSource.WIND, fetched_at, "2026-07-22", None),
+        (1, "主数据可用", MasterSource.SNAPSHOT, None, None, None),
+        (2, "主数据可用", MasterSource.WIND, fetched_at, "2026-07-22", None),
         (
             3,
+            "主数据不可用",
             MasterSource.MISSING_MASTER,
             None,
             None,
             "Wind 返回记录缺少省份",
         ),
     ]
+    assert quote.line_audits[0].master_status == "主数据可用"
     assert quote.line_audits[0].master_source is MasterSource.WIND
     assert quote.line_audits[0].wind_fetched_at == fetched_at
     assert quote.line_audits[0].wind_data_date == "2026-07-22"

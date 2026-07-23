@@ -43,6 +43,7 @@ class DimensionResult:
 @dataclass(frozen=True)
 class InputLineAudit:
     line_id: int
+    master_status: str
     master_source: MasterSource | None
     wind_fetched_at: datetime | None
     wind_data_date: str | None
@@ -64,6 +65,7 @@ class BasketCheck:
 @dataclass(frozen=True)
 class SingleBondQuote:
     snapshot_data_date: str
+    status: str
     raw_pr_remaining_wan: float | None
     purchasable_pr_cap_wan: float | None
     full_price_cost_remaining_wan: float | None
@@ -138,15 +140,9 @@ class PretradeResultAdapter:
             not in {CalculationStatus.CALCULATED, CalculationStatus.NOT_APPLICABLE}
             for item in dimensions
         )
-        if breaches:
-            status = "已超限"
-        elif uncomputable:
-            status = "不可计算"
-        else:
-            status = "未超限"
         return BasketCheck(
             snapshot_data_date=run.data_date,
-            status=status,
+            status=_overall_status(dimensions),
             total_pr_wan=sum(line.pr_wan for line in run.lines),
             confirmed_breach_count=breaches,
             uncomputable_count=uncomputable,
@@ -191,6 +187,7 @@ class PretradeResultAdapter:
         ]
         return SingleBondQuote(
             snapshot_data_date=run.data_date,
+            status=_overall_status(dimensions),
             raw_pr_remaining_wan=raw_remaining,
             purchasable_pr_cap_wan=cap,
             full_price_cost_remaining_wan=min(full_price) if full_price else None,
@@ -368,6 +365,11 @@ def _line_audits(run: KernelProjectionRun) -> tuple[InputLineAudit, ...]:
         audits.append(
             InputLineAudit(
                 line_id=line.line_id,
+                master_status=(
+                    "主数据可用"
+                    if resolution is not None and resolution.master is not None
+                    else "主数据不可用"
+                ),
                 master_source=resolution.source if resolution is not None else None,
                 wind_fetched_at=(
                     resolution.wind_fetched_at if resolution is not None else None
@@ -381,6 +383,25 @@ def _line_audits(run: KernelProjectionRun) -> tuple[InputLineAudit, ...]:
             )
         )
     return tuple(audits)
+
+
+def _overall_status(dimensions: list[DimensionResult]) -> str:
+    """汇总后端维度状态；页面只消费该结果，不从数值重新判断。"""
+
+    if any(
+        item.breached
+        for item in dimensions
+        if item.calculation_status is CalculationStatus.CALCULATED
+    ):
+        return "已超限"
+    if any(
+        item.required
+        and item.calculation_status
+        not in {CalculationStatus.CALCULATED, CalculationStatus.NOT_APPLICABLE}
+        for item in dimensions
+    ):
+        return "不可计算"
+    return "未超限"
 
 
 def _stage_tables(run: KernelProjectionRun, stage: int, *, overlay: bool) -> Mapping[str, pd.DataFrame]:

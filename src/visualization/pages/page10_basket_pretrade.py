@@ -15,6 +15,7 @@ from src.visualization.pretrade_presenter import (
     basket_lines_from_frame,
     basket_summary,
     dimension_frame,
+    line_audit_frame,
 )
 from src.visualization.pretrade_service import get_pretrade_risk_service
 
@@ -62,6 +63,17 @@ def _render_result(result: BasketCheck) -> None:
     if result.line_reasons:
         for line_id, reason in sorted(result.line_reasons.items()):
             st.warning(f"输入第 {line_id} 行：{reason}")
+
+    st.markdown("#### 逐输入行主数据审计")
+    st.caption("主数据来源与解析审计；限额可计算性以总体状态和维度明细为准。")
+    audit_table = line_audit_frame(result.line_audits)
+    render_data_table(
+        audit_table,
+        height=min(360, 120 + len(audit_table) * 38),
+        highlight_column="主数据解析状态",
+        show_summary=False,
+        enable_export=False,
+    )
 
     st.markdown("#### 整篮合并试算明细")
     table = dimension_frame(result.dimensions, remaining_label="交易后剩余(万)")

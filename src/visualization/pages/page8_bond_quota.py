@@ -12,7 +12,11 @@ from src.pretrade.pretrade_service import PretradeServiceError
 from src.pretrade.result_adapter import SingleBondQuote
 from src.visualization.components.controls import inject_compact_controls_css
 from src.visualization.components.tables import render_data_table
-from src.visualization.pretrade_presenter import dimension_frame, single_quote_status
+from src.visualization.pretrade_presenter import (
+    dimension_frame,
+    line_audit_frame,
+    single_quote_status,
+)
 from src.visualization.pretrade_service import get_pretrade_risk_service
 
 
@@ -50,12 +54,20 @@ def _render_title() -> None:
 
 def _render_quote(quote: SingleBondQuote, *, bond_code: str, account: str) -> None:
     status = single_quote_status(quote)
-    status_tone = "success" if status == "可计算" else "warning"
+    status_tone = {
+        "未超限": "success",
+        "已超限": "danger",
+        "不可计算": "warning",
+    }.get(status, "neutral")
     cards = st.columns(4)
     with cards[0]:
-        _card("PR 可购上限", _format_wan(quote.purchasable_pr_cap_wan), "共同内核交易前试算")
+        _card(
+            "PR 可购上限",
+            _format_wan(quote.purchasable_pr_cap_wan),
+            "共同内核交易前试算",
+        )
     with cards[1]:
-        _card("结果状态", status, "交易前试算", status_tone)
+        _card("总体状态", status, "后端交易前状态", status_tone)
     with cards[2]:
         _card("最紧约束", quote.binding_dimension or "—", "决定最终 PR 额度")
     with cards[3]:
@@ -68,8 +80,25 @@ def _render_quote(quote: SingleBondQuote, *, bond_code: str, account: str) -> No
     st.caption(
         f"债券：{bond_code} ｜ 拟买入账户：{account} ｜ 交易前快照：{quote.snapshot_data_date}"
     )
-    if quote.purchasable_pr_cap_wan is None:
-        st.warning("存在必需数据缺失，系统未给出最终可购额度；请查看下表原因。")
+    if status == "已超限":
+        st.error("总体状态：已超限")
+    elif status == "不可计算":
+        st.warning(
+            "总体状态：不可计算；系统未给出确定建议，请查看逐行审计和维度原因。"
+        )
+    else:
+        st.success("总体状态：未超限")
+
+    st.markdown("#### 逐输入行主数据审计")
+    st.caption("主数据来源与解析审计；限额可计算性以总体状态和维度明细为准。")
+    audit_table = line_audit_frame(quote.line_audits)
+    render_data_table(
+        audit_table,
+        height=min(320, 120 + len(audit_table) * 38),
+        highlight_column="主数据解析状态",
+        show_summary=False,
+        enable_export=False,
+    )
 
     st.markdown("#### 各维度交易前剩余额度")
     table = dimension_frame(quote.dimensions, remaining_label="交易前剩余(万)")
