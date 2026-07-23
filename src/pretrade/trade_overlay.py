@@ -115,9 +115,9 @@ def _append_high_yield_cost_rows(
     try:
         full_price_cost_wan = float(line.full_price_cost_wan)
     except (TypeError, ValueError) as exc:
-        raise TradeOverlayError("拟买全价成本必须是有限数") from exc
-    if not isfinite(full_price_cost_wan):
-        raise TradeOverlayError("拟买全价成本必须是有限数")
+        raise TradeOverlayError("拟买全价成本必须是有限正数") from exc
+    if not isfinite(full_price_cost_wan) or full_price_cost_wan <= 0:
+        raise TradeOverlayError("拟买全价成本必须是有限正数")
 
     asset_name = master.asset_name or master.bond_name
     accounting_source = pd.DataFrame(

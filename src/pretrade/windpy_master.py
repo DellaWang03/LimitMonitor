@@ -6,7 +6,6 @@ Wind 返回，也不修改日常 Stage0 的发行人代码解析器。
 
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import importlib
@@ -24,7 +23,12 @@ from .master_derivations import (
     derive_isin,
     derive_issuer_type,
 )
-from .service_models import BondMaster, MasterResolution, MasterSource
+from .service_models import (
+    BondMaster,
+    MasterResolution,
+    MasterSource,
+    missing_required_bond_master_fields,
+)
 from .wind_excel_master import ExcelWindMasterGateway
 
 
@@ -34,15 +38,6 @@ DEFAULT_WIND_FIELDS = (
 )
 _WINDPY_PATH_ENV = "LIMIT_MONITOR_WINDPY_PATH"
 _OFFICIAL_MACOS_WINDPY_PATH = Path("/Applications/Wind API.app/Contents/python")
-_STATIC_ISSUER_MAPPING = (
-    Path(__file__).resolve().parents[2]
-    / "data"
-    / "current"
-    / "stage0_output"
-    / "issuer_wind_code_mapping.csv"
-)
-
-
 class WindGateway(Protocol):
     """WindPy 的最小可替换接口，避免导入时初始化 Wind。"""
 
@@ -76,14 +71,12 @@ class WindPyBondMasterProvider:
         gateway: WindGateway | None = None,
         excel_gateway: ExcelWindMasterGateway | None = None,
         issuer_wind_code_mapping: Mapping[str, str] | None = None,
+        field_mapping_verified: bool = False,
     ) -> None:
         self._gateway = gateway
         self._excel = excel_gateway or ExcelWindMasterGateway()
-        self._issuer_wind_code_mapping = (
-            dict(issuer_wind_code_mapping)
-            if issuer_wind_code_mapping is not None
-            else _load_static_issuer_wind_code_mapping()
-        )
+        self._issuer_wind_code_mapping = dict(issuer_wind_code_mapping or {})
+        self._field_mapping_verified = field_mapping_verified
 
     def resolve(
         self, bond_code: str, business_date: pd.Timestamp
@@ -91,6 +84,8 @@ class WindPyBondMasterProvider:
         input_code = _normalized_text(bond_code)
         if input_code is None:
             return _missing("债券代码为空或非法")
+        if not self._field_mapping_verified:
+            return _missing("Wind 字段映射尚未通过真实环境验收")
 
         gateway = self._gateway or self._load_production_gateway()
         if gateway is None:
@@ -186,6 +181,9 @@ class WindPyBondMasterProvider:
             )
         except (TypeError, ValueError) as exc:
             return _missing(f"Wind 主数据规范化失败: {exc}")
+        missing = missing_required_bond_master_fields(master)
+        if missing:
+            return _missing(f"Wind 主数据缺少必填字段: {', '.join(missing)}")
         return MasterResolution(
             source=MasterSource.WIND,
             master=master,
@@ -238,22 +236,6 @@ def _guarantor_code(guarantor_name: str, value: object) -> str | None:
     code = _source_text(value)
     # 底稿的 IF(To_WindCode(担保人)=0, "", To_WindCode(担保人)) 明确把 0 置空。
     return None if code in {None, "0"} else code
-
-
-def _load_static_issuer_wind_code_mapping() -> dict[str, str]:
-    if not _STATIC_ISSUER_MAPPING.is_file():
-        return {}
-    try:
-        with _STATIC_ISSUER_MAPPING.open(encoding="utf-8-sig", newline="") as handle:
-            reader = csv.DictReader(handle)
-            return {
-                issuer: code
-                for row in reader
-                if (issuer := _source_text(row.get("发行人"))) is not None
-                and (code := _source_text(row.get("wind代码"))) is not None
-            }
-    except OSError:
-        return {}
 
 
 def _import_windpy() -> Any | None:

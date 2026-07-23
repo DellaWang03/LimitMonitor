@@ -159,6 +159,7 @@ def test_provider_constructs_source_shaped_master_for_ordinary_bond() -> None:
         gateway=gateway,
         excel_gateway=excel,
         issuer_wind_code_mapping={"更新债务主体": "F0999999.00"},
+        field_mapping_verified=True,
     ).resolve("184072.SH", DAY)
 
     assert result.source is MasterSource.WIND
@@ -187,6 +188,7 @@ def test_provider_uses_issuer_only_for_exact_asset_backed_type2() -> None:
     result = WindPyBondMasterProvider(
         gateway=FakeGateway(_wind_row(WINDL2TYPE="资产支持证券")),
         excel_gateway=_excel(),
+        field_mapping_verified=True,
     ).resolve("X.IB", DAY)
 
     assert result.master is not None
@@ -197,6 +199,7 @@ def test_provider_keeps_issuerupdated_for_non_exact_abs_type2() -> None:
     result = WindPyBondMasterProvider(
         gateway=FakeGateway(_wind_row(WINDL2TYPE="证监会主管ABS")),
         excel_gateway=_excel(),
+        field_mapping_verified=True,
     ).resolve("159636.SH", DAY)
 
     assert result.master is not None
@@ -210,6 +213,7 @@ def test_provider_uses_excel_code_only_when_static_issuer_mapping_misses() -> No
         gateway=FakeGateway(_wind_row(AGENCY_GUARANTOR="测试担保人")),
         excel_gateway=excel,
         issuer_wind_code_mapping={},
+        field_mapping_verified=True,
     ).resolve("X.IB", DAY)
 
     assert result.master is not None
@@ -224,6 +228,7 @@ def test_provider_preserves_zero_main_name_and_balance_without_input_fallback() 
     result = WindPyBondMasterProvider(
         gateway=FakeGateway(_wind_row(SEC_NAME="26大华银行债01")),
         excel_gateway=excel,
+        field_mapping_verified=True,
     ).resolve("292680009.IB", DAY)
 
     assert result.master is not None
@@ -237,10 +242,12 @@ def test_provider_returns_missing_for_true_required_wind_or_anchor_absence() -> 
     missing_issuer = WindPyBondMasterProvider(
         gateway=FakeGateway(_wind_row(ISSUERUPDATED=None)),
         excel_gateway=_excel(),
+        field_mapping_verified=True,
     ).resolve("X.IB", DAY)
     missing_anchor = WindPyBondMasterProvider(
         gateway=FakeGateway(_wind_row()),
         excel_gateway=_excel(main_code=None),
+        field_mapping_verified=True,
     ).resolve("X.IB", DAY)
 
     assert missing_issuer.source is MasterSource.MISSING_MASTER
@@ -251,7 +258,45 @@ def test_provider_returns_missing_when_wind_start_fails() -> None:
     result = WindPyBondMasterProvider(
         gateway=FakeGateway(_wind_row(), start_result=-1),
         excel_gateway=_excel(),
+        field_mapping_verified=True,
     ).resolve("X.IB", DAY)
 
     assert result.source is MasterSource.MISSING_MASTER
     assert result.master is None
+
+
+def test_provider_is_fail_closed_until_real_field_mapping_is_verified() -> None:
+    gateway = FakeGateway(_wind_row())
+
+    result = WindPyBondMasterProvider(
+        gateway=gateway,
+        excel_gateway=_excel(),
+    ).resolve("X.IB", DAY)
+
+    assert result.source is MasterSource.MISSING_MASTER
+    assert result.master is None
+    assert result.reason and "字段映射" in result.reason
+    assert gateway.calls == []
+
+
+def test_provider_constructor_does_not_read_data_current_implicitly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forbidden_is_file(_path) -> bool:
+        raise AssertionError("在线服务不得读取 data/current")
+
+    monkeypatch.setattr(windpy_master.Path, "is_file", forbidden_is_file)
+
+    WindPyBondMasterProvider()
+
+
+def test_verified_provider_rejects_missing_required_master_field() -> None:
+    result = WindPyBondMasterProvider(
+        gateway=FakeGateway(_wind_row()),
+        excel_gateway=_excel(province=None),
+        field_mapping_verified=True,
+    ).resolve("X.IB", DAY)
+
+    assert result.source is MasterSource.MISSING_MASTER
+    assert result.master is None
+    assert result.reason and "province" in result.reason

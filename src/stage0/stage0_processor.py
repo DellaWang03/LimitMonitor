@@ -135,7 +135,7 @@ class Stage0Processor:
             except Exception as e:
                 logger.error(f"✗ 查询失败: {query_name}")
                 logger.error(f"  错误: {e}", exc_info=True)
-                results[query_name] = pd.DataFrame()
+                raise
         
         # 批量解析缺失的Wind代码（使用Excel辅助）
         logger.info("\n" + "=" * 80)
@@ -279,6 +279,13 @@ class Stage0Processor:
                 export_dir = self.config.get_data_config_source_dir()
             if hasattr(self.config, "get_data_file_path_without_override"):
                 source_accdb_path = self.config.get_data_file_path_without_override("风控部债券池.accdb")
+        # local profile has no separate data_config_source.  Still wire its own
+        # Access file into the existing macOS mdb-export path so a prior
+        # data/current/stage0_output file can never be reused silently.
+        if export_dir is None and db_path.exists():
+            export_dir = db_path.parent
+        if source_accdb_path is None and db_path.exists():
+            source_accdb_path = db_path
         freshness_threshold_date = None
         if self.config is not None:
             try:

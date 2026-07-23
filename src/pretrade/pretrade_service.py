@@ -121,7 +121,7 @@ def _validate_basket_lines(lines: Sequence[PretradeLine]) -> tuple[PretradeLine,
         bond_code = _validate_text(line.bond_code, "债券代码").upper()
         account = _validate_text(line.account, "拟买入账户")
         pr_wan = _validate_positive_finite(line.pr_wan, "拟买金额_PR")
-        full_price = _validate_optional_finite(line.full_price_cost_wan)
+        full_price = _validate_optional_positive_finite(line.full_price_cost_wan)
         validated.append(
             PretradeLine(
                 line_id=line.line_id,
@@ -149,12 +149,12 @@ def _validate_positive_finite(value: object, field: str) -> float:
     return numeric
 
 
-def _validate_optional_finite(value: object) -> float | None:
+def _validate_optional_positive_finite(value: object) -> float | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, Real):
-        raise ValueError("拟买全价成本必须是有限数")
+        raise ValueError("拟买全价成本必须是有限正数")
     numeric = float(value)
-    if not isfinite(numeric):
-        raise ValueError("拟买全价成本必须是有限数")
+    if not isfinite(numeric) or numeric <= 0:
+        raise ValueError("拟买全价成本必须是有限正数")
     return numeric

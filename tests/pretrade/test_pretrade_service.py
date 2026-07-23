@@ -68,6 +68,8 @@ def _master(code: str, *, issuer: str = "共同发行人") -> BondMaster:
         bond_category="国企债",
         wind_industry="公用事业",
         province="河北省",
+        asset_name=f"债券-{code}",
+        main_security_name=f"债券-{code}",
     )
 
 
@@ -177,17 +179,24 @@ class ProjectionKernel:
                     "单一债券总持仓_PR": bond_used,
                     "单一债券规模限额指标值": 100.0,
                     "单一债券规模剩余额度(万)": 100.0 - bond_used,
+                    "单一债券是否超限": "是" if bond_used > 100.0 else "否",
                     "单一债券集中度限额指标值": 0.16,
                     "单一债券集中度剩余额度(万)": 100.0 - bond_used,
+                    "单一债券集中度是否超限": (
+                        "是" if bond_used > 100.0 else "否"
+                    ),
                     "单一主体总持仓_PR": issuer_used,
                     "单一主体规模限额指标值": 100.0,
                     "单一主体规模剩余额度(万)": 100.0 - issuer_used,
+                    "单一主体是否超限": "是" if issuer_used > 100.0 else "否",
                     "单一实控人总持仓_PR": None,
                     "单一实控人规模限额指标值": None,
                     "单一实控人规模剩余额度(万)": None,
+                    "单一实控人是否超限": "否",
                     "单一担保人总持仓_PR": None,
                     "单一担保公司规模限额": None,
                     "单一担保公司规模剩余额度(万)": None,
+                    "单一担保人是否超限": "否",
                 }
             )
         return {"限额明细_债券持仓明细表_信用债1_2": pd.DataFrame(rows)}
@@ -262,6 +271,24 @@ def test_user_non_positive_or_non_finite_pr_is_invalid(service, amount) -> None:
         service.check_basket([PretradeLine(1, "900001.IB", "自营部交易性", amount)])
 
 
+@pytest.mark.parametrize("full_price", [0.0, -1.0, float("nan"), float("inf")])
+def test_provided_full_price_cost_must_be_finite_and_positive(
+    service, full_price
+) -> None:
+    with pytest.raises(ValueError, match="有限正数"):
+        service.check_basket(
+            [
+                PretradeLine(
+                    1,
+                    "900001.IB",
+                    "自营部交易性",
+                    10.0,
+                    full_price,
+                )
+            ]
+        )
+
+
 def test_single_quote_matches_direct_zero_probe(service) -> None:
     quote = service.quote_single_bond("900001.IB", "自营部交易性")
 
@@ -323,7 +350,7 @@ def test_high_yield_without_full_price_keeps_pr_and_blocks_annual_cost(service) 
 def test_frozen_held_bond_service_reads_only_persisted_snapshot(
     monkeypatch, tmp_path
 ) -> None:
-    """建立真实 27 项快照后，服务路径不得再读取任何业务文件。"""
+    """真实 27 项快照同时验收持仓单券与代表性篮子路径。"""
 
     manifest = FrozenInputManifest.load(FROZEN_MANIFEST).validate(FROZEN_INPUT_ROOT)
     pipeline_root = tmp_path / "pipeline"
@@ -391,6 +418,153 @@ def test_frozen_held_bond_service_reads_only_persisted_snapshot(
 
     assert quote.snapshot_data_date == "2026-07-10"
     assert quote.dimensions
-    assert fake_wind.calls == []
     assert quote.purchasable_pr_cap_wan is None or quote.purchasable_pr_cap_wan >= 0
+    assert [
+        (
+            item.line_id,
+            item.master_source.value if item.master_source is not None else None,
+            item.wind_fetched_at,
+            item.wind_data_date,
+            item.uncomputable_reason,
+        )
+        for item in quote.line_audits
+    ] == [(1, "SNAPSHOT", None, None, None)]
+
+    zero_sentinel = service.check_basket(
+        [PretradeLine(1, "102682469.IB", "自营部交易性", 1.0)]
+    )
+    for name in ("单一实控人规模", "单一担保人规模"):
+        dimension = next(item for item in zero_sentinel.dimensions if item.name == name)
+        assert (
+            dimension.current_used_wan,
+            dimension.trade_amount_wan,
+            dimension.limit_value,
+            dimension.raw_remaining_wan,
+            dimension.breached,
+            dimension.calculation_status.value,
+            dimension.required,
+        ) == (None, None, None, None, False, "NOT_APPLICABLE", False)
+
+    merged = service.check_basket(
+        [PretradeLine(1, "1980184.IB", "自营部交易性", 100.0)]
+    )
+    split = service.check_basket(
+        [
+            PretradeLine(1, "1980184.IB", "自营部交易性", 40.0),
+            PretradeLine(2, "1980184.IB", "自营部交易性", 60.0),
+        ]
+    )
+    golden_dimensions = {
+        "单一债券规模": (7000.0, 100.0, 25000.0, 17900.0, False, "CALCULATED"),
+        "单一主体规模": (10000.0, 100.0, 30000.0, 19900.0, False, "CALCULATED"),
+    }
+    for name, expected in golden_dimensions.items():
+        merged_dimension = next(item for item in merged.dimensions if item.name == name)
+        split_dimension = next(item for item in split.dimensions if item.name == name)
+        merged_values = (
+            merged_dimension.current_used_wan,
+            merged_dimension.trade_amount_wan,
+            merged_dimension.limit_value,
+            merged_dimension.raw_remaining_wan,
+            merged_dimension.breached,
+            merged_dimension.calculation_status.value,
+        )
+        split_values = (
+            split_dimension.current_used_wan,
+            split_dimension.trade_amount_wan,
+            split_dimension.limit_value,
+            split_dimension.raw_remaining_wan,
+            split_dimension.breached,
+            split_dimension.calculation_status.value,
+        )
+        assert merged_values == expected
+        assert split_values == expected
+    assert [
+        (
+            item.line_id,
+            item.master_source.value if item.master_source is not None else None,
+            item.wind_fetched_at,
+            item.wind_data_date,
+            item.uncomputable_reason,
+        )
+        for item in split.line_audits
+    ] == [
+        (1, "SNAPSHOT", None, None, None),
+        (2, "SNAPSHOT", None, None, None),
+    ]
+
+    same_issuer = service.check_basket(
+        [
+            PretradeLine(1, "1980082.IB", "自营部交易性", 60.0),
+            PretradeLine(2, "1980184.IB", "自营部交易性", 60.0),
+        ]
+    )
+    issuer_dimension = next(
+        item for item in same_issuer.dimensions if item.name == "单一主体规模"
+    )
+    assert (
+        issuer_dimension.current_used_wan,
+        issuer_dimension.trade_amount_wan,
+        issuer_dimension.limit_value,
+        issuer_dimension.raw_remaining_wan,
+        issuer_dimension.breached,
+        issuer_dimension.calculation_status.value,
+    ) == (10000.0, 120.0, 30000.0, 19880.0, False, "CALCULATED")
+
+    missing_cost = service.check_basket(
+        [PretradeLine(1, "281735.SH", "自营部可供（高收益）-张欣", 1.0)]
+    )
+    missing_annual = next(
+        item
+        for item in missing_cost.dimensions
+        if item.measure == "FULL_PRICE_COST_WAN"
+        and item.calculation_status.value == "UNCOMPUTABLE"
+    )
+    assert (
+        missing_annual.current_used_wan,
+        missing_annual.trade_amount_wan,
+        missing_annual.limit_value,
+        missing_annual.raw_remaining_wan,
+        missing_annual.breached,
+        missing_annual.calculation_status.value,
+        missing_annual.required,
+        missing_annual.reason,
+    ) == (
+        None,
+        None,
+        None,
+        None,
+        False,
+        "UNCOMPUTABLE",
+        True,
+        "高收益债券缺少拟买全价成本",
+    )
+    positive_cost = service.check_basket(
+        [PretradeLine(1, "281735.SH", "自营部可供（高收益）-张欣", 1.0, 1.01)]
+    )
+    positive_annual = next(
+        item
+        for item in positive_cost.dimensions
+        if item.measure == "FULL_PRICE_COST_WAN"
+        and item.calculation_status.value == "CALCULATED"
+    )
+    assert (
+        positive_annual.current_used_wan,
+        positive_annual.trade_amount_wan,
+        positive_annual.limit_value,
+        positive_annual.raw_remaining_wan,
+        positive_annual.breached,
+        positive_annual.calculation_status.value,
+        positive_annual.required,
+    ) == (
+        32552.904125999998,
+        1.0100000000020373,
+        100000.0,
+        67446.085874,
+        False,
+        "CALCULATED",
+        True,
+    )
+
+    assert fake_wind.calls == []
     engine.dispose()

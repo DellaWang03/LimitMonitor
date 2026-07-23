@@ -112,3 +112,19 @@ def test_daily_runtime_stops_before_downstream_processor_on_failure(monkeypatch,
         "stage1_init",
         "stage1_run",
     ]
+
+
+def test_daily_runtime_does_not_construct_stage1_after_stage0_failure(
+    monkeypatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, object]] = []
+    _install_runtime_fakes(monkeypatch, calls, fail_at="stage0")
+
+    with pytest.raises(RuntimeError, match="stage0 failed"):
+        daily_runtime.run_daily_runtime(
+            config=object(),
+            data_dir=tmp_path / "input",
+            current_dir=tmp_path / "current",
+        )
+
+    assert [name for name, _ in calls] == ["stage0_init", "stage0_run"]

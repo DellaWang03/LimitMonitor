@@ -15,6 +15,7 @@ from .service_models import (
     BondMasterProvider,
     MasterResolution,
     MasterSource,
+    missing_required_bond_master_fields,
 )
 
 
@@ -40,11 +41,6 @@ _MASTER_COLUMNS = {
     "wind_industry": ("wind行业",),
     "province": ("省份",),
 }
-_OPTIONAL_MASTER_FIELDS = frozenset(
-    {"isin_code", "guarantor_name", "guarantor_wind_code"}
-)
-
-
 class SnapshotBondMasterResolver:
     """遵循“持仓快照优先、数据不全绝不补 Wind”的主数据解析器。"""
 
@@ -72,7 +68,24 @@ class SnapshotBondMasterResolver:
             matched |= normalize_security_code_series(frame[column]) == normalized_code
         held_rows = frame.loc[matched].copy()
         if held_rows.empty:
-            return self._wind_provider.resolve(normalized_code, inputs.business_date)
+            result = self._wind_provider.resolve(normalized_code, inputs.business_date)
+            if result.master is None:
+                return result
+            missing = missing_required_bond_master_fields(result.master)
+            if missing:
+                return MasterResolution(
+                    MasterSource.MISSING_MASTER,
+                    None,
+                    f"Wind 主数据缺少必填字段: {', '.join(missing)}",
+                )
+            return result
+        if "资产代码" in held_rows:
+            exact_asset = (
+                normalize_security_code_series(held_rows["资产代码"])
+                == normalized_code
+            )
+            if exact_asset.any():
+                held_rows = held_rows.loc[exact_asset].copy()
         return _master_from_held_rows(normalized_code, held_rows)
 
 
@@ -93,20 +106,16 @@ def _master_from_held_rows(
                 for value in held_rows[column].tolist()
                 if _clean_value(value) is not None
             ]
+            if attribute == "main_security_code":
+                observed = normalize_security_code_series(
+                    pd.Series(observed, dtype="object")
+                ).dropna().tolist()
             distinct = _distinct_values(observed)
             if distinct:
                 break
         if len(distinct) > 1:
             return _missing_snapshot(f"持仓快照主数据矛盾: {attribute}")
         values[attribute] = distinct[0] if distinct else None
-
-    missing = [
-        attribute
-        for attribute in _MASTER_COLUMNS
-        if attribute not in _OPTIONAL_MASTER_FIELDS and values[attribute] is None
-    ]
-    if missing:
-        return _missing_snapshot(f"持仓快照主数据缺少必填字段: {', '.join(missing)}")
 
     try:
         master = BondMaster(
@@ -136,8 +145,9 @@ def _master_from_held_rows(
         )
     except (TypeError, ValueError) as exc:
         return _missing_snapshot(f"持仓快照主数据规范化失败: {exc}")
-    if not master.main_security_code:
-        return _missing_snapshot("持仓快照主证券代码为空")
+    missing = missing_required_bond_master_fields(master)
+    if missing:
+        return _missing_snapshot(f"持仓快照主数据缺少必填字段: {', '.join(missing)}")
     return MasterResolution(MasterSource.SNAPSHOT, master, None)
 
 

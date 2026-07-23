@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from math import isfinite
+from numbers import Real
 from typing import Protocol
 
 
@@ -53,6 +55,46 @@ class BondMaster:
     # 两个有明确语义的名称，不能再将二者混为一谈。
     asset_name: str | None = None
     main_security_name: str | None = None
+
+
+_REQUIRED_BOND_MASTER_FIELDS = (
+    "main_security_code",
+    "bond_name",
+    "asset_name",
+    "main_security_name",
+    "issuer_name",
+    "issuer_wind_code",
+    "controller_name",
+    "outstanding_balance_yi",
+    "bond_classification",
+    "bond_type",
+    "issuer_type",
+    "is_city_investment_bond",
+    "bond_category",
+    "wind_industry",
+    "province",
+)
+
+
+def missing_required_bond_master_fields(master: BondMaster) -> tuple[str, ...]:
+    """返回快照与 Wind 共同内核输入所缺的同一组最小必填字段。"""
+
+    missing: list[str] = []
+    for field in _REQUIRED_BOND_MASTER_FIELDS:
+        value = getattr(master, field)
+        if isinstance(value, str):
+            present = bool(value.strip())
+        elif field == "outstanding_balance_yi":
+            present = (
+                isinstance(value, Real)
+                and not isinstance(value, bool)
+                and isfinite(float(value))
+            )
+        else:
+            present = value is not None
+        if not present:
+            missing.append(field)
+    return tuple(missing)
 
 
 @dataclass(frozen=True)
