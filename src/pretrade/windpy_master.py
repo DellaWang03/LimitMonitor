@@ -6,14 +6,18 @@ Wind 返回，也不修改日常 Stage0 的发行人代码解析器。
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import importlib
+import json
 from math import isfinite, isnan
 import os
 from pathlib import Path
+import subprocess
 import sys
-from typing import Any, Mapping, Protocol
+from threading import Lock
+from typing import Any, ContextManager, Mapping, Protocol
 
 import pandas as pd
 
@@ -38,6 +42,14 @@ DEFAULT_WIND_FIELDS = (
 )
 _WINDPY_PATH_ENV = "LIMIT_MONITOR_WINDPY_PATH"
 _OFFICIAL_MACOS_WINDPY_PATH = Path("/Applications/Wind API.app/Contents/python")
+_WINDPY_START_WAIT_SECONDS = 20
+_WINDPY_START_LOCK = Lock()
+_WINDPY_SUBPROCESS_TIMEOUT_SECONDS = 30
+_WINDPY_WORKER_RESULT_PREFIX = "LIMIT_MONITOR_WINDPY_RESULT="
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_IS_MACOS = sys.platform == "darwin"
+
+
 class WindGateway(Protocol):
     """WindPy 的最小可替换接口，避免导入时初始化 Wind。"""
 
@@ -58,8 +70,15 @@ class _WindRawFields:
     guarantor_name: str
     bond_type: str
     bond_type2: str
-    nature1: str
+    nature1: str | None
     is_city_investment_bond: str | None
+
+
+@dataclass(frozen=True)
+class _WindQueryResult:
+    error_code: int
+    rows: list[Mapping[str, Any]]
+    reason: str | None
 
 
 class WindPyBondMasterProvider:
@@ -78,6 +97,12 @@ class WindPyBondMasterProvider:
         self._issuer_wind_code_mapping = dict(issuer_wind_code_mapping or {})
         self._field_mapping_verified = field_mapping_verified
 
+    def master_session(self) -> ContextManager[None]:
+        """让一次试算里的多笔非持仓债共用一个 Excel 应用生命周期。"""
+
+        session = getattr(self._excel, "session", None)
+        return session() if callable(session) else nullcontext()
+
     def resolve(
         self, bond_code: str, business_date: pd.Timestamp
     ) -> MasterResolution:
@@ -87,17 +112,23 @@ class WindPyBondMasterProvider:
         if not self._field_mapping_verified:
             return _missing("Wind 字段映射尚未通过真实环境验收")
 
-        gateway = self._gateway or self._load_production_gateway()
-        if gateway is None:
-            return _missing("WindPy 不可用")
-        try:
-            if _error_code(gateway.start()) != 0:
-                return _missing("WindPy 启动失败")
-            response = gateway.wss(input_code, DEFAULT_WIND_FIELDS, usedf=True)
-        except Exception as exc:
-            return _missing(f"Wind 请求失败: {type(exc).__name__}")
+        if self._gateway is None and _IS_MACOS:
+            query = _query_production_windpy_isolated(input_code)
+            if query.reason is not None:
+                return _missing(query.reason)
+            error_code, rows = query.error_code, query.rows
+        else:
+            gateway = self._gateway or self._load_production_gateway()
+            if gateway is None:
+                return _missing("WindPy 不可用")
+            try:
+                if _start_gateway(gateway) != 0:
+                    return _missing("WindPy 启动失败")
+                response = gateway.wss(input_code, DEFAULT_WIND_FIELDS, usedf=True)
+            except Exception as exc:
+                return _missing(f"Wind 请求失败: {type(exc).__name__}")
+            error_code, rows = _parse_wss_response(response)
 
-        error_code, rows = _parse_wss_response(response)
         if error_code != 0:
             return _missing(f"Wind 返回错误码: {error_code}")
         if len(rows) != 1:
@@ -118,42 +149,56 @@ class WindPyBondMasterProvider:
         excel_guarantor_name = (
             None if raw.guarantor_name == "0" else raw.guarantor_name
         )
-        try:
-            initial = self._excel.resolve_initial(
-                input_code,
-                issuer_name=excel_issuer_name,
-                guarantor_name=excel_guarantor_name,
-            )
-        except Exception as exc:
-            return _missing(f"Excel Wind 主数据请求失败: {type(exc).__name__}")
+        # 主证券属性依赖上一批公式解析出的主证券代码，两批无法合并；但共用
+        # 一个会话可以让这两批只启停一次 Excel。
+        with self.master_session():
+            try:
+                initial = self._excel.resolve_initial(
+                    input_code,
+                    issuer_name=excel_issuer_name,
+                    guarantor_name=excel_guarantor_name,
+                )
+            except Exception as exc:
+                return _missing(f"Excel Wind 主数据请求失败: {type(exc).__name__}")
 
-        main_security_code = _source_text(initial.main_security_code)
-        if main_security_code is None or main_security_code == "0":
-            return _missing("Wind Excel 主数据缺少主证券代码")
-        issuer_wind_code = (
-            mapped_issuer_code
-            if mapped_issuer_code is not None
-            else _source_text(initial.issuer_wind_code)
-        )
-        if issuer_wind_code is None:
-            return _missing("Wind Excel 主数据缺少债务主体wind代码")
-
-        try:
-            anchor = self._excel.resolve_anchor_attributes(
-                main_security_code, pd.Timestamp(business_date)
+            main_security_code = _source_text(initial.main_security_code)
+            if main_security_code is None or main_security_code == "0":
+                return _missing("Wind Excel 主数据缺少主证券代码")
+            issuer_wind_code = (
+                mapped_issuer_code
+                if mapped_issuer_code is not None
+                else _source_text(initial.issuer_wind_code)
             )
-        except Exception as exc:
-            return _missing(f"Excel Wind 主证券属性请求失败: {type(exc).__name__}")
+            if issuer_wind_code is None:
+                return _missing("Wind Excel 主数据缺少债务主体wind代码")
+
+            try:
+                anchor = self._excel.resolve_anchor_attributes(
+                    main_security_code, pd.Timestamp(business_date)
+                )
+            except Exception as exc:
+                return _missing(
+                    f"Excel Wind 主证券属性请求失败: {type(exc).__name__}"
+                )
 
         base_classification, bond_classification = derive_classifications(raw.bond_type2)
-        issuer_type = derive_issuer_type(raw.nature1)
+        if bond_classification == "利率债":
+            # 生产共同内核在信用债位置标准化时剔除利率债；现有地方
+            # 政府债的发行人类型/实控人仅为占位，不参与信用维度。
+            issuer_type = None
+            controller_name = None
+        else:
+            if raw.nature1 is None:
+                return _missing("Wind 主数据缺少发行人类型原始值")
+            issuer_type = derive_issuer_type(raw.nature1)
+            controller_name = raw.controller_name
         wind_industry = _source_text(initial.wind_industry)
         city_investment = raw.is_city_investment_bond
         bond_category = derive_bond_category(
             base_classification,
             city_investment or "",
             wind_industry or "",
-            issuer_type,
+            issuer_type or "",
         )
         try:
             master = BondMaster(
@@ -163,7 +208,7 @@ class WindPyBondMasterProvider:
                 bond_name=raw.asset_name,
                 issuer_name=issuer_name,
                 issuer_wind_code=issuer_wind_code,
-                controller_name=raw.controller_name,
+                controller_name=controller_name,
                 guarantor_name=raw.guarantor_name,
                 guarantor_wind_code=_guarantor_code(
                     raw.guarantor_name, initial.guarantor_wind_code
@@ -197,6 +242,86 @@ class WindPyBondMasterProvider:
         return getattr(module, "w", None) if module is not None else None
 
 
+def _start_gateway(gateway: WindGateway) -> int:
+    """启动同一进程内的 WindPy 会话，避免并发登录框无限等待。"""
+
+    with _WINDPY_START_LOCK:
+        is_connected = getattr(gateway, "isconnected", None)
+        if callable(is_connected) and is_connected():
+            return 0
+        try:
+            result = gateway.start(waitTime=_WINDPY_START_WAIT_SECONDS)
+        except TypeError:
+            # 测试或其它兼容网关可能只实现无参 start；生产 WindPy 支持
+            # waitTime，必须走上面的有界调用。
+            result = gateway.start()
+    return _error_code(result)
+
+
+def _query_production_windpy_isolated(bond_code: str) -> _WindQueryResult:
+    """在独立进程主线程执行 macOS WindPy，并由父进程提供硬超时。"""
+
+    command = (
+        sys.executable,
+        "-m",
+        "src.pretrade.windpy_worker",
+        bond_code,
+    )
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=_PROJECT_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=_WINDPY_SUBPROCESS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return _WindQueryResult(
+            1,
+            [],
+            f"Wind 请求超时（{_WINDPY_SUBPROCESS_TIMEOUT_SECONDS}秒）",
+        )
+    except OSError as exc:
+        return _WindQueryResult(
+            1,
+            [],
+            f"Wind 子进程启动失败: {type(exc).__name__}",
+        )
+
+    payload = _parse_worker_payload(completed.stdout)
+    if payload is None:
+        return _WindQueryResult(
+            1,
+            [],
+            f"Wind 子进程未返回有效结果（退出码: {completed.returncode}）",
+        )
+
+    error_code = _error_code(payload.get("error_code"))
+    reason = _source_text(payload.get("reason"))
+    raw_rows = payload.get("rows")
+    if not isinstance(raw_rows, list) or not all(
+        isinstance(row, Mapping) for row in raw_rows
+    ):
+        return _WindQueryResult(1, [], "Wind 子进程返回的数据结构无效")
+    if completed.returncode != 0 and reason is None:
+        reason = f"Wind 子进程失败（退出码: {completed.returncode}）"
+    return _WindQueryResult(error_code, list(raw_rows), reason)
+
+
+def _parse_worker_payload(stdout: str) -> Mapping[str, Any] | None:
+    for line in reversed(stdout.splitlines()):
+        if not line.startswith(_WINDPY_WORKER_RESULT_PREFIX):
+            continue
+        try:
+            payload = json.loads(line[len(_WINDPY_WORKER_RESULT_PREFIX) :])
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        return payload if isinstance(payload, Mapping) else None
+    return None
+
+
 def _parse_raw_fields(record: Mapping[str, Any]) -> tuple[_WindRawFields | None, str | None]:
     asset_name = _source_text(record.get("SEC_NAME"))
     bond_type = _source_text(record.get("WINDL1TYPE"))
@@ -208,9 +333,6 @@ def _parse_raw_fields(record: Mapping[str, Any]) -> tuple[_WindRawFields | None,
         return None, "Wind 主数据缺少债券类型1"
     if bond_type2 is None:
         return None, "Wind 主数据缺少债券类型2"
-    if nature1 is None:
-        return None, "Wind 主数据缺少发行人类型原始值"
-
     # 底稿 b_agency_guarantor 的无担保输出为 0；WSS 的空输出在此处同义化。
     guarantor_name = _source_text(record.get("AGENCY_GUARANTOR")) or "0"
     return (

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from math import isfinite, isnan
-from typing import Any
+from typing import Any, ContextManager
 
 import pandas as pd
 
@@ -46,6 +47,12 @@ class SnapshotBondMasterResolver:
 
     def __init__(self, wind_provider: BondMasterProvider) -> None:
         self._wind_provider = wind_provider
+
+    def master_session(self) -> ContextManager[None]:
+        """把一次试算里全部 Wind 取数收进同一个外部会话。"""
+
+        session = getattr(self._wind_provider, "master_session", None)
+        return session() if callable(session) else nullcontext()
 
     def resolve(
         self, inputs: ProductionKernelInput, bond_code: str

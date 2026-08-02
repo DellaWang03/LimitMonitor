@@ -52,15 +52,20 @@ class WindCodeExcelHelper:
         
         logger.info(f"批量获取Wind代码: {len(issuer_names)} 个发行人")
         
-        # 默认尝试使用xlwings（所有平台）
+        # Windows 保持现有 xlwings 生产路径；macOS 使用预写公式后由可见
+        # Excel/Wind 自动计算、复制结果和关闭的独立路径。
         if use_xlwings is None:
             use_xlwings = True
         
         if use_xlwings:
             try:
+                if self.system == "Darwin":
+                    return self._get_via_macos_excel(issuer_names)
                 return self._get_via_xlwings(issuer_names)
             except Exception as e:
-                logger.warning(f"xlwings自动化失败: {e}")
+                logger.warning(f"Excel自动化失败: {e}")
+                if self.system == "Darwin":
+                    raise
                 logger.info("切换到半自动模式...")
         
         # 半自动模式：生成Excel模板
@@ -146,6 +151,34 @@ class WindCodeExcelHelper:
                 app.quit()
             except Exception as e:
                 logger.debug(f"退出Excel: {e}")
+
+    def _get_via_macos_excel(self, issuer_names: list) -> pd.DataFrame:
+        """通过预写公式工作簿自动调用 macOS Excel/Wind。"""
+        from src.common.macos_wind_excel import MacOSWindExcelFormulaRunner
+
+        logger.info("使用 macOS Excel/Wind 自动化获取Wind代码...")
+        formulas = [
+            f"=To_WindCode(A{row_number})"
+            for row_number in range(2, len(issuer_names) + 2)
+        ]
+        values = MacOSWindExcelFormulaRunner().evaluate(
+            formulas,
+            labels=issuer_names,
+        )
+        result = pd.DataFrame(
+            {
+                "发行人名称": issuer_names,
+                "Wind代码": values,
+            }
+        )
+        success_count = result["Wind代码"].apply(
+            self._is_successful_wind_result
+        ).sum()
+        logger.info(
+            f"✓ macOS Excel/Wind 成功获取: "
+            f"{success_count}/{len(issuer_names)}"
+        )
+        return result
     
     def _get_via_template(self, issuer_names: list) -> pd.DataFrame:
         """生成Excel模板，需要手动打开保存。仅合并结果文件中属于本次缺失主体的行，避免误用旧结果。"""

@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
+import csv
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol
+import platform
+import re
+from typing import Any, ContextManager, Mapping, Protocol
 
 import pandas as pd
 
@@ -44,6 +49,12 @@ class ExcelWindMasterGateway:
 
     def __init__(self, evaluator: FormulaEvaluator | None = None) -> None:
         self._evaluator = evaluator or XlwingsFormulaEvaluator()
+
+    def session(self) -> ContextManager[None]:
+        """把连续多批公式收进同一个 Excel 应用生命周期。"""
+
+        session = getattr(self._evaluator, "session", None)
+        return session() if callable(session) else nullcontext()
 
     def resolve_initial(
         self,
@@ -94,11 +105,30 @@ class ExcelWindMasterGateway:
 
 
 class XlwingsFormulaEvaluator:
-    """生产 Excel 计算器：工作簿只存在于本次调用的内存中。"""
+    """生产 Excel 计算器：Windows 用 xlwings，macOS 用预写公式工作簿。"""
+
+    @contextmanager
+    def session(self) -> Iterator[None]:
+        if platform.system() != "Darwin":
+            # Windows 的 xlwings 路径每批自带 App 生命周期，保持不变。
+            yield
+            return
+        from src.common.macos_wind_excel import excel_session
+
+        with excel_session():
+            yield
 
     def evaluate(self, formulas: Mapping[str, str]) -> Mapping[str, Any]:
         if not formulas:
             return {}
+        if platform.system() == "Darwin":
+            from src.common.macos_wind_excel import MacOSWindExcelFormulaRunner
+
+            raw_values = MacOSWindExcelFormulaRunner().evaluate(
+                [_macos_formula(formula) for formula in formulas.values()],
+                labels=list(formulas.keys()),
+            )
+            return dict(zip(formulas, raw_values, strict=True))
         try:
             import xlwings as xw
         except ImportError as exc:  # pragma: no cover - 依赖生产 Windows 安装
@@ -107,6 +137,7 @@ class XlwingsFormulaEvaluator:
         app = None
         book = None
         try:  # pragma: no cover - 需 Windows Excel + Wind 的集成验证
+            # 保持 Windows 已验证的生产行为不变。
             app = xw.App(visible=False, add_book=False)
             app.display_alerts = False
             book = app.books.add()
@@ -134,6 +165,41 @@ def _formula_argument(value: object) -> str:
     if isinstance(value, str):
         return f'"{value.replace(chr(34), chr(34) * 2)}"'
     return str(value)
+
+
+def _macos_formula(formula: str) -> str:
+    """把 Windows 可直接调用的 Wind 字段函数转为 macOS Excel WSS 公式。"""
+
+    match = re.fullmatch(r"=([A-Za-z][A-Za-z0-9_]*)\((.*)\)", formula)
+    if match is None:
+        return formula
+    function_name = match.group(1)
+    try:
+        arguments = next(csv.reader([match.group(2)], skipinitialspace=True))
+    except (csv.Error, StopIteration):
+        return formula
+    field_name = function_name.casefold()
+    if field_name in {
+        "b_info_anchorbond",
+        "s_info_province",
+        "b_info_name",
+    } and len(arguments) == 1:
+        return _formula("WSS", arguments[0], field_name)
+    if field_name == "b_issuer_windindustry" and len(arguments) == 2:
+        return _formula(
+            "WSS",
+            arguments[0],
+            field_name,
+            f"industryType={arguments[1]}",
+        )
+    if field_name == "b_info_outstandingbalance" and len(arguments) == 2:
+        return _formula(
+            "WSS",
+            arguments[0],
+            field_name,
+            f"tradeDate={arguments[1]}",
+        )
+    return formula
 
 
 def _source_value(value: Any) -> Any:

@@ -89,10 +89,15 @@ class PretradeRiskService:
     def _resolve_lines(self, inputs, lines: tuple[PretradeLine, ...]) -> dict[int, MasterResolution]:
         by_code: dict[str, MasterResolution] = {}
         resolutions: dict[int, MasterResolution] = {}
-        for line in lines:
-            if line.bond_code not in by_code:
-                by_code[line.bond_code] = self._resolver.resolve(inputs, line.bond_code)
-            resolutions[line.line_id] = by_code[line.bond_code]
+        # 整批共用一个 Wind/Excel 会话：一揽子里每笔非持仓债都要跑两批 Excel
+        # 公式，逐笔启停会反复弹出 Excel，也会成倍放大关不掉窗口的概率。
+        with self._resolver.master_session():
+            for line in lines:
+                if line.bond_code not in by_code:
+                    by_code[line.bond_code] = self._resolver.resolve(
+                        inputs, line.bond_code
+                    )
+                resolutions[line.line_id] = by_code[line.bond_code]
         return resolutions
 
 
