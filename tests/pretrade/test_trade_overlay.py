@@ -10,7 +10,10 @@ from src.risk_core.high_yield_capital_sources import (
     append_high_yield_capital_sources,
     select_accounting_high_yield_capital_rows,
 )
-from src.risk_core.position_context import normalize_credit_position
+from src.risk_core.position_context import (
+    normalize_credit_position,
+    normalize_regulatory_position,
+)
 from src.risk_core.stage1_aggregates import calculate_single_bond_total_position
 
 from .conftest import make_kernel_input
@@ -104,6 +107,41 @@ def test_overlay_keeps_asset_and_anchor_fields_distinct() -> None:
     assert row["主证券名称"] == "21台州债01"
     assert row["实际控制人名称"] == "原始实控人"
     assert row["实际控制人名称_修正"] == "原始实控人"
+
+
+def test_rate_bond_skips_credit_dimensions_but_keeps_regulatory_position() -> None:
+    rate_master = replace(
+        _master(),
+        input_code="2605080.IB",
+        main_security_code="2605080.IB",
+        bond_name="26广东债06",
+        asset_name="26广东债06",
+        main_security_name="26广东债06",
+        issuer_name="广东省人民政府",
+        controller_name=None,
+        outstanding_balance_yi=193.7,
+        bond_classification="利率债",
+        bond_type="地方政府债",
+        issuer_type=None,
+        bond_category="利率债",
+        wind_industry="000000",
+        province="广东省",
+    )
+    overlay = TradeOverlayBuilder().build(
+        _overlay_input(),
+        [PretradeLine(1, "2605080.IB", "自营部交易性", 10.0)],
+        {1: MasterResolution(MasterSource.WIND, rate_master, None)},
+    )
+
+    credit = normalize_credit_position(overlay.frames["债券持仓明细表_信用债"])
+    regulatory = normalize_regulatory_position(
+        overlay.frames["债券持仓明细表_全量债券监管集中度"]
+    )
+
+    assert credit.empty
+    assert regulatory["资产代码"].tolist() == ["2605080.IB"]
+    assert regulatory["债券分类2"].tolist() == ["利率债"]
+    assert pd.isna(regulatory.iloc[0]["实际控制人名称_修正"])
 
 
 def test_full_price_cost_uses_both_existing_high_yield_source_routes() -> None:

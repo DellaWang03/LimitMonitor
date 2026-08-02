@@ -274,13 +274,15 @@ class PretradeResultAdapter:
                 ]
             return []
         results: list[DimensionResult] = []
-        processed: set[tuple[Any, ...]] = set()
+        rows_by_key: dict[tuple[Any, ...], list[pd.Series]] = {}
         for _, row in selected.iterrows():
             key = _row_key(row, spec.key_columns)
-            if key in processed:
-                continue
-            processed.add(key)
-            line_ids = _line_ids_for_row(row, lines, run.resolutions)
+            rows_by_key.setdefault(key, []).append(row)
+        for key, matching_rows in rows_by_key.items():
+            row = matching_rows[0]
+            line_ids = _line_ids_for_rows(
+                matching_rows, lines, run.resolutions, spec
+            )
             base_row = _matching_row(baseline, spec.key_columns, key)
             results.append(_dimension_from_rows(spec, row, base_row, line_ids))
         return results
@@ -557,15 +559,100 @@ def _line_ids_for_row(
     row: pd.Series,
     lines: list[PretradeLine],
     resolutions: Mapping[int, MasterResolution],
+    spec: DimensionProjection,
 ) -> tuple[int, ...]:
+    scoped = _line_ids_for_scope(row, lines, resolutions, spec.scope_columns)
     one_row = pd.DataFrame([row])
-    return tuple(
+    matched_by_security = tuple(
         sorted(
             line.line_id
             for line in lines
             if not _select_target_rows(one_row, [line], resolutions).empty
         )
     )
+    return tuple(sorted(set(matched_by_security).union(scoped or ())))
+
+
+def _line_ids_for_rows(
+    rows: list[pd.Series],
+    lines: list[PretradeLine],
+    resolutions: Mapping[int, MasterResolution],
+    spec: DimensionProjection,
+) -> tuple[int, ...]:
+    return tuple(
+        sorted(
+            {
+                line_id
+                for row in rows
+                for line_id in _line_ids_for_row(row, lines, resolutions, spec)
+            }
+        )
+    )
+
+
+def _line_ids_for_scope(
+    row: pd.Series,
+    lines: list[PretradeLine],
+    resolutions: Mapping[int, MasterResolution],
+    scope_columns: tuple[str, ...],
+) -> tuple[int, ...] | None:
+    """按共同内核的维度分组范围追溯贡献行；未知分组键交回证券匹配。"""
+
+    matched: list[int] = []
+    for line in lines:
+        resolution = resolutions.get(line.line_id)
+        master = resolution.master if resolution is not None else None
+        if master is None:
+            continue
+        for column in scope_columns:
+            candidates = _line_scope_keys(column, line, master)
+            if candidates is None:
+                return None
+            row_key = (
+                _normalised_code(row.get(column))
+                if column
+                in {
+                    "主证券代码_标准",
+                    "监管归并主键",
+                    "高收益单债归并键",
+                }
+                else _value_key(row.get(column))
+            )
+            if row_key not in candidates:
+                break
+        else:
+            matched.append(line.line_id)
+    return tuple(sorted(matched))
+
+
+def _line_scope_keys(
+    column: str, line: PretradeLine, master: Any
+) -> set[str] | None:
+    if column == "业务分类":
+        value = "做市业务" if line.account == "做市交易部做市业务" else "自营业务"
+        return {_value_key(value)}
+    if column in {
+        "主证券代码_标准",
+        "监管归并主键",
+        "高收益单债归并键",
+    }:
+        return {
+            _normalised_code(value)
+            for value in (line.bond_code, master.input_code, master.main_security_code)
+            if _as_text(value) is not None
+        }
+    master_fields = {
+        "债务主体": "issuer_name",
+        "实际控制人名称_修正": "controller_name",
+        "担保人wind代码": "guarantor_wind_code",
+        "省份": "province",
+        "是否城投债": "is_city_investment_bond",
+        "wind行业": "wind_industry",
+    }
+    field = master_fields.get(column)
+    if field is None:
+        return None
+    return {_value_key(getattr(master, field))}
 
 
 def _row_key(row: pd.Series, columns: tuple[str, ...]) -> tuple[Any, ...]:

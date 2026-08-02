@@ -1,11 +1,18 @@
 """
 共享 UI 控件 - 供多个页面复用
 
-提供三类公共组件：
+提供以下公共组件：
 - inject_compact_controls_css: segmented control 紧凑样式注入
+- render_page_header: 页面主标题 + 副标题区块
+- render_vertical_space: 统一的垂直间距
+- render_metric_card: 单张指标卡片（与展示页 KPI 卡片同一视觉规格）
 - render_kpi_cards: 4 张标准 KPI 卡片（总监控对象数 / 超限对象 / 正常对象 / 总持仓）
 - apply_dimension_filter: 渲染「本维度超限」筛选控件并返回过滤后的 DataFrame
 """
+from __future__ import annotations
+
+from html import escape
+
 import pandas as pd
 import streamlit as st
 
@@ -33,6 +40,73 @@ def inject_compact_controls_css(css_injected_key: str) -> None:
           }
         </style>
         """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_page_header(title: str, subtitle: str = "") -> None:
+    """
+    渲染页面主标题区块，与 page1/page3/page4/page9 等展示页保持同一规格。
+    title 建议带上与侧边栏一致的 emoji，如「🔍 单券可购额度查询」。
+    """
+    subtitle_html = (
+        f'<p style="font-size: 0.875rem; color: #64748b; margin: 8px 0 0 0;">{escape(subtitle)}</p>'
+        if subtitle
+        else ""
+    )
+    st.markdown(
+        f"""
+    <div style="margin-bottom: 24px;">
+        <h1 style="font-size: 1.75rem; font-weight: 700; color: #0f172a; margin: 0;">
+            {escape(title)}
+        </h1>
+        {subtitle_html}
+    </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_vertical_space(height: int = 24) -> None:
+    """插入统一的垂直间距（展示页在 KPI 卡片与表格之间固定使用 24px）。"""
+    st.markdown(f"<div style='height: {height}px;'></div>", unsafe_allow_html=True)
+
+
+# tone -> (背景色, 边框色, 数值色, 说明文字色)
+_METRIC_CARD_TONES: dict[str, tuple[str, str, str, str]] = {
+    "neutral": ("#ffffff", "#e2e8f0", "#1e293b", "#94a3b8"),
+    "accent": ("#ffffff", "#e2e8f0", "#3b82f6", "#94a3b8"),
+    "success": ("#f0fdf4", "#bbf7d0", "#22c55e", "#22c55e"),
+    "warning": ("#fefce8", "#fde047", "#ca8a04", "#ca8a04"),
+    "danger": ("#fef2f2", "#fecaca", "#ef4444", "#ef4444"),
+}
+
+
+def render_metric_card(
+    label: str,
+    value: str,
+    caption: str = "",
+    tone: str = "neutral",
+    min_height: int | None = None,
+) -> None:
+    """
+    渲染单张指标卡片，规格与 render_kpi_cards 一致：
+    小写标签 + 大号数值 + 单位/说明三段式，圆角 12px、内边距 20px。
+
+    min_height 用于卡片内容长度不一（如文本型指标）时保持同一行卡片等高。
+    """
+    background, border, value_color, caption_color = _METRIC_CARD_TONES.get(
+        tone, _METRIC_CARD_TONES["neutral"]
+    )
+    min_height_style = f" min-height: {min_height}px;" if min_height else ""
+    st.markdown(
+        f"""
+    <div style="background: {background}; border: 1px solid {border}; border-radius: 12px; padding: 20px;{min_height_style}">
+        <p style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 8px 0;">{escape(label)}</p>
+        <p style="font-size: 1.75rem; font-weight: 700; color: {value_color}; margin: 0; word-break: break-word;">{escape(value)}</p>
+        <p style="font-size: 0.75rem; color: {caption_color}; margin: 4px 0 0 0;">{escape(caption)}</p>
+    </div>
+    """,
         unsafe_allow_html=True,
     )
 

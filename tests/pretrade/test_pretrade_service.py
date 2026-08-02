@@ -241,6 +241,12 @@ def test_same_issuer_basket_is_combined_by_kernel_not_page_sum(service) -> None:
         item.name == "单一主体规模" and item.trade_amount_wan == 120.0
         for item in result.dimensions
     )
+    issuer = next(item for item in result.dimensions if item.name == "单一主体规模")
+    controller = next(
+        item for item in result.dimensions if item.name == "单一实控人规模"
+    )
+    assert issuer.input_line_ids == (1, 2)
+    assert controller.input_line_ids == (1, 2)
     assert service._test_provider.calls == ["900002.IB"]
 
 

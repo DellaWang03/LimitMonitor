@@ -7,6 +7,13 @@ echo
 
 cd "$(dirname "$0")"
 
+STREAMLIT_BIN="$PWD/.venv/bin/streamlit"
+if [[ ! -x "$STREAMLIT_BIN" ]]; then
+    echo "错误：未找到项目虚拟环境中的 Streamlit：$STREAMLIT_BIN"
+    echo "请先创建虚拟环境并安装项目依赖。"
+    exit 1
+fi
+
 echo "正在启动Streamlit服务..."
 echo "浏览器将自动打开: http://localhost:8501"
 echo
@@ -19,4 +26,4 @@ echo "按 Ctrl+C 停止服务"
 echo "============================================"
 echo
 
-streamlit run app.py --server.port 8501
+exec "$STREAMLIT_BIN" run app.py --server.port 8501

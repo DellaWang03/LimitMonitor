@@ -120,6 +120,72 @@ def test_adapter_uses_raw_remaining_and_does_not_apply_tolerance() -> None:
     assert zero_dimension.calculation_status is CalculationStatus.CALCULATED
 
 
+def test_adapter_traces_all_rows_after_controller_correction() -> None:
+    first_master = replace(_master(), controller_name="原实控人甲")
+    second_master = replace(
+        _master(),
+        input_code="900002.IB",
+        main_security_code="900002",
+        isin_code="ISIN-900002",
+        controller_name="原实控人乙",
+    )
+    baseline_rows = []
+    overlay_rows = []
+    for code in ("900001.IB", "900002.IB"):
+        baseline = _credit_row(
+            bond_used=0.0,
+            bond_remaining=100.0,
+            issuer_used=0.0,
+            issuer_remaining=100.0,
+        )
+        overlay = _credit_row(
+            bond_used=60.0,
+            bond_remaining=40.0,
+            issuer_used=120.0,
+            issuer_remaining=-20.0,
+        )
+        for row, used, remaining, overlimit in (
+            (baseline, 0.0, 100.0, "否"),
+            (overlay, 120.0, -20.0, "是"),
+        ):
+            row["资产代码"] = code
+            row["主证券代码_标准"] = code
+            row["实际控制人名称_修正"] = "修正后共同实控人"
+            row["单一实控人总持仓_PR"] = used
+            row["单一实控人规模限额指标值"] = 100.0
+            row["单一实控人规模剩余额度(万)"] = remaining
+            row["单一实控人是否超限"] = overlimit
+        baseline_rows.append(baseline)
+        overlay_rows.append(overlay)
+    run = KernelProjectionRun(
+        data_date="2026-07-10",
+        lines=(
+            PretradeLine(1, "900001.IB", "自营部交易性", 60.0),
+            PretradeLine(2, "900002.IB", "自营部交易性", 60.0),
+        ),
+        resolutions={
+            1: MasterResolution(MasterSource.SNAPSHOT, first_master, None),
+            2: MasterResolution(MasterSource.SNAPSHOT, second_master, None),
+        },
+        baseline_stage1={
+            "限额明细_债券持仓明细表_信用债1_2": pd.DataFrame(baseline_rows)
+        },
+        baseline_stage2={},
+        overlay_stage1={
+            "限额明细_债券持仓明细表_信用债1_2": pd.DataFrame(overlay_rows)
+        },
+        overlay_stage2={},
+    )
+
+    result = PretradeResultAdapter().basket_from_kernel(run)
+
+    controller = next(
+        item for item in result.dimensions if item.name == "单一实控人规模"
+    )
+    assert controller.trade_amount_wan == 120.0
+    assert controller.input_line_ids == (1, 2)
+
+
 def test_adapter_keeps_full_price_out_of_pr_minimum() -> None:
     quote = PretradeResultAdapter().single_from_probe(_run(include_annual=True))
 

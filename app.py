@@ -138,7 +138,7 @@ def main():
             '地域类明细': page6_regional,
             '高收益明细': page7_high_yield,
             '单券可购额度查询': page8_bond_quota,
-            '一揽子债券超限试算': page10_basket_pretrade,
+            '债券组合超限试算': page10_basket_pretrade,
         }
         
         # 渲染选中的页面

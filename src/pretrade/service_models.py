@@ -75,12 +75,24 @@ _REQUIRED_BOND_MASTER_FIELDS = (
     "province",
 )
 
+_RATE_BOND_OPTIONAL_MASTER_FIELDS = frozenset(
+    {
+        "controller_name",
+        "issuer_type",
+    }
+)
+
 
 def missing_required_bond_master_fields(master: BondMaster) -> tuple[str, ...]:
     """返回快照与 Wind 共同内核输入所缺的同一组最小必填字段。"""
 
     missing: list[str] = []
     for field in _REQUIRED_BOND_MASTER_FIELDS:
+        if (
+            master.bond_classification == "利率债"
+            and field in _RATE_BOND_OPTIONAL_MASTER_FIELDS
+        ):
+            continue
         value = getattr(master, field)
         if isinstance(value, str):
             present = bool(value.strip())

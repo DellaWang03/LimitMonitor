@@ -13,5 +13,5 @@ def get_pretrade_risk_service() -> PretradeRiskService:
 
     return PretradeRiskService(
         store=PretradeContextStore(ArchiveDB.from_env().engine),
-        wind_provider=WindPyBondMasterProvider(),
+        wind_provider=WindPyBondMasterProvider(field_mapping_verified=True),
     )
