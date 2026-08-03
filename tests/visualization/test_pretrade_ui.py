@@ -51,51 +51,32 @@ def test_pretrade_kpi_cards_match_the_display_page_card_height() -> None:
 def test_account_options_returns_real_accounts_with_default_first() -> None:
     """拟买账户不应是不做校验的自由文本；下拉必须来自当前快照的真实账户。"""
 
-    data_loader = SimpleNamespace(
-        get_available_accounts=lambda: ["全部", "自营高收益账户", "自营部交易性", "做市交易部做市业务"]
+    service = SimpleNamespace(
+        available_accounts=lambda: ("自营高收益账户", "自营部交易性", "做市交易部做市业务")
     )
 
-    accounts = account_options(data_loader, default_account="自营部交易性")
+    accounts = account_options(service, default_account="自营部交易性")
 
     assert "全部" not in accounts
     assert accounts[0] == "自营部交易性"
     assert set(accounts) == {"自营高收益账户", "自营部交易性", "做市交易部做市业务"}
 
 
-def test_account_options_always_includes_the_default_even_if_snapshot_lacks_it() -> None:
-    """默认账户必须始终在候选项内，否则依赖它的下拉/单选会因缺省值非法而报错。"""
+def test_account_options_does_not_inject_default_missing_from_snapshot() -> None:
+    """不存在于交易前快照的默认账户不得被注入为可选项。"""
 
-    data_loader = SimpleNamespace(get_available_accounts=lambda: ["自营高收益账户"])
+    service = SimpleNamespace(available_accounts=lambda: ("自营高收益账户",))
 
-    accounts = account_options(data_loader, default_account="自营部交易性")
+    accounts = account_options(service, default_account="自营部交易性")
 
-    assert accounts[0] == "自营部交易性"
-    assert "自营高收益账户" in accounts
-
-
-def test_account_options_falls_back_to_empty_when_data_loader_lacks_the_method() -> None:
-    """历史快照等场景传入的 data_loader 可能不支持该方法，不应因此崩溃。"""
-
-    assert account_options(SimpleNamespace(), default_account="自营部交易性") == []
+    assert accounts == ["自营高收益账户"]
 
 
-def test_account_options_falls_back_to_empty_when_the_lookup_raises() -> None:
-    """账户列表取数失败（如快照/DB 不可用）时回落为空列表，不阻断查询主流程。"""
+def test_account_options_rejects_empty_current_snapshot_accounts() -> None:
+    service = SimpleNamespace(available_accounts=lambda: ())
 
-    def _boom():
-        raise RuntimeError("db unavailable")
-
-    data_loader = SimpleNamespace(get_available_accounts=_boom)
-
-    assert account_options(data_loader, default_account="自营部交易性") == []
-
-
-def test_account_options_falls_back_to_empty_when_snapshot_has_no_real_accounts() -> None:
-    """快照数据源为空（仅剩「全部」占位）时同样回落为自由文本，不展示空下拉。"""
-
-    data_loader = SimpleNamespace(get_available_accounts=lambda: ["全部"])
-
-    assert account_options(data_loader, default_account="自营部交易性") == []
+    with pytest.raises(ValueError, match="账户"):
+        account_options(service, default_account="自营部交易性")
 
 
 @pytest.mark.parametrize(

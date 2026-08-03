@@ -6,6 +6,7 @@ Wind代码Excel辅助获取
 import pandas as pd
 from pathlib import Path
 import platform
+import os
 from loguru import logger
 
 
@@ -51,6 +52,14 @@ class WindCodeExcelHelper:
             return pd.DataFrame(columns=['发行人名称', 'Wind代码'])
         
         logger.info(f"批量获取Wind代码: {len(issuer_names)} 个发行人")
+
+        if os.environ.get("LIMIT_MONITOR_FROZEN_WIND_RESULT") == "1":
+            if (
+                os.environ.get("ENV") != "test"
+                or os.environ.get("LIMIT_MONITOR_PROFILE") != "local"
+            ):
+                raise RuntimeError("冻结 Wind 结果仅允许测试环境 local profile 使用")
+            return self._get_via_template(issuer_names)
         
         # Windows 保持现有 xlwings 生产路径；macOS 使用预写公式后由可见
         # Excel/Wind 自动计算、复制结果和关闭的独立路径。

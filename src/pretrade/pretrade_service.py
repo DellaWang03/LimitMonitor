@@ -42,6 +42,12 @@ class PretradeRiskService:
         self._overlay_builder = overlay_builder or TradeOverlayBuilder()
         self._result_adapter = result_adapter or PretradeResultAdapter()
 
+    def available_accounts(self) -> tuple[str, ...]:
+        """返回交易前 current 快照实际包含的账户。"""
+
+        _snapshot, inputs = self._load_current_context()
+        return _available_accounts(inputs)
+
     def quote_single_bond(self, bond_code: str, account: str) -> SingleBondQuote:
         """用内部零 PR 探针取得交易前可购上限；该探针不会持久化。"""
 
@@ -64,13 +70,16 @@ class PretradeRiskService:
         return self._result_adapter.basket_from_kernel(run)
 
     def _run(self, lines: tuple[PretradeLine, ...]) -> KernelProjectionRun:
-        snapshot = self._store.get_current_snapshot()
-        if snapshot is None:
-            raise PretradeServiceError("交易前当前快照不存在")
-        try:
-            inputs = self._store.load_kernel_input(snapshot.snapshot_id)
-        except Exception as exc:
-            raise PretradeServiceError("交易前当前快照读取失败") from exc
+        snapshot, inputs = self._load_current_context()
+        available_accounts = set(_available_accounts(inputs))
+        invalid_accounts = sorted(
+            {line.account for line in lines if line.account not in available_accounts}
+        )
+        if invalid_accounts:
+            raise ValueError(
+                "拟买入账户不属于当前交易前快照: "
+                + "、".join(invalid_accounts)
+            )
 
         resolutions = self._resolve_lines(inputs, lines)
         baseline_stage1, baseline_stage2 = _run_kernel(self._kernel, inputs)
@@ -85,6 +94,16 @@ class PretradeRiskService:
             overlay_stage1=overlay_stage1,
             overlay_stage2=overlay_stage2,
         )
+
+    def _load_current_context(self):
+        snapshot = self._store.get_current_snapshot()
+        if snapshot is None:
+            raise PretradeServiceError("交易前当前快照不存在")
+        try:
+            inputs = self._store.load_kernel_input(snapshot.snapshot_id)
+        except Exception as exc:
+            raise PretradeServiceError("交易前当前快照读取失败") from exc
+        return snapshot, inputs
 
     def _resolve_lines(self, inputs, lines: tuple[PretradeLine, ...]) -> dict[int, MasterResolution]:
         by_code: dict[str, MasterResolution] = {}
@@ -108,6 +127,24 @@ def _run_kernel(kernel: Any, inputs):
     except Exception as exc:
         raise PretradeServiceError("共同限额内核运行失败") from exc
     return stage1, stage2
+
+
+def _available_accounts(inputs: Any) -> tuple[str, ...]:
+    try:
+        frame = inputs.require_frames(("债券持仓明细表",))["债券持仓明细表"]
+    except Exception as exc:
+        raise PretradeServiceError("交易前快照缺少账户来源") from exc
+    column = "内部证券账户名称"
+    if column not in frame.columns:
+        raise PretradeServiceError("交易前快照缺少账户来源")
+    accounts = {
+        str(value).strip()
+        for value in frame[column].dropna().tolist()
+        if str(value).strip() and str(value).strip() != "全部"
+    }
+    if not accounts:
+        raise PretradeServiceError("交易前快照没有可用账户")
+    return tuple(sorted(accounts))
 
 
 def _validate_basket_lines(lines: Sequence[PretradeLine]) -> tuple[PretradeLine, ...]:

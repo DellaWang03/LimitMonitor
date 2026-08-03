@@ -292,7 +292,9 @@ def test_business_line_audit_frame_hides_technical_fields_and_uses_snapshot_date
         "输入行",
         "主数据状态",
         "数据来源",
-        "数据日期",
+        "限额快照日期",
+        "余额数据日期",
+        "Wind 获取时间",
         "说明",
     ]
     assert frame.to_dict("records") == [
@@ -300,14 +302,18 @@ def test_business_line_audit_frame_hides_technical_fields_and_uses_snapshot_date
             "输入行": 1,
             "主数据状态": "主数据可用",
             "数据来源": "交易前快照",
-            "数据日期": "2026-07-23",
+            "限额快照日期": "2026-07-23",
+            "余额数据日期": "2026-07-23",
+            "Wind 获取时间": "—",
             "说明": "—",
         },
         {
             "输入行": 2,
             "主数据状态": "主数据可用",
             "数据来源": "Wind 主数据",
-            "数据日期": "2026-07-22",
+            "限额快照日期": "2026-07-23",
+            "余额数据日期": "2026-07-22",
+            "Wind 获取时间": "2026-07-23 09:30:00",
             "说明": "—",
         },
     ]

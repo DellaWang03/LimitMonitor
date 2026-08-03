@@ -234,6 +234,7 @@ class WindPyBondMasterProvider:
             master=master,
             reason=None,
             wind_fetched_at=datetime.now(UTC),
+            wind_data_date=pd.Timestamp(business_date).date().isoformat(),
         )
 
     @staticmethod

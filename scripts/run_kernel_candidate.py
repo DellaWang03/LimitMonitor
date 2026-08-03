@@ -56,6 +56,9 @@ _ALLOWED_EXACT_SOURCE_PATHS = frozenset(
         "src/common/access_reader.py",
         "src/common/financial_tool_pool.py",
         "src/common/financial_tool_pool_rules.py",
+        "src/common/macos_wind_excel.py",
+        "src/common/wind_code_excel_helper.py",
+        "src/stage0/stage0_processor.py",
         "src/stage1/stage1_processor.py",
         "src/stage1/stage1_limit_detail.py",
         "src/stage2/stage2_processor.py",
@@ -162,12 +165,18 @@ def _run_parent(args: argparse.Namespace) -> int:
         completed = subprocess.run(
             child_argv,
             cwd=project_root,
-            env=baseline._child_environment(paths),
+            env=_candidate_child_environment(paths),
             check=False,
         )
     finally:
         cleanup_legacy_local_limit_config(compatibility)
     return completed.returncode
+
+
+def _candidate_child_environment(paths: PipelinePaths) -> dict[str, str]:
+    environment = baseline._child_environment(paths)
+    environment["LIMIT_MONITOR_FROZEN_WIND_RESULT"] = "1"
+    return environment
 
 
 def _run_sandboxed_child(args: argparse.Namespace) -> int:

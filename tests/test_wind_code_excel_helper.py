@@ -4,6 +4,7 @@ import sys
 import threading
 import time
 
+import pandas as pd
 import pytest
 
 from src.common.wind_code_excel_helper import WindCodeExcelHelper
@@ -158,6 +159,44 @@ def test_wind_code_helper_uses_macos_automation_by_default(
     result = helper.batch_get_wind_codes(["甲公司"])
 
     assert result.to_dict(orient="list") == expected
+
+
+def test_wind_code_helper_uses_staged_result_in_frozen_candidate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    pd.DataFrame(
+        {"发行人名称": ["甲公司"], "Wind代码": ["0"]}
+    ).to_excel(tmp_path / "wind_codes_result.xlsx", index=False)
+    helper = WindCodeExcelHelper(temp_dir=tmp_path)
+    helper.system = "Darwin"
+    monkeypatch.setenv("LIMIT_MONITOR_FROZEN_WIND_RESULT", "1")
+    monkeypatch.setenv("ENV", "test")
+    monkeypatch.setenv("LIMIT_MONITOR_PROFILE", "local")
+    monkeypatch.setattr(
+        helper,
+        "_get_via_macos_excel",
+        lambda _issuers: (_ for _ in ()).throw(
+            AssertionError("冻结候选不得启动 Excel")
+        ),
+    )
+
+    result = helper.batch_get_wind_codes(["甲公司"])
+
+    assert result.to_dict("records") == [
+        {"发行人名称": "甲公司", "Wind代码": 0}
+    ]
+
+
+def test_staged_wind_result_is_rejected_outside_test_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    helper = WindCodeExcelHelper(temp_dir=tmp_path)
+    monkeypatch.setenv("LIMIT_MONITOR_FROZEN_WIND_RESULT", "1")
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.setenv("LIMIT_MONITOR_PROFILE", "windows")
+
+    with pytest.raises(RuntimeError, match="仅允许测试环境"):
+        helper.batch_get_wind_codes(["甲公司"])
 
 
 def test_master_formula_evaluator_uses_hidden_windows_session(

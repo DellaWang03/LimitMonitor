@@ -4,6 +4,9 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+from src.pretrade.pretrade_service import PretradeServiceError
 from src.visualization.pages import page10_basket_pretrade
 
 
@@ -32,12 +35,11 @@ def test_page10_account_column_uses_real_accounts_when_available() -> None:
     assert config["default"] == "自营部交易性"
 
 
-def test_page10_account_column_falls_back_to_free_text_without_accounts() -> None:
-    """账户列表取数失败时不能让整张录入表报错或阻断录入，回落为自由文本。"""
+def test_page10_account_column_rejects_empty_accounts() -> None:
+    """交易前 current 账户不可用时必须失败关闭，不能回落为自由文本。"""
 
-    config = page10_basket_pretrade._account_column_config([])
-
-    assert config["type_config"]["type"] == "text"
+    with pytest.raises(ValueError, match="账户"):
+        page10_basket_pretrade._account_column_config([])
 
 
 def test_page10_uses_shared_pretrade_ui_and_user_facing_wait_copy() -> None:
@@ -151,6 +153,38 @@ def test_page10_editor_keeps_a_stable_widget_identity_across_edits(monkeypatch) 
     assert "height" not in captured[0]
 
 
+def test_page10_editor_restores_the_last_submitted_lines(monkeypatch) -> None:
+    submitted = page10_basket_pretrade._empty_basket().copy()
+    submitted.loc[0, "债券代码"] = "1980082.IB"
+    captured: list = []
+
+    class _Recorder:
+        column_config = page10_basket_pretrade.st.column_config
+
+        @staticmethod
+        def container(**_kwargs):
+            from contextlib import nullcontext
+
+            return nullcontext()
+
+        @staticmethod
+        def caption(*_args, **_kwargs) -> None:
+            return None
+
+        @staticmethod
+        def data_editor(frame, **_kwargs):
+            captured.append(frame.copy(deep=True))
+            return frame
+
+    monkeypatch.setattr(page10_basket_pretrade, "st", _Recorder())
+
+    page10_basket_pretrade._render_basket_editor(
+        ["自营部交易性"], initial_frame=submitted
+    )
+
+    assert captured[0].loc[0, "债券代码"] == "1980082.IB"
+
+
 def test_page10_no_longer_derives_editor_height_from_session_state() -> None:
     source = Path("src/visualization/pages/page10_basket_pretrade.py").read_text(
         encoding="utf-8"
@@ -159,6 +193,15 @@ def test_page10_no_longer_derives_editor_height_from_session_state() -> None:
     assert "data_editor_height" not in source
     assert "_editor_row_count" not in source
     assert 'key="page10_pretrade_editor_shell"' in source
+
+
+def test_page10_result_mode_is_read_only_until_user_returns_to_editing() -> None:
+    source = Path("src/visualization/pages/page10_basket_pretrade.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "修改交易清单" in source
+    assert "交易清单（已提交，可展开修改）" not in source
 
 
 def test_page10_key_constraints_live_inside_the_risk_tab() -> None:
@@ -215,3 +258,23 @@ def test_page10_historical_mode_does_not_call_current_pretrade_service(monkeypat
     assert messages == [
         "交易前试算仅支持已发布的最新交易前快照；请在侧边栏切换到「最新数据」。"
     ]
+
+
+def test_page10_handles_service_factory_failure_as_snapshot_unavailable(monkeypatch) -> None:
+    messages: list[str] = []
+    monkeypatch.setattr(
+        page10_basket_pretrade,
+        "st",
+        SimpleNamespace(session_state={}, error=messages.append),
+    )
+    monkeypatch.setattr(page10_basket_pretrade, "inject_pretrade_ui_css", lambda: None)
+    monkeypatch.setattr(page10_basket_pretrade, "_render_title", lambda: None)
+    monkeypatch.setattr(
+        page10_basket_pretrade,
+        "get_pretrade_risk_service",
+        lambda: (_ for _ in ()).throw(PretradeServiceError("missing db")),
+    )
+
+    page10_basket_pretrade.render({}, SimpleNamespace(target_date=None))
+
+    assert messages == [page10_basket_pretrade.SNAPSHOT_UNAVAILABLE_MESSAGE]

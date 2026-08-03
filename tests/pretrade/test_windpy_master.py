@@ -164,6 +164,8 @@ def test_provider_constructs_source_shaped_master_for_ordinary_bond() -> None:
     ).resolve("184072.SH", DAY)
 
     assert result.source is MasterSource.WIND
+    assert result.wind_data_date == "2026-07-10"
+    assert result.wind_fetched_at is not None
     assert result.master is not None
     assert result.master.input_code == "184072.SH"
     assert result.master.asset_name == "21台州01"

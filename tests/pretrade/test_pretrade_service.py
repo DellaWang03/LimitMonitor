@@ -303,6 +303,19 @@ def test_single_quote_matches_direct_zero_probe(service) -> None:
     assert quote.purchasable_pr_cap_wan == 100.0
 
 
+def test_available_accounts_come_from_current_pretrade_snapshot(service) -> None:
+    accounts = service.available_accounts()
+
+    assert accounts == ("自营部交易性",)
+
+
+def test_service_rejects_account_not_in_current_pretrade_snapshot(service) -> None:
+    with pytest.raises(ValueError, match="不属于当前交易前快照"):
+        service.check_basket(
+            [PretradeLine(1, "900001.IB", "拼错的账户", 10.0)]
+        )
+
+
 def test_confirmed_breach_wins_over_missing_master(service) -> None:
     result = service.check_basket(
         [

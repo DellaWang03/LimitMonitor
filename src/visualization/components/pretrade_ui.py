@@ -127,27 +127,13 @@ def user_facing_input_message(message: str) -> str:
     return INPUT_INVALID_MESSAGE
 
 
-def account_options(data_loader: Any, *, default_account: str) -> list[str]:
-    """从当前快照的真实持仓数据中取账户名列表，替代自由文本输入。
+def account_options(service: Any, *, default_account: str) -> list[str]:
+    """从交易前 current 快照取得真实账户，不注入或放行未知账户。"""
 
-    「拟买账户」曾是纯文本框：系统里实际存在多个账户（自营部交易性、自营
-    高收益账户、做市交易部做市业务等），但输入内容不校验是否真实存在，
-    打错字或选错账户会被当成全新账户计算，「当前占用」显示为空而不报错，
-    容易给出误导性结果。取数失败或快照暂不可用时返回空列表，页面据此回落
-    为不限选项的自由文本输入，避免连带影响交易前查询主流程。
-    """
-
-    getter = getattr(data_loader, "get_available_accounts", None)
-    if getter is None:
-        return []
-    try:
-        raw_accounts = getter()
-    except Exception:
-        return []
+    raw_accounts = service.available_accounts()
     accounts = {str(item) for item in raw_accounts if str(item) and str(item) != "全部"}
     if not accounts:
-        return []
-    accounts.add(default_account)
+        raise ValueError("交易前快照没有可用账户")
     return sorted(accounts, key=lambda item: (item != default_account, item))
 
 
