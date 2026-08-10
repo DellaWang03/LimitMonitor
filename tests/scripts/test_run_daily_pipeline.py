@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 from scripts import run_daily_pipeline as daily
@@ -76,6 +78,16 @@ def test_daily_pipeline_uses_the_required_success_sequence(monkeypatch) -> None:
         "publish_current",
         "display",
     ]
+
+
+def test_daily_pipeline_console_output_is_cp936_safe(monkeypatch) -> None:
+    _install_dependencies(monkeypatch)
+    output = io.BytesIO()
+    console = io.TextIOWrapper(output, encoding="cp936", errors="strict")
+    monkeypatch.setattr(sys, "stdout", console)
+
+    assert daily.main(["--archive-date", "2026-07-15"]) == 0
+    console.flush()
 
 
 def test_archive_failure_does_not_publish_pretrade_pointer(monkeypatch) -> None:

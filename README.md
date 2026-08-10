@@ -117,7 +117,7 @@ Windows：
 run_daily.bat
 ```
 
-Windows 脚本会自动设置 `LIMIT_MONITOR_PROFILE=windows` 和 `LIMIT_MONITOR_ENV=production`，并优先使用 `.venv\Scripts\python.exe`。
+Windows 脚本会自动设置 `LIMIT_MONITOR_PROFILE=windows`、`LIMIT_MONITOR_ENV=production` 和 Python UTF-8 输出，并优先使用 `.venv\Scripts\python.exe`。归档日期由 Python 按当天生成，不依赖 Windows 的本地化日期格式。
 
 macOS/Linux 生产模式建议显式指定：
 
@@ -125,28 +125,23 @@ macOS/Linux 生产模式建议显式指定：
 LIMIT_MONITOR_ENV=production bash run_daily.sh
 ```
 
-`run_daily.sh` 会依次执行：
+每日脚本统一调用 `scripts/run_daily_pipeline.py`，由同一进程依次完成：
 
-1. `run_stage0.py`
-2. `run_stage1.py`
-3. `run_stage2.py`
-4. `scripts/daily_archive.py`
-5. `scripts/generate_display_snapshot.py`
+1. Stage0、Stage1、Stage2 与共享运行期上下文计算
+2. 生成待发布的交易前快照
+3. 单事务归档既有结果
+4. 发布交易前 `current` 指针
+5. 生成展示快照
 
 ## 五、补跑历史日期
 
 用于 T+N 补跑 T-1 数据：
 
 ```bash
-python run_stage0.py --target-date 2026-04-07
-python run_stage1.py
-python run_stage2.py
-python scripts/daily_archive.py
-python scripts/generate_display_snapshot.py --data-date 2026-04-07
+python scripts/run_daily_pipeline.py --target-date 2026-04-07 --archive-date 2026-04-08
 ```
 
-`daily_archive.py --archive-date` 表示归档运行日；覆盖与历史读取按结果中的
-`data_date` 执行。展示快照、校验和单券审计请优先使用 `--data-date`。
+`--target-date` 是业务目标日期，`--archive-date` 是归档运行日；覆盖与历史读取按结果中的 `data_date` 执行。直接运行 Stage 或归档脚本仅用于诊断，不会完成交易前 `current` 的完整发布。
 
 ## 六、启动看板
 
@@ -214,8 +209,12 @@ LimitMonitorAutomation/
 ├── scripts/
 │   ├── daily_archive.py
 │   ├── generate_display_snapshot.py
+│   ├── run_daily_pipeline.py
 │   └── audit_bond_quota_query.py
 ├── src/
+│   ├── pipeline/
+│   ├── pretrade/
+│   └── risk_core/
 ├── start_web.sh / start_web.bat
 ├── tests/
 └── validation/
@@ -224,8 +223,7 @@ LimitMonitorAutomation/
 ## 九、保留的主要入口
 
 - 每日跑数：`bash run_daily.sh`
+- 统一 Python 入口：`python scripts/run_daily_pipeline.py`
 - Web 看板：`bash start_web.sh`
-- Stage 单独运行：`python run_stage0.py` / `python run_stage1.py` / `python run_stage2.py`
-- DB 归档：`python scripts/daily_archive.py`
-- 展示快照：`python scripts/generate_display_snapshot.py`
+- Stage、DB 归档与展示快照的独立入口：仅用于诊断或隔离验证
 - 上线前验收：`bash tests/run_full_integration_test.sh [DATA_DATE] [REF_DIR]`

@@ -46,7 +46,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         datetime.strptime(args.archive_date, "%Y-%m-%d")
     except ValueError:
-        print(f"❌ archive_date 必须为 YYYY-MM-DD，收到: {args.archive_date!r}")
+        print(f"[ERROR] archive_date 必须为 YYYY-MM-DD，收到: {args.archive_date!r}")
         return 1
 
     try:
@@ -66,20 +66,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         snapshot_id = build_ready_context(runtime, store)
 
         if archive_to_db(args.archive_date) != 0:
-            print("❌ 既有归档返回失败状态；交易前 current 指针未发布。")
+            print("[ERROR] 既有归档返回失败状态；交易前 current 指针未发布。")
             return 1
         store.publish_current(snapshot_id)
     except Exception as exc:
-        print(f"❌ 日常生产编排失败：{type(exc).__name__}: {exc}")
+        print(f"[ERROR] 日常生产编排失败：{type(exc).__name__}: {exc}")
         return 1
 
     try:
         write_display_snapshots(CURRENT_DIR / "display_snapshots")
     except Exception as exc:
-        print(f"⚠️  展示快照生成失败；归档与交易前 current 已成功：{type(exc).__name__}: {exc}")
+        print(f"[WARN] 展示快照生成失败；归档与交易前 current 已成功：{type(exc).__name__}: {exc}")
         return 2
 
-    print("✅ 日常生产编排完成：既有归档与交易前 current 已发布。")
+    print("[OK] 日常生产编排完成：既有归档与交易前 current 已发布。")
     return 0
 
 
