@@ -1,0 +1,51 @@
+{
+  "baseline_commit": "579af695fb8727dec8249f66d07a8b0e723da137",
+  "kernel_commit": "970ef6daa82dfb9fa4e458dd1da30f496ab26447",
+  "context_implementation_commit": "715387e3",
+  "config_workbook_audit_implementation_commit": "f5fecb4309a68fba164c7a71b99e4c401670183d",
+  "manifest_id": "data_source_0123-20260710-v1",
+  "business_date": "2026-07-10",
+  "snapshot_id": "aa721fc5-7db7-40e9-9bac-d57accbf4d34",
+  "regulatory_concentration_limit": 0.16,
+  "reset_authorized": true,
+  "reset_precheck": {
+    "old_snapshot_count": 1,
+    "old_current_count": 0,
+    "dropped_tables": [
+      "pretrade_snapshot_current",
+      "pretrade_snapshot_dataset",
+      "pretrade_snapshot"
+    ]
+  },
+  "pretrade_tables_after": [
+    "pretrade_config_workbook",
+    "pretrade_snapshot",
+    "pretrade_snapshot_current",
+    "pretrade_snapshot_dataset"
+  ],
+  "dataset_count": 27,
+  "config_workbook": {
+    "file_name": "限额配置_当前.xlsx",
+    "source_relative_path": "data_source_0123/限额配置_当前.xlsx",
+    "byte_count": 29504,
+    "sheet_count": 16,
+    "sha256": "3b8afc3a84cca30c7a6966ec5e8892c44055ecc64c693ded89ab67509e318560",
+    "database_readback_byte_for_byte_verified": true,
+    "stage1_config_source_unified": true,
+    "is_kernel_input_dataset": false
+  },
+  "stage1_table_count": 35,
+  "stage2_table_count": 22,
+  "logical_fingerprint": "2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85",
+  "stage_logical_fingerprints": {
+    "stage0": "d97010754d2214c7b4edf2e89808e698a6577631a802765711dc851f5c326565",
+    "stage1": "9f5c5c1528159bd07e1949c6f74222bba0803c9df496f07b99cf31dfb707b2ed",
+    "stage2": "1d8793c341c76672dad46d289f32a6f66d48ff555c9e2cfd9b1441f52f4b3b8a"
+  },
+  "database_readback_verified": true,
+  "kernel_replay_verified": true,
+  "current_pointer_changed": false,
+  "current_pointer_row_count_after": 0,
+  "archive_meta_current_data_date_before_and_after": "2026-07-13",
+  "legacy_archive_dml": false
+}

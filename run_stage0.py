@@ -11,7 +11,6 @@
 
 import sys
 import os
-import json
 import argparse
 from pathlib import Path
 from datetime import datetime
@@ -23,6 +22,53 @@ from src.stage0 import Stage0Processor
 from src.utils.logger import LoggerSetup
 from src.utils import DateValidator
 from src.utils.config_loader import get_config
+
+
+def validate_current_inputs(config, target_date: str | None, environment: str) -> dict[str, str | bool | None]:
+    """验证日常运行的必需输入，不以 T-1 新鲜度阻断完整数据归档。
+
+    Access 最新日期相对 T-1 的偏差只用于运行日志；业务日期、文件存在性和
+    日期解析仍是必需条件，不能被“最新可用”策略掩盖。
+    """
+
+    data_dir = config.get_data_dir()
+    if not data_dir.exists():
+        raise FileNotFoundError(f"数据目录不存在: {data_dir}")
+
+    if target_date is not None:
+        datetime.strptime(target_date, "%Y-%m-%d")
+
+    date_validator = DateValidator(data_dir, config=config)
+    date_validator.log_business_date_summary()
+    access_db_path = config.get_data_file_path("风控部债券池.accdb")
+    if not access_db_path.exists():
+        raise FileNotFoundError(f"Access 数据库不存在: {access_db_path}")
+
+    expected_date = date_validator.get_t_minus_1_date().strftime("%Y-%m-%d")
+    if target_date is not None:
+        return {
+            "actual_date": None,
+            "expected_t_minus_1_date": expected_date,
+            "is_t_minus_1": None,
+            "target_date": target_date,
+        }
+
+    is_fresh, message, actual_date = date_validator.validate_access_database_freshness(
+        access_db_path,
+        strict_mode=False,
+    )
+    actual_date_text = actual_date.strftime("%Y-%m-%d") if actual_date else None
+    if not is_fresh:
+        print(
+            "⚠️  Access 数据日期与 T-1 不一致，但完整性校验继续："
+            f"实际={actual_date_text}，预期={expected_date}，说明={message}"
+        )
+    return {
+        "actual_date": actual_date_text,
+        "expected_t_minus_1_date": expected_date,
+        "is_t_minus_1": is_fresh,
+        "target_date": None,
+    }
 
 
 def main():
@@ -67,91 +113,28 @@ def main():
         data_dir = config.get_data_dir()
         
         output_dir = project_root / "data" / "current" / "stage0_output"
-        current_dir = project_root / "data" / "current"
         
         profile = config.get_active_profile()
         logger.info(f"\n路径 profile: {profile} (一键切换: 修改 config/settings.yaml 中 data_sources.active_profile 或设置环境变量 LIMIT_MONITOR_PROFILE)")
         logger.info(f"数据目录: {data_dir}")
         logger.info(f"输出目录: {output_dir}")
-        # 检查数据目录
-        if not data_dir.exists():
-            logger.error(f"数据目录不存在: {data_dir}")
-            return 1
-        
-        # 日期验证（补跑模式跳过新鲜度检查，因为 accdb 本来就不是今天的数据）
+        # 日期验证：T-1 偏差仅记录 warning；缺文件或不可解析日期仍立即失败。
         logger.info("\n" + "=" * 80)
         if target_date:
             logger.info(f"数据日期校验（补跑模式 - 目标日期: {target_date}）")
         else:
-            logger.info("数据新鲜度验证")
+            logger.info("数据完整性与新鲜度记录")
         logger.info("=" * 80)
-        
-        data_is_fresh = True
-        actual_data_date = None
-        expected_data_date = None
-        
-        try:
-            date_validator = DateValidator(data_dir, config=config)
-            
-            # 显示业务日期信息
-            date_validator.log_business_date_summary()
-            
-            # 验证Access数据库新鲜度（补跑模式下跳过，accdb 会含多个日期）
-            access_db_path = config.get_data_file_path("风控部债券池.accdb")
-            
-            if target_date:
-                # 补跑模式：跳过新鲜度检查，accdb 本来就含多个历史日期，data_is_fresh 保持 True
-                logger.info(f"⏭️  补跑模式，跳过 accdb 新鲜度检查（目标日期: {target_date}）")
-            elif access_db_path.exists():
-                # 正常模式：做新鲜度校验
-                strict_mode = (ENV_MODE == 'production')
-                
-                is_fresh, message, actual_date = date_validator.validate_access_database_freshness(
-                    access_db_path,
-                    strict_mode=strict_mode
-                )
-                
-                data_is_fresh = is_fresh
-                if actual_date:
-                    actual_data_date = actual_date.strftime('%Y-%m-%d')
-                expected_data_date = date_validator.get_t_minus_1_date().strftime('%Y-%m-%d')
-                
-                if not is_fresh:
-                    if ENV_MODE == 'production':
-                        # 生产环境：strict_mode=True已抛出异常，不会到这里
-                        logger.error("❌ 生产环境数据未更新，已停止处理")
-                        return 1
-                    else:
-                        # 测试环境：警告但继续
-                        logger.warning("\n" + "=" * 80)
-                        logger.warning("⚠️  【测试模式】数据新鲜度检查未通过")
-                        logger.warning(f"   Access数据日期: {actual_data_date}")
-                        logger.warning(f"   预期日期（T-1）: {expected_data_date}")
-                        logger.warning("   将继续处理并保存到 data/current/")
-                        logger.warning("   ❌ 不会归档到 data/history/（数据不完整）")
-                        logger.warning("=" * 80)
-                        
-                        # 设置环境变量标记（供后续阶段和归档脚本使用）
-                        os.environ['DATA_INCOMPLETE'] = 'true'
-                        os.environ['DATA_INCOMPLETE_REASON'] = 'access_db_outdated'
-            else:
-                # accdb 文件不存在
-                logger.warning(f"⚠️  Access数据库不存在: {access_db_path}")
-                logger.warning(f"   将使用fallback数据源（如果可用）")
-                data_is_fresh = False
-                os.environ['DATA_INCOMPLETE'] = 'true'
-                os.environ['DATA_INCOMPLETE_REASON'] = 'access_db_missing'
-        
-        except Exception as e:
-            if ENV_MODE == 'production':
-                logger.error(f"❌ 生产环境日期验证失败: {e}")
-                return 1
-            else:
-                logger.warning(f"⚠️  日期验证失败: {e}")
-                logger.warning(f"   将继续处理，但无法确认数据新鲜度")
-                data_is_fresh = False
-                os.environ['DATA_INCOMPLETE'] = 'true'
-                os.environ['DATA_INCOMPLETE_REASON'] = 'validation_failed'
+        validation = validate_current_inputs(config, target_date, ENV_MODE)
+        if target_date:
+            logger.info(f"⏭️  补跑模式：目标日期={target_date}")
+        else:
+            logger.info(
+                "Access 数据日期："
+                f"实际={validation['actual_date']}，"
+                f"预期 T-1={validation['expected_t_minus_1_date']}，"
+                f"是否一致={validation['is_t_minus_1']}"
+            )
         
         # 创建处理器（传入 config 以支持路径 profile 一键切换）
         processor = Stage0Processor(
@@ -196,18 +179,6 @@ def main():
                         logger.info(f"✅ 数据日期与目标日期一致（{target_date}）")
                     else:
                         logger.error(f"❌ 数据日期 {pool_date.date()} 与目标日期 {target_date} 不一致，请检查 accdb 是否含该日期数据")
-                else:
-                    # 正常模式：与 T-1 对比
-                    try:
-                        date_info = date_validator.get_business_date_info()
-                        logger.info(f"预期日期（T-1）: {date_info['t_minus_1']}")
-                        
-                        if pool_date.date() == date_info['t_minus_1']:
-                            logger.info("✅ 数据日期验证通过")
-                        else:
-                            logger.warning("⚠️  数据日期与T-1不匹配")
-                    except:
-                        pass
         
         if '债券池日期' in results:
             df_dates = results['债券池日期']
@@ -216,41 +187,9 @@ def main():
                 latest_date = pd.to_datetime(df_dates['日期']).max()
                 logger.info(f"债券池日期表: 共{date_count}个日期，最新为 {latest_date.date()}")
         
-        # 【新增】数据不完整时创建警告文件
-        if not data_is_fresh and ENV_MODE == 'development':
-            warning_file = current_dir / '.INCOMPLETE_DATA_WARNING'
-            warning_data = {
-                'warning': '数据不完整，仅供测试使用',
-                'environment': 'development',
-                'reason': os.getenv('DATA_INCOMPLETE_REASON', 'unknown'),
-                'access_date': actual_data_date,
-                'expected_date': expected_data_date,
-                'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'message': '此数据不应归档到 history/ 目录，仅用于测试、校验和可视化'
-            }
-            
-            try:
-                current_dir.mkdir(parents=True, exist_ok=True)
-                with open(warning_file, 'w', encoding='utf-8') as f:
-                    json.dump(warning_data, f, indent=2, ensure_ascii=False)
-                logger.warning(f"\n⚠️  已创建数据完整性警告文件: {warning_file.name}")
-            except Exception as e:
-                logger.warning(f"⚠️  无法创建警告文件: {e}")
-        elif data_is_fresh:
-            # 数据完整，删除可能存在的警告文件
-            warning_file = current_dir / '.INCOMPLETE_DATA_WARNING'
-            if warning_file.exists():
-                try:
-                    warning_file.unlink()
-                    logger.info("✅ 已删除旧的数据完整性警告文件")
-                except:
-                    pass
-        
         logger.info("\n" + "=" * 80)
         logger.info(f"结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info("阶段0处理完成！")
-        if not data_is_fresh and ENV_MODE == 'development':
-            logger.warning("⚠️  数据不完整，请勿用于生产决策")
         logger.info("=" * 80)
         
         return 0

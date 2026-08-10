@@ -1,0 +1,2949 @@
+{
+  "artifacts": [
+    {
+      "kind": "csv",
+      "relative_path": "stage0/issuer_wind_code_mapping.csv",
+      "table": {
+        "columns": [
+          "发行人",
+          "wind代码"
+        ],
+        "duplicate_ordinal": false,
+        "logical_dtypes": [
+          "string",
+          "string"
+        ],
+        "name": "__csv__",
+        "stable_key_columns": [
+          "发行人"
+        ],
+        "tie_breaker_columns": [
+          "wind代码"
+        ]
+      }
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage0/债券池日期.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime"
+          ],
+          "name": "债券池日期",
+          "stable_key_columns": [
+            "日期"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage0/公司净资产_手工.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "变动日期",
+            "公司净资产(万)"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "float"
+          ],
+          "name": "公司净资产_手工",
+          "stable_key_columns": [
+            "变动日期"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage0/公司净资产_手工_每日.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "公司净资产(万)"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "float"
+          ],
+          "name": "公司净资产_手工_每日",
+          "stable_key_columns": [
+            "日期"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage0/原始风控部债券池_主体.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "发行人名称",
+            "主体池"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string"
+          ],
+          "name": "原始风控部债券池_主体",
+          "stable_key_columns": [
+            "日期",
+            "发行人名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage0/调整实控人_北京国有资本.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "主体名称",
+            "统一社会信用代码",
+            "主体wind代码",
+            "调整后实际控制人"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "string",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "调整实控人_北京国有资本",
+          "stable_key_columns": [
+            "主体名称",
+            "主体wind代码"
+          ],
+          "tie_breaker_columns": [
+            "统一社会信用代码"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage0/调整实控人名单.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "主体名称",
+            "社会信用代码",
+            "主体wind代码",
+            "调整后实际控制人"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "string",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "调整实控人名单",
+          "stable_key_columns": [
+            "主体名称",
+            "主体wind代码"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage0/风控部债券池.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "债券池",
+            "债券代码",
+            "债券名称",
+            "市场名称",
+            "发行人名称",
+            "主体池",
+            "发行人展望",
+            "代码"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "mixed[integer,string]",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "风控部债券池",
+          "stable_key_columns": [
+            "日期",
+            "代码",
+            "债券代码",
+            "发行人名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage0/风控部债券池_主体.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "发行人名称",
+            "主体池",
+            "发行人wind代码"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "发行人名称"
+          ],
+          "tie_breaker_columns": [
+            "发行人wind代码"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage0/风控部债券池_主体_虚拟添加.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "变动日期",
+            "发行人名称",
+            "主体池",
+            "备注"
+          ],
+          "duplicate_ordinal": true,
+          "logical_dtypes": [
+            "string",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "风控部债券池_主体_虚拟添加",
+          "stable_key_columns": [
+            "发行人名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage0/风控部债券池_主体_虚拟添加_每日.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "发行人名称",
+            "主体池"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string"
+          ],
+          "name": "风控部债券池_主体_虚拟添加_每日",
+          "stable_key_columns": [
+            "日期",
+            "发行人名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/中债隐含评级AAA&AAA+.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "wind代码",
+            "统一社会信用代码",
+            "发行主体",
+            "中债隐含评级"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期"
+          ],
+          "tie_breaker_columns": [
+            "wind代码",
+            "统一社会信用代码"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/债券持仓明细表.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "金融资产会计属性",
+            "部门",
+            "内部证券账户名称",
+            "资产代码",
+            "资产名称",
+            "库存数量(万)",
+            "库存数量(万)_空头为负",
+            "债券分类2",
+            "主证券代码",
+            "主证券名称",
+            "库存数量(万)_PR",
+            "债券余额(亿)",
+            "债务主体wind代码",
+            "担保人wind代码",
+            "资产代码_标准",
+            "主证券代码_标准",
+            "ISIN码"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "string",
+            "empty"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "内部证券账户名称",
+            "资产代码",
+            "资产代码_标准",
+            "主证券代码",
+            "主证券代码_标准",
+            "债务主体wind代码",
+            "担保人wind代码"
+          ],
+          "tie_breaker_columns": [
+            "ISIN码",
+            "资产名称",
+            "主证券名称"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/债券持仓明细表_信用债.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "金融资产会计属性",
+            "部门",
+            "内部证券账户名称",
+            "资产代码",
+            "ISIN码",
+            "资产名称",
+            "债券分类2",
+            "债券类型1",
+            "主证券代码",
+            "主证券名称",
+            "库存数量(万)_PR",
+            "债券余额(亿)",
+            "发行人类型",
+            "债务主体",
+            "债务主体wind代码",
+            "实际控制人名称",
+            "实际控制人名称_修正",
+            "担保人",
+            "担保人wind代码",
+            "是否城投债",
+            "债券类别",
+            "wind行业",
+            "省份",
+            "合并辅助列",
+            "资产代码_标准",
+            "主证券代码_标准",
+            "_源行号"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "integer"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "_源行号"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/债券持仓明细表_信用债_合并风险限额相关.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "金融资产会计属性",
+            "部门",
+            "内部证券账户名称",
+            "资产代码",
+            "ISIN码",
+            "资产名称",
+            "债券分类2",
+            "债券类型1",
+            "主证券代码",
+            "主证券名称",
+            "库存数量(万)_PR",
+            "债券余额(亿)",
+            "发行人类型",
+            "债务主体",
+            "债务主体wind代码",
+            "实际控制人名称",
+            "实际控制人名称_修正",
+            "担保人",
+            "担保人wind代码",
+            "是否城投债",
+            "债券类别",
+            "wind行业",
+            "省份",
+            "合并辅助列",
+            "资产代码_标准",
+            "主证券代码_标准",
+            "_源行号",
+            "是否属于高收益",
+            "中债隐含评级",
+            "债券池",
+            "主体池",
+            "主体池_担保",
+            "发行人类型_调整",
+            "调整后实际控制人",
+            "担保公司是否准入",
+            "代码/名称/债务主体",
+            "行业类别",
+            "省份类别"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "integer",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "_源行号"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/债券持仓明细表_全量债券监管集中度.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "金融资产会计属性",
+            "部门",
+            "内部证券账户名称",
+            "资产代码",
+            "ISIN码",
+            "资产名称",
+            "债券分类2",
+            "债券类型1",
+            "主证券代码",
+            "主证券名称",
+            "库存数量(万)_PR",
+            "债券余额(亿)",
+            "发行人类型",
+            "债务主体",
+            "债务主体wind代码",
+            "实际控制人名称",
+            "实际控制人名称_修正",
+            "担保人",
+            "担保人wind代码",
+            "是否城投债",
+            "债券类别",
+            "wind行业",
+            "省份",
+            "资产代码_标准",
+            "主证券代码_标准"
+          ],
+          "duplicate_ordinal": true,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "内部证券账户名称",
+            "资产代码",
+            "资产代码_标准",
+            "主证券代码",
+            "主证券代码_标准",
+            "债务主体wind代码",
+            "债务主体",
+            "实际控制人名称_修正",
+            "担保人wind代码",
+            "担保人",
+            "wind行业",
+            "省份"
+          ],
+          "tie_breaker_columns": [
+            "ISIN码",
+            "资产名称",
+            "主证券名称"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/单一主体总持仓.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "业务分类",
+            "债务主体wind代码",
+            "债务主体",
+            "单一主体总持仓_PR"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "业务分类",
+            "债务主体wind代码",
+            "债务主体"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/单一主体规模限额.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "指标维度",
+            "指标类别",
+            "发行人/债券类型",
+            "内评类别",
+            "指标名称",
+            "指标值"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "integer"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "指标名称",
+            "指标维度",
+            "指标类别",
+            "发行人/债券类型",
+            "内评类别"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/单一债券总持仓.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "业务分类",
+            "单一债券归并键",
+            "单一债券总持仓_PR",
+            "主证券代码",
+            "主证券代码_标准",
+            "主证券名称",
+            "资产代码",
+            "资产代码_标准",
+            "资产名称",
+            "ISIN码",
+            "单一债券归并键来源",
+            "单一债券集中度"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "float"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "业务分类",
+            "单一债券归并键"
+          ],
+          "tie_breaker_columns": [
+            "主证券代码",
+            "主证券代码_标准",
+            "资产代码",
+            "资产代码_标准"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/单一债券规模限额.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "指标维度",
+            "指标类别",
+            "发行人/债券类型",
+            "内评类别",
+            "指标名称",
+            "指标值"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "integer"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "指标名称",
+            "指标维度",
+            "指标类别",
+            "发行人/债券类型",
+            "内评类别"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/单一债券集中度限额.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "指标维度",
+            "指标类别",
+            "发行人/债券类型",
+            "内评类别",
+            "指标名称",
+            "指标值"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "指标名称",
+            "指标维度",
+            "指标类别",
+            "发行人/债券类型",
+            "内评类别"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/单一实控人总持仓.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "业务分类",
+            "实际控制人名称_修正",
+            "单一实控人总持仓_PR"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "mixed[float,integer]"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "业务分类",
+            "实际控制人名称_修正"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/单一实控人规模限额.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "指标维度",
+            "指标类别",
+            "发行人/债券类型",
+            "内评类别",
+            "指标名称",
+            "指标值"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "integer"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "指标名称",
+            "指标维度",
+            "指标类别",
+            "发行人/债券类型",
+            "内评类别"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/单一担保人总持仓.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "业务分类",
+            "担保人wind代码",
+            "担保人",
+            "单一担保人总持仓_PR"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "业务分类",
+            "担保人wind代码",
+            "担保人"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/单一担保人总持仓_不剔除.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "指标名称",
+            "授信担保公司名称",
+            "单一担保人总持仓_PR"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "mixed[float,integer]"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "授信担保公司名称",
+            "指标名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/单一担保公司规模限额.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "梯队授信",
+            "序号",
+            "指标名称",
+            "统一社会信用代码",
+            "授信担保公司名称",
+            "合并子公司wind代码1",
+            "合并子公司统一社会信用代码1",
+            "合并子公司名称1",
+            "指标值",
+            "是否准入"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "integer",
+            "string",
+            "string",
+            "string",
+            "empty",
+            "empty",
+            "empty",
+            "integer",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "授信担保公司名称",
+            "指标名称"
+          ],
+          "tie_breaker_columns": [
+            "统一社会信用代码"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/发行人类型调整表.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "wind代码",
+            "发行人名称(参考)",
+            "发行人类型"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "wind代码"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/特定主体总持仓.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "业务分类",
+            "特定主体名称",
+            "特定主体总持仓"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "integer"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "业务分类",
+            "特定主体名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/特定主体限额.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "主体名称",
+            "主体wind代码",
+            "指标名称",
+            "指标值"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "integer"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "指标名称",
+            "主体名称",
+            "主体wind代码"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/特定实控人总持仓.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "业务分类",
+            "特定实控人名称",
+            "特定实控人总持仓"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "integer"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "业务分类",
+            "特定实控人名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/特定实控人限额.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "实控人名称",
+            "指标名称",
+            "指标值"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "integer"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "实控人名称",
+            "指标名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/特批单一债券限额.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "主证券代码",
+            "主证券名称",
+            "规模指标值",
+            "集中度指标值",
+            "主证券代码_标准"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "integer",
+            "float",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "主证券代码",
+            "主证券代码_标准"
+          ],
+          "tie_breaker_columns": [
+            "主证券名称"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/穿透高收益债券.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "债券代码",
+            "ISIN代码",
+            "名称",
+            "类型"
+          ],
+          "duplicate_ordinal": true,
+          "logical_dtypes": [
+            "string",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "债券代码"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/调整实控人名单.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "主体名称",
+            "社会信用代码",
+            "主体wind代码",
+            "调整后实际控制人"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "string",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "主体名称",
+            "主体wind代码"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/限额明细_债券持仓明细表_信用债1_1.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "业务分类",
+            "资产代码",
+            "资产名称",
+            "债务主体",
+            "债务主体wind代码",
+            "内部证券账户名称",
+            "特定主体限额名称",
+            "特定实控人限额名称",
+            "金融资产会计属性",
+            "部门",
+            "ISIN码",
+            "债券分类2",
+            "债券类型1",
+            "主证券代码",
+            "主证券名称",
+            "库存数量(万)_PR",
+            "债券余额(亿)",
+            "发行人类型",
+            "实际控制人名称",
+            "实际控制人名称_修正",
+            "担保人",
+            "担保人wind代码",
+            "是否城投债",
+            "债券类别",
+            "wind行业",
+            "省份",
+            "合并辅助列",
+            "资产代码_标准",
+            "主证券代码_标准",
+            "是否属于高收益",
+            "中债隐含评级",
+            "债券池",
+            "主体池",
+            "主体池_担保",
+            "发行人类型_调整",
+            "调整后实际控制人",
+            "担保公司是否准入",
+            "代码/名称/债务主体",
+            "行业类别",
+            "省份类别",
+            "特定主体限额指标值",
+            "特定主体总持仓",
+            "特定主体限额剩余额度",
+            "特定主体限额是否超限",
+            "特定实控人限额指标值",
+            "特定实控人总持仓",
+            "特定实控人限额剩余额度",
+            "特定实控人限额是否超限",
+            "是否超限"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "integer",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "empty",
+            "string",
+            "integer",
+            "integer",
+            "integer",
+            "string",
+            "integer",
+            "integer",
+            "integer",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "业务分类",
+            "内部证券账户名称",
+            "资产代码",
+            "资产代码_标准",
+            "主证券代码",
+            "主证券代码_标准",
+            "债务主体wind代码",
+            "债务主体",
+            "实际控制人名称_修正",
+            "担保人wind代码",
+            "担保人",
+            "行业类别",
+            "wind行业",
+            "省份类别",
+            "省份"
+          ],
+          "tie_breaker_columns": [
+            "ISIN码",
+            "资产名称",
+            "主证券名称"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/限额明细_债券持仓明细表_信用债1_2.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "金融资产会计属性",
+            "部门",
+            "内部证券账户名称",
+            "资产代码",
+            "ISIN码",
+            "资产名称",
+            "债券分类2",
+            "债券类型1",
+            "主证券代码",
+            "主证券名称",
+            "库存数量(万)_PR",
+            "债券余额(亿)",
+            "发行人类型",
+            "债务主体",
+            "债务主体wind代码",
+            "实际控制人名称",
+            "实际控制人名称_修正",
+            "担保人",
+            "担保人wind代码",
+            "是否城投债",
+            "债券类别",
+            "wind行业",
+            "省份",
+            "合并辅助列",
+            "资产代码_标准",
+            "主证券代码_标准",
+            "是否属于高收益",
+            "中债隐含评级",
+            "债券池",
+            "主体池",
+            "主体池_担保",
+            "发行人类型_调整",
+            "担保公司是否准入",
+            "代码/名称/债务主体",
+            "行业类别",
+            "省份类别",
+            "单一债券归并键",
+            "单一债券归并键来源",
+            "业务分类",
+            "特定主体指标名称",
+            "特定主体限额指标值",
+            "单一债券规模限额适用类别",
+            "单一债券集中度限额适用类别",
+            "单一债券规模限额指标值",
+            "单一债券集中度限额指标值",
+            "单一主体限额适用类别",
+            "单一主体规模限额指标值",
+            "单一债券总持仓_PR",
+            "单一债券集中度",
+            "单一主体总持仓_PR",
+            "单一担保公司规模限额",
+            "单一担保人总持仓_PR",
+            "单一实控人限额适用类别",
+            "单一实控人规模限额指标值",
+            "单一实控人总持仓_PR",
+            "单一实控人规模剩余额度(万)",
+            "单一实控人是否超限",
+            "特定主体限额指标值_特定主体详情",
+            "特定实控人限额指标值",
+            "单一债券集中度总额度",
+            "单一债券规模剩余额度(万)",
+            "单一债券集中度剩余额度(万)",
+            "单一主体规模剩余额度(万)",
+            "单一担保公司规模剩余额度(万)",
+            "单一债券是否超限",
+            "单一债券集中度是否超限",
+            "单一主体是否超限",
+            "单一担保人是否超限",
+            "是否超限"
+          ],
+          "duplicate_ordinal": true,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "integer",
+            "string",
+            "string",
+            "integer",
+            "mixed[float,integer]",
+            "string",
+            "integer",
+            "mixed[float,integer]",
+            "float",
+            "mixed[float,integer]",
+            "integer",
+            "mixed[float,integer]",
+            "string",
+            "integer",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "integer",
+            "integer",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "业务分类",
+            "内部证券账户名称",
+            "单一债券归并键",
+            "资产代码",
+            "资产代码_标准",
+            "主证券代码",
+            "主证券代码_标准",
+            "债务主体wind代码",
+            "债务主体",
+            "实际控制人名称_修正",
+            "担保人wind代码",
+            "担保人",
+            "行业类别",
+            "wind行业",
+            "省份类别",
+            "省份"
+          ],
+          "tie_breaker_columns": [
+            "ISIN码",
+            "资产名称",
+            "主证券名称"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/限额明细_全量债券监管集中度.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "监管归并主键",
+            "单债总持仓_PR",
+            "主证券代码_标准",
+            "ISIN码",
+            "资产代码",
+            "资产名称",
+            "主证券代码",
+            "主证券名称",
+            "债务主体",
+            "债券分类2",
+            "债券类型1",
+            "金融资产会计属性",
+            "部门",
+            "发行人类型",
+            "是否城投债",
+            "债券类别",
+            "wind行业",
+            "省份",
+            "债务主体wind代码",
+            "担保人",
+            "担保人wind代码",
+            "实际控制人名称_修正",
+            "实际控制人名称",
+            "归并主键来源",
+            "债券余额(亿)",
+            "内部证券账户名称",
+            "内部证券账户覆盖数",
+            "监管集中度限额指标值",
+            "不可计算原因",
+            "是否可计算",
+            "监管集中度",
+            "监管集中度总额度",
+            "监管集中度剩余额度(万)",
+            "监管集中度是否超限",
+            "是否超限"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "string",
+            "integer",
+            "float",
+            "string",
+            "string",
+            "float",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "内部证券账户名称",
+            "监管归并主键",
+            "资产代码",
+            "主证券代码",
+            "主证券代码_标准",
+            "债务主体wind代码",
+            "债务主体",
+            "实际控制人名称_修正",
+            "担保人wind代码",
+            "担保人",
+            "wind行业",
+            "省份"
+          ],
+          "tie_breaker_columns": [
+            "ISIN码",
+            "资产名称",
+            "主证券名称"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/限额明细_单一主体.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "债务主体wind代码",
+            "债务主体",
+            "单一主体总持仓_PR",
+            "单一主体是否超限",
+            "单一主体限额适用类别",
+            "单一主体规模限额指标值",
+            "单一主体规模剩余额度(万)"
+          ],
+          "duplicate_ordinal": true,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "integer",
+            "mixed[float,integer]"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "债务主体wind代码",
+            "债务主体"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/限额明细_单一债券.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "证券代码",
+            "证券名称",
+            "证券代码_原始",
+            "单一债券总持仓_PR",
+            "债券余额(亿)",
+            "资产代码",
+            "资产名称",
+            "债券分类2",
+            "单一债券集中度",
+            "监管集中度限额指标值",
+            "监管集中度",
+            "监管集中度总额度",
+            "监管集中度剩余额度(万)",
+            "监管集中度是否超限",
+            "是否超限",
+            "单一债券规模限额适用类别",
+            "单一债券规模限额指标值",
+            "单一债券规模剩余额度(万)",
+            "单一债券是否超限",
+            "单一债券集中度限额适用类别",
+            "单一债券集中度限额指标值",
+            "单一债券集中度剩余额度(万)",
+            "单一债券集中度是否超限",
+            "ISIN码"
+          ],
+          "duplicate_ordinal": true,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "float",
+            "float",
+            "float",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "integer",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "empty"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "证券代码",
+            "资产代码"
+          ],
+          "tie_breaker_columns": [
+            "ISIN码",
+            "证券名称",
+            "资产名称"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/限额明细_单一实控人.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "实际控制人名称_修正",
+            "单一实控人总持仓_PR",
+            "单一实控人规模限额指标值",
+            "单一实控人规模剩余额度(万)"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "mixed[float,integer]",
+            "integer",
+            "mixed[float,integer]"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "实际控制人名称_修正"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/限额明细_单一实控人_取最高额度.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "实际控制人名称_修正",
+            "单一实控人限额适用类别",
+            "单一实控人规模限额指标值",
+            "业务分类",
+            "单一实控人总持仓_PR",
+            "单一实控人规模剩余额度(万)",
+            "单一实控人是否超限"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "integer",
+            "string",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "业务分类",
+            "实际控制人名称_修正"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/限额明细_单一担保人.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "业务分类",
+            "授信担保公司名称",
+            "单一担保公司规模限额",
+            "单一担保人总持仓_PR",
+            "单一担保公司规模剩余额度(万)",
+            "单一担保人是否超限"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "integer",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "业务分类",
+            "授信担保公司名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/限额明细_特定主体.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "业务分类",
+            "指标名称",
+            "债务主体wind代码",
+            "债务主体",
+            "资产代码",
+            "资产名称",
+            "库存数量(万)_PR",
+            "特定主体限额指标值",
+            "特定主体总持仓",
+            "特定主体限额剩余额度",
+            "特定主体限额是否超限",
+            "ISIN码"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "integer",
+            "integer",
+            "integer",
+            "integer",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "业务分类",
+            "资产代码",
+            "债务主体wind代码",
+            "债务主体",
+            "指标名称"
+          ],
+          "tie_breaker_columns": [
+            "ISIN码",
+            "资产名称"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/限额明细_特定实控人.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "业务分类",
+            "指标名称",
+            "实控人名称",
+            "债务主体",
+            "资产代码",
+            "资产名称",
+            "库存数量(万)_PR",
+            "特定实控人限额指标值",
+            "特定实控人总持仓",
+            "特定实控人限额剩余额度",
+            "特定实控人限额是否超限",
+            "ISIN码"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "integer",
+            "integer",
+            "integer",
+            "integer",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "业务分类",
+            "资产代码",
+            "债务主体",
+            "实控人名称",
+            "指标名称"
+          ],
+          "tie_breaker_columns": [
+            "ISIN码",
+            "资产名称"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/风控部主体池.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "发行人名称",
+            "主体池",
+            "主体wind代码"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "主体wind代码",
+            "发行人名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage1/风控部债券池.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "债券池",
+            "债券代码",
+            "债券名称",
+            "市场名称",
+            "发行人名称",
+            "主体池",
+            "发行人展望",
+            "代码"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "代码",
+            "债券代码",
+            "发行人名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/信用债总持仓.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "信用债总持仓_PR"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "float"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/债券持仓明细表_信用债.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "金融资产会计属性",
+            "部门",
+            "内部证券账户名称",
+            "资产代码",
+            "ISIN码",
+            "资产名称",
+            "债券分类2",
+            "债券类型1",
+            "主证券代码",
+            "主证券名称",
+            "库存数量(万)_PR",
+            "债券余额(亿)",
+            "发行人类型",
+            "债务主体",
+            "债务主体wind代码",
+            "实际控制人名称",
+            "实际控制人名称_修正",
+            "担保人",
+            "担保人wind代码",
+            "是否城投债",
+            "债券类别",
+            "wind行业",
+            "省份",
+            "合并辅助列",
+            "资产代码_标准",
+            "主证券代码_标准",
+            "_源行号"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "integer"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "_源行号"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/债券持仓明细表_信用债_合并风险限额相关.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "金融资产会计属性",
+            "部门",
+            "内部证券账户名称",
+            "资产代码",
+            "ISIN码",
+            "资产名称",
+            "债券分类2",
+            "债券类型1",
+            "主证券代码",
+            "主证券名称",
+            "库存数量(万)_PR",
+            "债券余额(亿)",
+            "发行人类型",
+            "债务主体",
+            "债务主体wind代码",
+            "实际控制人名称",
+            "实际控制人名称_修正",
+            "担保人",
+            "担保人wind代码",
+            "是否城投债",
+            "债券类别",
+            "wind行业",
+            "省份",
+            "合并辅助列",
+            "资产代码_标准",
+            "主证券代码_标准",
+            "_源行号",
+            "是否属于高收益",
+            "中债隐含评级",
+            "债券池",
+            "主体池",
+            "主体池_担保",
+            "发行人类型_调整",
+            "调整后实际控制人",
+            "担保公司是否准入",
+            "代码/名称/债务主体",
+            "行业类别",
+            "省份类别"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "integer",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "_源行号"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/单一地域城投总持仓.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "省份",
+            "单一地域城投总持仓_PR",
+            "公司净资产(万)",
+            "城投地域集中度"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "mixed[float,integer]",
+            "float",
+            "float"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "省份"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/单一地域总持仓.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "省份",
+            "单一地域总持仓_PR",
+            "公司净资产(万)",
+            "地域集中度"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "mixed[float,integer]",
+            "float",
+            "float"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "省份"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/地域集中度限额(含城投).xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "指标名称",
+            "指标值_地域集中度限额",
+            "指标值_城投集中度限额"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "float",
+            "float"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "指标名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/金融工具池设置.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "代码",
+            "简称"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "代码",
+            "简称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/限额明细_债券持仓明细表_信用债2.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "ISIN码",
+            "金融资产会计属性",
+            "部门",
+            "内部证券账户名称",
+            "资产代码",
+            "资产名称",
+            "债券分类2",
+            "债券类型1",
+            "主证券代码",
+            "主证券名称",
+            "库存数量(万)_PR",
+            "债券余额(亿)",
+            "发行人类型",
+            "债务主体",
+            "债务主体wind代码",
+            "调整后实际控制人",
+            "担保人",
+            "担保人wind代码",
+            "是否城投债",
+            "债券类别",
+            "wind行业",
+            "省份",
+            "行业类别",
+            "省份类别",
+            "高风险行业之和集中度限额指标值",
+            "高风险省份之和集中度限额指标值",
+            "指标值_地域集中度限额",
+            "指标值_城投集中度限额",
+            "单一地域总持仓_PR",
+            "地域集中度",
+            "单一地域城投总持仓_PR",
+            "城投地域集中度",
+            "信用债总持仓_PR",
+            "公司净资产(万)",
+            "高风险行业总持仓_PR",
+            "高风险行业集中度",
+            "高风险省份总持仓_PR",
+            "高风险省份集中度",
+            "地域集中度剩余额度(万)",
+            "城投集中度剩余额度(万)",
+            "高风险行业集中度剩余额度(万)",
+            "高风险省份集中度剩余额度(万)",
+            "高风险行业是否超限",
+            "高风险省份是否超限",
+            "地域集中度是否超限",
+            "城投集中度是否超限",
+            "是否超限"
+          ],
+          "duplicate_ordinal": true,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "float",
+            "float",
+            "float",
+            "float",
+            "mixed[float,integer]",
+            "float",
+            "mixed[float,integer]",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "内部证券账户名称",
+            "资产代码",
+            "主证券代码",
+            "债务主体wind代码",
+            "债务主体",
+            "担保人wind代码",
+            "担保人",
+            "行业类别",
+            "wind行业",
+            "省份类别",
+            "省份"
+          ],
+          "tie_breaker_columns": [
+            "ISIN码",
+            "资产名称",
+            "主证券名称"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/限额明细_地域集中度限额(含城投).xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "指标名称",
+            "指标值_地域集中度限额",
+            "日期",
+            "单一地域总持仓_PR",
+            "地域集中度",
+            "单一地域总持仓上限",
+            "单一地域总持仓剩余额度",
+            "地域集中度是否超限",
+            "指标值_城投集中度限额",
+            "日期.1",
+            "公司净资产(万)",
+            "单一地域城投总持仓_PR",
+            "城投地域集中度",
+            "单一地域城投总持仓上限",
+            "单一地域城投持仓剩余额度",
+            "城投集中度是否超限"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "string",
+            "float",
+            "datetime",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "float",
+            "float",
+            "string",
+            "float",
+            "datetime",
+            "float",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "float",
+            "float",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "指标名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/限额明细_高收益.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "内部证券账户名称",
+            "资产代码",
+            "资产名称",
+            "主证券代码",
+            "主证券代码_标准",
+            "ISIN码",
+            "库存数量(万)_PR",
+            "债务主体",
+            "高收益单债归并键",
+            "高收益单债归并键来源",
+            "单一债券限额(万)",
+            "单一主体限额(万)",
+            "按类别限额JSON",
+            "高收益单债总持仓(万)",
+            "高收益单债限额(万)",
+            "高收益单债剩余额度(万)",
+            "高收益单债是否超限",
+            "高收益主体总持仓(万)",
+            "高收益主体限额(万)",
+            "高收益主体剩余额度(万)",
+            "高收益主体是否超限"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "string",
+            "string",
+            "string",
+            "integer",
+            "integer",
+            "string",
+            "mixed[float,integer]",
+            "integer",
+            "mixed[float,integer]",
+            "string",
+            "mixed[float,integer]",
+            "integer",
+            "mixed[float,integer]",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "内部证券账户名称",
+            "高收益单债归并键",
+            "资产代码",
+            "主证券代码",
+            "主证券代码_标准",
+            "债务主体"
+          ],
+          "tie_breaker_columns": [
+            "ISIN码",
+            "资产名称"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/限额明细_高收益_投资本金规模.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "账户",
+            "简称",
+            "代码",
+            "持仓面额(元)",
+            "全价成本(元)",
+            "年度限额(万)",
+            "高收益年度总投资本金(万)",
+            "高收益年度限额剩余额度(万)",
+            "高收益年度限额是否超限"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "string",
+            "mixed[float,integer]",
+            "mixed[float,integer]",
+            "integer",
+            "float",
+            "float",
+            "string"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "账户",
+            "代码",
+            "简称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/限额明细_高风险省份.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "省份类别",
+            "指标值",
+            "高风险省份总持仓_PR",
+            "公司净资产(万)",
+            "高风险省份集中度",
+            "高风险省份总持仓限额(万)",
+            "高风险省份总持仓剩余额度(万)",
+            "集中度",
+            "剩余额度"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "省份类别"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/限额明细_高风险省份2.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "省份名称",
+            "高风险省份总持仓_PR"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "mixed[float,integer]"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "省份名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/限额明细_高风险行业.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "行业类别",
+            "指标值",
+            "日期",
+            "高风险行业总持仓_PR",
+            "信用债总持仓_PR",
+            "高风险行业集中度",
+            "高风险行业总持仓限额(万)",
+            "高风险行业总持仓剩余额度(万)",
+            "集中度",
+            "剩余额度"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "string",
+            "float",
+            "datetime",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float",
+            "float"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "行业类别"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/限额明细_高风险行业_2.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "行业名称",
+            "行业类别",
+            "高风险行业总持仓_PR"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "mixed[float,integer]"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "行业类别",
+            "行业名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/高风险省份.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "省份名称",
+            "省份类别",
+            "指标值"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "float"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "省份类别",
+            "省份名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/高风险省份总持仓.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "省份类别",
+            "高风险省份总持仓_PR",
+            "公司净资产(万)",
+            "高风险省份集中度"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "float",
+            "float",
+            "float"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "省份类别"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/高风险省份总持仓_2.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "省份",
+            "高风险省份总持仓_PR"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "mixed[float,integer]"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "省份"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/高风险行业.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "行业名称",
+            "行业类别",
+            "指标值"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "string",
+            "float"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "行业类别",
+            "行业名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/高风险行业总持仓.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "行业类别",
+            "高风险行业总持仓_PR",
+            "信用债总持仓_PR",
+            "高风险行业集中度"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "float",
+            "float",
+            "float"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "行业类别"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/高风险行业总持仓_2.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "wind行业",
+            "高风险行业总持仓_PR"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "mixed[float,integer]"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "wind行业"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    },
+    {
+      "kind": "xlsx",
+      "relative_path": "stage2/高风险限额.xlsx",
+      "sheets": [
+        {
+          "columns": [
+            "日期",
+            "指标名称",
+            "指标值"
+          ],
+          "duplicate_ordinal": false,
+          "logical_dtypes": [
+            "datetime",
+            "string",
+            "float"
+          ],
+          "name": "Sheet1",
+          "stable_key_columns": [
+            "日期",
+            "指标名称"
+          ],
+          "tie_breaker_columns": []
+        }
+      ]
+    }
+  ],
+  "contract_id": "pretrade-output-20260710-v1",
+  "schema_version": 1,
+  "sealed_tree_logical_sha256": "2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85"
+}

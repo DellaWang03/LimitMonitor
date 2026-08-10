@@ -1,101 +1,107 @@
 from __future__ import annotations
 
-import sys
-import types
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
-fake_streamlit = types.SimpleNamespace(
-    fragment=lambda func: func,
-    session_state={},
-    markdown=lambda *args, **kwargs: None,
-)
-sys.modules.setdefault("streamlit", fake_streamlit)
-
+from src.pretrade.pretrade_service import PretradeServiceError
 from src.visualization.pages import page8_bond_quota
-from src.visualization.pages.page8_bond_quota import _build_query_cache_key
 
 
-class LoaderWithDataDate:
-    target_date = date(2026, 4, 27)
-    archive_date_str = "2026-04-27"
-    data_date_str = "2026-04-26"
-    _snapshot_version = "snapshot-a"
+def test_page8_does_not_retain_legacy_parallel_quota_query() -> None:
+    source = Path("src/visualization/pages/page8_bond_quota.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "query_bond_remaining_quota" not in source
+    assert "get_pretrade_risk_service" in source
+    assert "render_pretrade_header" in source
+    assert "render_pretrade_status" in source
+    # KPI 卡片改用展示页共享组件，不再走交易前专属实现。
+    assert "render_metric_card" in source
+    assert "render_pretrade_kpi_card" not in source
+    assert "render_pretrade_empty_state" not in source
+    assert "正在读取限额快照并计算风险，请稍候" in source
+    assert "use_container_width" not in source
 
 
-class LoaderWithDifferentDataDate:
-    target_date = date(2026, 4, 28)
-    archive_date_str = "2026-04-28"
-    data_date_str = "2026-04-27"
-    _snapshot_version = "snapshot-b"
+def test_page8_never_shows_raw_exception_text_to_users() -> None:
+    source = Path("src/visualization/pages/page8_bond_quota.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "st.error(str(exc))" not in source
+    assert "SNAPSHOT_UNAVAILABLE_MESSAGE" in source
+    assert "SERVICE_UNAVAILABLE_MESSAGE" in source
+    assert "user_facing_input_message" in source
 
 
-def test_page8_query_cache_key_includes_data_date_and_snapshot_version():
-    first_key = _build_query_cache_key("240001", LoaderWithDataDate())
-    second_key = _build_query_cache_key("240001", LoaderWithDifferentDataDate())
+def test_page8_rewrites_explanation_columns_and_avoids_internal_wording() -> None:
+    source = Path("src/visualization/pages/page8_bond_quota.py").read_text(
+        encoding="utf-8"
+    )
 
-    assert first_key != second_key
-    assert first_key == ("240001", "2026-04-26", "snapshot-a")
-    assert second_key == ("240001", "2026-04-27", "snapshot-b")
-
-
-class _Context:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
+    assert source.count("rewrite_explanation_column") >= 3
+    assert "内核" not in source
+    assert "snapshot_id" not in source
+    assert "Stage" not in source
 
 
-class _ResultSlot:
-    def warning(self, *_args, **_kwargs):
-        return None
+def test_page8_shows_snapshot_date_once_and_keeps_both_tabs() -> None:
+    source = Path("src/visualization/pages/page8_bond_quota.py").read_text(
+        encoding="utf-8"
+    )
 
-    def info(self, *_args, **_kwargs):
-        return None
-
-    def container(self):
-        return _Context()
-
-
-class _FakeStreamlit:
-    def __init__(self):
-        self.session_state = {
-            "page8_bond_quota_input": "26津渤海MTN003",
-            "page8_query_requested": True,
-        }
-
-    def columns(self, *_args, **_kwargs):
-        return [_Context(), _Context()]
-
-    def text_input(self, *_args, **_kwargs):
-        return self.session_state["page8_bond_quota_input"]
-
-    def button(self, *_args, **_kwargs):
-        return False
-
-    def markdown(self, *_args, **_kwargs):
-        return None
-
-    def empty(self):
-        return _ResultSlot()
+    assert 'st.tabs(["风险约束", "数据说明"])' in source
+    # 快照日期只由共享标题区承担，不在 KPI 说明里重复。
+    assert "limit_quota_snapshot_caption" not in source
+    assert "限额快照日期：" not in source
+    assert "border=False" in source
+    # 章节标题与其他展示页一样使用 H4 markdown，不再走交易前专属组件。
+    assert "render_pretrade_section_title" not in source
+    assert 'st.markdown("#### ' in source
 
 
-def test_page8_query_uses_snapshot_data_date_instead_of_archive_date(monkeypatch):
-    captured = {}
+def test_page8_uses_account_options_instead_of_unvalidated_free_text() -> None:
+    """拟买账户曾是自由文本框，不校验账户是否真实存在，容易录错账户；
+    改为从当前快照真实账户中选择，取数失败时才回落为自由文本。"""
 
-    def fake_query(_loader, _query_text, target_date=None):
-        captured["target_date"] = target_date
-        return {"success": True}
+    source = Path("src/visualization/pages/page8_bond_quota.py").read_text(
+        encoding="utf-8"
+    )
 
-    fake_st = _FakeStreamlit()
-    monkeypatch.setattr(page8_bond_quota, "st", fake_st)
-    monkeypatch.setattr(page8_bond_quota, "query_bond_remaining_quota", fake_query)
-    monkeypatch.setattr(page8_bond_quota, "_render_query_result", lambda _result: None)
+    assert "account_options" in source
+    assert "st.selectbox(" in source
 
-    page8_bond_quota._render_query_area(LoaderWithDifferentDataDate())
 
-    assert captured["target_date"] is None
+def test_page8_historical_mode_does_not_call_current_pretrade_service(monkeypatch) -> None:
+    messages: list[str] = []
+    fake_streamlit = SimpleNamespace(info=messages.append)
+    monkeypatch.setattr(page8_bond_quota, "st", fake_streamlit)
+    monkeypatch.setattr(page8_bond_quota, "inject_pretrade_ui_css", lambda: None)
+    monkeypatch.setattr(page8_bond_quota, "_render_title", lambda: None)
+    monkeypatch.setattr(
+        page8_bond_quota,
+        "get_pretrade_risk_service",
+        lambda: (_ for _ in ()).throw(AssertionError("must not call service")),
+    )
+
+    page8_bond_quota.render({}, SimpleNamespace(target_date=date(2026, 7, 10)))
+
+    assert messages == ["交易前试算仅支持已发布的最新交易前快照；请在侧边栏切换到「最新数据」。"]
+
+
+def test_page8_handles_service_factory_failure_as_snapshot_unavailable(monkeypatch) -> None:
+    messages: list[str] = []
+    monkeypatch.setattr(page8_bond_quota, "st", SimpleNamespace(error=messages.append))
+    monkeypatch.setattr(page8_bond_quota, "inject_pretrade_ui_css", lambda: None)
+    monkeypatch.setattr(page8_bond_quota, "_render_title", lambda: None)
+    monkeypatch.setattr(
+        page8_bond_quota,
+        "get_pretrade_risk_service",
+        lambda: (_ for _ in ()).throw(PretradeServiceError("missing db")),
+    )
+
+    page8_bond_quota.render({}, SimpleNamespace(target_date=None))
+
+    assert messages == [page8_bond_quota.SNAPSHOT_UNAVAILABLE_MESSAGE]

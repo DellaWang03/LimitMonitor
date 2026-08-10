@@ -1,0 +1,2466 @@
+{
+  "code": {
+    "production_scope_diff_is_empty": true,
+    "runner_sha256": "b1b90764aa55d94733db4305aba9250e5b8e13f76a1acfb655e3556517727ad2",
+    "sandbox_profile_sha256": "c5acff20183527b4e10096837a8188868d6d4b522c481486993b8d9bcf82e801",
+    "settings_sha256": "fb47b4e8da084b28169ca5cbf2c5b2c3790f2094c1dae9766c28ca090e8d8d28"
+  },
+  "current_issuer_resolver": {
+    "kind": "current_static_issuer_resolver",
+    "mapping": {
+      "name": "issuer_wind_code_mapping.csv",
+      "row_count": 11063,
+      "sha256": "202a477df0be7f174c37a70d775d57629f802bf866ba3cba229d89859c329f02",
+      "size": 584260
+    },
+    "purpose": "stage0_issuer_wind_code_resolution_only",
+    "zero_result_source": {
+      "issuer_names": [
+        "德意志银行股份有限公司",
+        "大华银行有限公司",
+        "津联集团有限公司",
+        "汉高香港控股有限公司",
+        "萨穆鲁克—卡泽纳主权财富基金股份公司",
+        "中国华融资产管理股份有限公司",
+        "加拿大蒙特利尔银行公司",
+        "劳埃德银行有限公司",
+        "大连德泰控股有限公司",
+        "宜宾市新兴产业投资集团有限公司",
+        "山东国惠投资控股集团有限公司",
+        "巴克莱集团有限公司",
+        "徐州高新技术产业开发区国有资产经营有限公司",
+        "杭州富阳交通发展投资集团有限公司",
+        "桂林经开投资控股有限责任公司",
+        "武汉商贸集团有限公司",
+        "江苏立恰实业发展有限公司",
+        "江门市高新技术工业园有限公司",
+        "绍兴市城市建设投资集团有限公司",
+        "西安港口控股集团有限公司",
+        "郑州地铁集团有限公司",
+        "阜阳市颍泉工业投资发展有限公司"
+      ],
+      "name": "风控部债券池_主体.xlsx",
+      "sha256": "88ec658100393fa7226927f4557b5dcfe1b21693050fec03984a4e8ac1bb5781",
+      "size": 174909,
+      "zero_result_count": 22
+    }
+  },
+  "git": {
+    "baseline": "579af695fb8727dec8249f66d07a8b0e723da137",
+    "baseline_is_ancestor": true,
+    "head": "b10fd6e115d5963bb91cb9513703e5cc7d5fec5f",
+    "worktree_clean_after": true,
+    "worktree_clean_before": true
+  },
+  "legacy_local_compatibility": {
+    "relative_path": "data_source_0123/限额配置_当前.xlsx",
+    "sha256": "3b8afc3a84cca30c7a6966ec5e8892c44055ecc64c693ded89ab67509e318560",
+    "size": 29504,
+    "source_manifest_file": "限额配置_当前.xlsx"
+  },
+  "manifest": {
+    "business_date": "2026-07-10",
+    "files": [
+      {
+        "name": "债券持仓表.xlsx",
+        "sha256": "a45641ca4588d9501c2828e223b65ba223a7ece50abc6be14d53f2be9b7eed44",
+        "size": 66647566
+      },
+      {
+        "name": "净资产.xlsx",
+        "sha256": "b8a26866781d60cb5fa0da08294865d53616a7365a8d7e7d69c1a87f74f9bb7f",
+        "size": 15891
+      },
+      {
+        "name": "发行人类型调整表.xlsx",
+        "sha256": "ef509169d5c737c87b0a1f7302fadd8ed6b2d4e898493b641a46fdd9637a1edd",
+        "size": 11721
+      },
+      {
+        "name": "德勤-主体评级列表.xlsx",
+        "sha256": "3767bba6af1affd2b2720e2918a699c511ecbec6b6e997d08fc5651a2f6b8e34",
+        "size": 1026501
+      },
+      {
+        "name": "标准日期表.xlsx",
+        "sha256": "2b90877b544707e387a2cc2038bc35d09b09177e41b07e8c422441b49ac30049",
+        "size": 2158468
+      },
+      {
+        "name": "统计报表底稿1_债券.xlsx",
+        "sha256": "dd5e34f661fe4168204795ae0c44504225f6e3584781df7bcf2fbe3e738d0944",
+        "size": 9593195
+      },
+      {
+        "name": "统计报表底稿2_债券SPPI.xlsx",
+        "sha256": "5c655f3b4cac75e12470dd055a4a6d4b21b7f55db399a00a0e47eef2cc4c6dde",
+        "size": 3475349
+      },
+      {
+        "name": "金融工具池设置.xlsx",
+        "sha256": "7251130cf375644dc7d43dd8d130e2b7bac76feae731e45c599bb3c1a611f39d",
+        "size": 220604
+      },
+      {
+        "name": "限额监控_阶段0_指标设置.xlsx",
+        "sha256": "039057aa5aef0faab355374705c14f590f9fd220b1bc2fc57d69b77b0a66e6b2",
+        "size": 4544549
+      },
+      {
+        "name": "限额配置_当前.xlsx",
+        "sha256": "3b8afc3a84cca30c7a6966ec5e8892c44055ecc64c693ded89ab67509e318560",
+        "size": 29504
+      },
+      {
+        "name": "风控部债券池.accdb",
+        "sha256": "d2ce9da9e193503d5e42c3e254e5494147e7fc322a89e522fd2713501c681348",
+        "size": 283623424
+      },
+      {
+        "name": "风控部债券池_主体_虚拟添加.xlsx",
+        "sha256": "4253e258e03764765bb93a1a21e018bb95fa4904f494f4118a2f5caa068e2157",
+        "size": 26291
+      }
+    ],
+    "id": "data_source_0123-20260710-v1"
+  },
+  "output_fingerprint": {
+    "logical_sha256": "2efae81c46b55da9b8f6a6b848f71e6341b2584059e7f5108562e4cf9f554d85",
+    "schema_version": 1,
+    "stages": [
+      {
+        "logical_sha256": "d97010754d2214c7b4edf2e89808e698a6577631a802765711dc851f5c326565",
+        "stage": "stage0"
+      },
+      {
+        "logical_sha256": "9f5c5c1528159bd07e1949c6f74222bba0803c9df496f07b99cf31dfb707b2ed",
+        "stage": "stage1"
+      },
+      {
+        "logical_sha256": "1d8793c341c76672dad46d289f32a6f66d48ff555c9e2cfd9b1441f52f4b3b8a",
+        "stage": "stage2"
+      }
+    ]
+  },
+  "protected_after": {
+    "/Users/dellawang/Desktop/.codex-worktrees/LimitMonitorAutomation/pretrade-shared-core/data/archive": {
+      "entries": [],
+      "exists": false,
+      "root": "/Users/dellawang/Desktop/.codex-worktrees/LimitMonitorAutomation/pretrade-shared-core/data/archive",
+      "root_type": "missing"
+    },
+    "/Users/dellawang/Desktop/.codex-worktrees/LimitMonitorAutomation/pretrade-shared-core/data/current": {
+      "entries": [
+        {
+          "mode": "0755",
+          "path": "stage0_output",
+          "type": "directory"
+        }
+      ],
+      "exists": true,
+      "root": "/Users/dellawang/Desktop/.codex-worktrees/LimitMonitorAutomation/pretrade-shared-core/data/current",
+      "root_mode": "0755",
+      "root_type": "directory"
+    },
+    "/Users/dellawang/Desktop/.codex-worktrees/LimitMonitorAutomation/pretrade-shared-core/data_source_0123/限额配置_当前.xlsx": {
+      "entries": [],
+      "exists": true,
+      "root": "/Users/dellawang/Desktop/.codex-worktrees/LimitMonitorAutomation/pretrade-shared-core/data_source_0123/限额配置_当前.xlsx",
+      "root_mode": "0600",
+      "root_sha256": "3b8afc3a84cca30c7a6966ec5e8892c44055ecc64c693ded89ab67509e318560",
+      "root_size": 29504,
+      "root_type": "file"
+    },
+    "/Users/dellawang/Desktop/LimitMonitorAutomation/data/archive": {
+      "entries": [],
+      "exists": false,
+      "root": "/Users/dellawang/Desktop/LimitMonitorAutomation/data/archive",
+      "root_type": "missing"
+    },
+    "/Users/dellawang/Desktop/LimitMonitorAutomation/data/current": {
+      "entries": [
+        {
+          "mode": "0777",
+          "path": "display_snapshots",
+          "type": "directory"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/专业担保明细.csv",
+          "sha256": "0bfcd53cc8a1993818f557fd6a24b0bd0bdf0c833534488da7f1f57a74b2bddf",
+          "size": 1405,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/全量债券监管集中度.csv",
+          "sha256": "8b661eb4067b2421b2cb1d213c4e5787f10adceb6828041411eecda7c3326bd1",
+          "size": 97274,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/分类信用限额.csv",
+          "sha256": "7f42506550f8fdbe6111e5b5e73bb45e1849861f482fc1f4a8137a7d18b313bb",
+          "size": 114205,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/单一信用限额.csv",
+          "sha256": "551e017fa0dfaef6b866a1d71fe83d2998b1f209c81a80b6f2c1d7e3c142d8a9",
+          "size": 158523,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/地域类明细.csv",
+          "sha256": "a55c4092ebd6d529231472e6918906a0ec88845d59c0bfd9763ea8aa04d4e4ef",
+          "size": 5597,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/特定信用限额.csv",
+          "sha256": "02b22d2ef186f1cbc5e79e50fa7a85358a24938b71a1706dc0d643dba0f07e91",
+          "size": 8580,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/高收益明细1.csv",
+          "sha256": "9144a271508fa65b5a5c82264f1404edac08bbf60d57c5b9fe9a97d7f67ebe0a",
+          "size": 807,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/高收益明细2.csv",
+          "sha256": "62a8450b255b8e64c87f4750344a7dc8b12115f00faf461052b95337318085e6",
+          "size": 1076,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/高风险明细1.csv",
+          "sha256": "629b7fada504f9926aebdb5fef87b8afaaf183e05d86d91437da55e167ee7619",
+          "size": 210,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/高风险明细2.csv",
+          "sha256": "0091c7fc7481ca65ea368a392adf75a446f2ae5ca45645398c0a54de4cac3991",
+          "size": 472,
+          "type": "file"
+        },
+        {
+          "mode": "0777",
+          "path": "stage0_output",
+          "type": "directory"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/issuer_wind_code_mapping.csv",
+          "sha256": "202a477df0be7f174c37a70d775d57629f802bf866ba3cba229d89859c329f02",
+          "size": 584260,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/债券池日期.xlsx",
+          "sha256": "07ceb73c0d4d90bdce0a8b7825aab3fd8af2795ac99e7b2f9debf55b617249a8",
+          "size": 5422,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/公司净资产_手工.xlsx",
+          "sha256": "1d5c0da309f9e633b0272146bb5416f332fa5ce1f4fef6809634c5d5d6e7c95a",
+          "size": 7066,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/公司净资产_手工_每日.xlsx",
+          "sha256": "1c1ef40a467c2ee2792647bf1677145d44dc45e27996a2eb42d0e640eefd2b50",
+          "size": 9642,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/原始风控部债券池_主体.xlsx",
+          "sha256": "c29bfa6e8cfabac3190d9df4099dab5716c22749da2c489e158573b76d10233f",
+          "size": 143720,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/调整实控人_北京国有资本.xlsx",
+          "sha256": "cb6e3b1f2d4e9dae0c97e78fabbcc4e9edadaef1b1e1f74777cb7883e1b0f937",
+          "size": 6045,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/调整实控人名单.xlsx",
+          "sha256": "a0c71b0aacda2958db4669c50c5f860a146ad50ccbf252bfa10fb9061dd894c8",
+          "size": 420136,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/风控部债券池.xlsx",
+          "sha256": "f8ca12ff25b53664c4c8cfa2ea3b2bcc45c6f78e564c1fd4e50989996dcbe03d",
+          "size": 2840099,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/风控部债券池_主体.xlsx",
+          "sha256": "88ec658100393fa7226927f4557b5dcfe1b21693050fec03984a4e8ac1bb5781",
+          "size": 174909,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/风控部债券池_主体_虚拟添加.xlsx",
+          "sha256": "a1ecfacb77383d9349776b2f172c84e424480bd90187d365ebf2709098ff4d48",
+          "size": 7498,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/风控部债券池_主体_虚拟添加_每日.xlsx",
+          "sha256": "e63ed48605d9c9e9298276b4aad9b92437f08a026769ad0e9484c59da354502b",
+          "size": 7447,
+          "type": "file"
+        },
+        {
+          "mode": "0777",
+          "path": "stage1_output",
+          "type": "directory"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/中债隐含评级AAA&AAA+.xlsx",
+          "sha256": "fdc8e95a83252e4c9a03c705e32ddfb405c5a9e0c3dc1d872b62646ae9f344f5",
+          "size": 9233,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/债券持仓明细表.xlsx",
+          "sha256": "dc2131a5996b9b0aa571418a08ecdb7adf92c9135883e1d164544ae714adb7f9",
+          "size": 56533,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/债券持仓明细表_信用债.xlsx",
+          "sha256": "ae8ebb28b047fc7f942ba411c1322dcd0d0b7d7118a4efb66b6a5a4bf4ab4cae",
+          "size": 81118,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/债券持仓明细表_信用债_合并风险限额相关.xlsx",
+          "sha256": "ea986a96c4b1ef965c572d492ea8b55ec3dc6672cffb9602de40528af2d4a02b",
+          "size": 104660,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/债券持仓明细表_全量债券监管集中度.xlsx",
+          "sha256": "7034bbd99c515053799a759779b54b2c45dc4bf6be291f5cdd0c0871e3246f40",
+          "size": 98784,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一主体总持仓.xlsx",
+          "sha256": "35854991c65b92de347ced5b3267f254148639cff2072f0a6cce5c3b65e0d31e",
+          "size": 19921,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一主体规模限额.xlsx",
+          "sha256": "f951f59cd3792d670d3ed0425a313dec6a653ab58f1f678f80cb5aa30c026615",
+          "size": 6110,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一债券总持仓.xlsx",
+          "sha256": "0e2b63b208a88a78d63cdfd2fac33a1493aa92bc1b5bcaf122eddbc90778d944",
+          "size": 40484,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一债券规模限额.xlsx",
+          "sha256": "b2fb839e01b81b615e82524d79c2797e86e32656007f1e362115481cf0bf4f63",
+          "size": 6158,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一债券集中度限额.xlsx",
+          "sha256": "c11b9d1e76aeddfb4c8d6b44154be3df2df0495ef1b054177f49e72b4267b2eb",
+          "size": 6221,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一实控人总持仓.xlsx",
+          "sha256": "a11520a84953f52262e0fbd7d87ae4c8e6e55f08defbd1934a2624277a9cd3f0",
+          "size": 14023,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一实控人规模限额.xlsx",
+          "sha256": "5ee0f881db0baf33e5eb20bf838b716c421fb74145e20f4a85dbbdbb69d2488f",
+          "size": 6111,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一担保人总持仓.xlsx",
+          "sha256": "f2144a61ea0fb9284e65030d7856d82ccec1004d646d349755ebf65acdc957a7",
+          "size": 6101,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一担保人总持仓_不剔除.xlsx",
+          "sha256": "f68c13cd7be10faf7311d98993e4b65216119eccf74b0fabe042d22bcf877f7b",
+          "size": 6168,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一担保公司规模限额.xlsx",
+          "sha256": "5d896d3d50c96ecc3d55859fcbcd461791aa963aa1ccde2717e8b0ee885a30e4",
+          "size": 8318,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/发行人类型调整表.xlsx",
+          "sha256": "a8a11c890c77540b465ea1f90a86a591be11afcfb6adfc4dd22f2a95405a1d41",
+          "size": 6482,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/特定主体总持仓.xlsx",
+          "sha256": "b7299f46867570f308ad36596ca845c419d9b5f5b0caad2318e9e395572bec94",
+          "size": 5982,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/特定主体限额.xlsx",
+          "sha256": "52c811ababfe969baaa53aeb26864a7e2ae5773f1d183f6ab1c934c601634b3d",
+          "size": 6752,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/特定实控人总持仓.xlsx",
+          "sha256": "f1fae3e2d6ac5920860a218b9f2c6a939c95c0a2fe705a46e32d84f4cd0120c1",
+          "size": 5765,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/特定实控人限额.xlsx",
+          "sha256": "7871c793d7ac8475618a71471f2f7a3d5768d25fb5e95360be3194f2eeca4f45",
+          "size": 6166,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/特批单一债券限额.xlsx",
+          "sha256": "0459d72a2242c8a71b274f8ee6dcbd823a4641fa9ce5f0ea00cc185d2bbcf3a1",
+          "size": 6094,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/穿透高收益债券.xlsx",
+          "sha256": "893118471ea08b20352281cec862499c224d6a292b71addce91dd2dc7a3a22dd",
+          "size": 8009,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/调整实控人名单.xlsx",
+          "sha256": "76c2fd8ce2eb047f165dc38249cd63a0f1e78f72f8375aca103f7533f373651b",
+          "size": 420066,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_债券持仓明细表_信用债1_1.xlsx",
+          "sha256": "e94372cbfc7166c52f526ef879f48f6615a04165025d9baefaf2063b5b249f1d",
+          "size": 13390,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_债券持仓明细表_信用债1_2.xlsx",
+          "sha256": "a7906ed7757f4b44a3e8035cd923437993989bb1b18a809dc3bb3f38ba515d4a",
+          "size": 148645,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_全量债券监管集中度.xlsx",
+          "sha256": "d5ea8916f20b4aa07e4177cac61ab5ae0ec145661f516f0b73e5542edfd9426d",
+          "size": 114813,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_单一主体.xlsx",
+          "sha256": "2f4ec9b1a01bcefdc1a084fb0a5b1ff26c10cdced60b1b5ce3637bd1e5e647f1",
+          "size": 27104,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_单一债券.xlsx",
+          "sha256": "8a56aea06c5f9985676fa9666bbbb7cb4226915e78a1be3948d9bb7c5cbd2913",
+          "size": 44391,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_单一实控人.xlsx",
+          "sha256": "de5d34d2cbd5d99cf2389cea5572d5c5e844f0edf962af330634d636f6cdb7e0",
+          "size": 15517,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_单一实控人_取最高额度.xlsx",
+          "sha256": "140bc767645d73de61468d95d4a5907bf0a2fc4d56508dfc98017930354691f0",
+          "size": 18802,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_单一担保人.xlsx",
+          "sha256": "26639bc36a3216bc06ee134a9e089da789d6bba906e9e8471ac9a2d8f7ccaad5",
+          "size": 6146,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_特定主体.xlsx",
+          "sha256": "6a464d0d60b2070ee597a9283339da73d3fe83207710c1a4a7e6ef1ff1aa21f0",
+          "size": 7607,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_特定实控人.xlsx",
+          "sha256": "a7221036e81bd7b4b2725f189357075ae09f62463d313bcf16ada56e104ee0ef",
+          "size": 6837,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/风控部主体池.xlsx",
+          "sha256": "7c08f66d72262d8ebca610ced42c9481b80aa4f10262947ba658d03ed3ed5bb8",
+          "size": 174909,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/风控部债券池.xlsx",
+          "sha256": "9c9d4e3299bdf68c4b7d58ff03e815f7401cef6c1bac8ce4e11205ddb5aed53d",
+          "size": 2840034,
+          "type": "file"
+        },
+        {
+          "mode": "0777",
+          "path": "stage2_output",
+          "type": "directory"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/信用债总持仓.xlsx",
+          "sha256": "d02df56ce31400347e0dc485f734bf69d2f4ab8624f27c4597f529823eec2959",
+          "size": 5432,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/债券持仓明细表_信用债.xlsx",
+          "sha256": "7fb49d13398863a077b5ed2881ac04406384af95046a790cc1b818becfe8f658",
+          "size": 81118,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/债券持仓明细表_信用债_合并风险限额相关.xlsx",
+          "sha256": "0d3fa164e7e1ce1a5f89dc62ece0c19bec791eabe57da9fd3e21e845412a85f3",
+          "size": 104660,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/单一地域城投总持仓.xlsx",
+          "sha256": "ff8111c3977bf917dfa94cf8ce246dfc38eb1ca087c7e1b97919a7da43539e3e",
+          "size": 6388,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/单一地域总持仓.xlsx",
+          "sha256": "bd8cbade6641b4a749b4781fd7585669eaa55b3dfe90c524589eff80da4ad4cd",
+          "size": 6848,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/地域集中度限额(含城投).xlsx",
+          "sha256": "e6229cad1fabafc4eac7432521dedc99c6163535d945213ae94251c31aa38d35",
+          "size": 6328,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/金融工具池设置.xlsx",
+          "sha256": "e3bdd9d8b0722123f06ab4339d5e04319f9aab295d6032b5a2d669148e5ce75f",
+          "size": 7271,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_债券持仓明细表_信用债2.xlsx",
+          "sha256": "ac2bd4a5f83e84de80d8d98f6d9e3813e83eff6eb8d8dee618a40ceb6e2b9242",
+          "size": 94905,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_地域集中度限额(含城投).xlsx",
+          "sha256": "e82130a5c91c0cf7583e0210a0f7290ea9afa162f621438adde8b9e21dbed5f7",
+          "size": 9004,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_高收益.xlsx",
+          "sha256": "8e2f98a4032e5a40aa489b932aab590d9e5c3a641e2a0194835defd11158d580",
+          "size": 8286,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_高收益_投资本金规模.xlsx",
+          "sha256": "053d4b4647fece01c97d1530172b17fa46273dd1befc4f3ba6b3edb2c5d4efe0",
+          "size": 6944,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_高风险省份.xlsx",
+          "sha256": "bd21b56a64238b919f1fab41a1e512443472b601cab26b03f9bc66950e89d30b",
+          "size": 5650,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_高风险省份2.xlsx",
+          "sha256": "e9eac37b078a859a467b0f17720d2f928b8dda966c9f58c4b42ba30b46c4b4bc",
+          "size": 5547,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_高风险行业.xlsx",
+          "sha256": "a3b604df66fae6879ac9aaa5df28f5920ac3561c1c03d823bf7dc7b8215f883d",
+          "size": 5643,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_高风险行业_2.xlsx",
+          "sha256": "b8889c99dad68bcdfd00e35bf6b6b5f2f1d1c7c6da976062c65cad28fc51e529",
+          "size": 5801,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险省份.xlsx",
+          "sha256": "11573d93602d89882f1903ca445db96c944a82d00d1ac42783027cdc24b0ce1b",
+          "size": 5645,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险省份总持仓.xlsx",
+          "sha256": "a4fb42ba59d014e08f67a1da61dd885bbece5acdc80aa9e6e1036b865b36305d",
+          "size": 5537,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险省份总持仓_2.xlsx",
+          "sha256": "fa46bc8bb577521f81ce7664f2cc81f0e61fb3d697d5dbb137b2a0ced576edb7",
+          "size": 5539,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险行业.xlsx",
+          "sha256": "7338f5f0fec73e0abd9d27e273effba59291b859cc6af74a4e52af92e3381cff",
+          "size": 5909,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险行业总持仓.xlsx",
+          "sha256": "3c843fd61a5f9df65208337ba4188a7075de42e215252d225d32f26fd73cee4c",
+          "size": 5533,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险行业总持仓_2.xlsx",
+          "sha256": "4f3c43d3310f44f5eb9fab3952ce158d5af90b920fa2fa6695b788beedca856a",
+          "size": 5743,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险限额.xlsx",
+          "sha256": "3ff1398b35db417ed858b111aa1e5e1d1bdd3e8e0e0afeae1e955e5ecf6f21cf",
+          "size": 5468,
+          "type": "file"
+        }
+      ],
+      "exists": true,
+      "root": "/Users/dellawang/Desktop/LimitMonitorAutomation/data/current",
+      "root_mode": "0777",
+      "root_type": "directory"
+    },
+    "/Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/issuer_wind_code_mapping.csv": {
+      "entries": [],
+      "exists": true,
+      "root": "/Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/issuer_wind_code_mapping.csv",
+      "root_mode": "0666",
+      "root_sha256": "202a477df0be7f174c37a70d775d57629f802bf866ba3cba229d89859c329f02",
+      "root_size": 584260,
+      "root_type": "file"
+    },
+    "/Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/风控部债券池_主体.xlsx": {
+      "entries": [],
+      "exists": true,
+      "root": "/Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/风控部债券池_主体.xlsx",
+      "root_mode": "0666",
+      "root_sha256": "88ec658100393fa7226927f4557b5dcfe1b21693050fec03984a4e8ac1bb5781",
+      "root_size": 174909,
+      "root_type": "file"
+    },
+    "/Users/dellawang/Desktop/LimitMonitorAutomation/data_source_0123": {
+      "entries": [
+        {
+          "mode": "0666",
+          "path": "债券持仓表.xlsx",
+          "sha256": "a45641ca4588d9501c2828e223b65ba223a7ece50abc6be14d53f2be9b7eed44",
+          "size": 66647566,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "净资产.xlsx",
+          "sha256": "b8a26866781d60cb5fa0da08294865d53616a7365a8d7e7d69c1a87f74f9bb7f",
+          "size": 15891,
+          "type": "file"
+        },
+        {
+          "mode": "0600",
+          "path": "发行人类型调整表.xlsx",
+          "sha256": "ef509169d5c737c87b0a1f7302fadd8ed6b2d4e898493b641a46fdd9637a1edd",
+          "size": 11721,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "德勤-主体评级列表.xlsx",
+          "sha256": "3767bba6af1affd2b2720e2918a699c511ecbec6b6e997d08fc5651a2f6b8e34",
+          "size": 1026501,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "标准日期表.xlsx",
+          "sha256": "2b90877b544707e387a2cc2038bc35d09b09177e41b07e8c422441b49ac30049",
+          "size": 2158468,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "统计报表底稿1_债券.xlsx",
+          "sha256": "dd5e34f661fe4168204795ae0c44504225f6e3584781df7bcf2fbe3e738d0944",
+          "size": 9593195,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "统计报表底稿2_债券SPPI.xlsx",
+          "sha256": "5c655f3b4cac75e12470dd055a4a6d4b21b7f55db399a00a0e47eef2cc4c6dde",
+          "size": 3475349,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "金融工具池设置.xlsx",
+          "sha256": "7251130cf375644dc7d43dd8d130e2b7bac76feae731e45c599bb3c1a611f39d",
+          "size": 220604,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "限额监控_阶段0_指标设置.xlsx",
+          "sha256": "039057aa5aef0faab355374705c14f590f9fd220b1bc2fc57d69b77b0a66e6b2",
+          "size": 4544549,
+          "type": "file"
+        },
+        {
+          "mode": "0600",
+          "path": "限额配置_当前.xlsx",
+          "sha256": "3b8afc3a84cca30c7a6966ec5e8892c44055ecc64c693ded89ab67509e318560",
+          "size": 29504,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "风控部债券池.accdb",
+          "sha256": "d2ce9da9e193503d5e42c3e254e5494147e7fc322a89e522fd2713501c681348",
+          "size": 283623424,
+          "type": "file"
+        },
+        {
+          "mode": "0600",
+          "path": "风控部债券池_主体_虚拟添加.xlsx",
+          "sha256": "4253e258e03764765bb93a1a21e018bb95fa4904f494f4118a2f5caa068e2157",
+          "size": 26291,
+          "type": "file"
+        }
+      ],
+      "exists": true,
+      "root": "/Users/dellawang/Desktop/LimitMonitorAutomation/data_source_0123",
+      "root_mode": "0755",
+      "root_type": "directory"
+    }
+  },
+  "protected_before": {
+    "/Users/dellawang/Desktop/.codex-worktrees/LimitMonitorAutomation/pretrade-shared-core/data/archive": {
+      "entries": [],
+      "exists": false,
+      "root": "/Users/dellawang/Desktop/.codex-worktrees/LimitMonitorAutomation/pretrade-shared-core/data/archive",
+      "root_type": "missing"
+    },
+    "/Users/dellawang/Desktop/.codex-worktrees/LimitMonitorAutomation/pretrade-shared-core/data/current": {
+      "entries": [
+        {
+          "mode": "0755",
+          "path": "stage0_output",
+          "type": "directory"
+        }
+      ],
+      "exists": true,
+      "root": "/Users/dellawang/Desktop/.codex-worktrees/LimitMonitorAutomation/pretrade-shared-core/data/current",
+      "root_mode": "0755",
+      "root_type": "directory"
+    },
+    "/Users/dellawang/Desktop/.codex-worktrees/LimitMonitorAutomation/pretrade-shared-core/data_source_0123/限额配置_当前.xlsx": {
+      "entries": [],
+      "exists": true,
+      "root": "/Users/dellawang/Desktop/.codex-worktrees/LimitMonitorAutomation/pretrade-shared-core/data_source_0123/限额配置_当前.xlsx",
+      "root_mode": "0600",
+      "root_sha256": "3b8afc3a84cca30c7a6966ec5e8892c44055ecc64c693ded89ab67509e318560",
+      "root_size": 29504,
+      "root_type": "file"
+    },
+    "/Users/dellawang/Desktop/LimitMonitorAutomation/data/archive": {
+      "entries": [],
+      "exists": false,
+      "root": "/Users/dellawang/Desktop/LimitMonitorAutomation/data/archive",
+      "root_type": "missing"
+    },
+    "/Users/dellawang/Desktop/LimitMonitorAutomation/data/current": {
+      "entries": [
+        {
+          "mode": "0777",
+          "path": "display_snapshots",
+          "type": "directory"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/专业担保明细.csv",
+          "sha256": "0bfcd53cc8a1993818f557fd6a24b0bd0bdf0c833534488da7f1f57a74b2bddf",
+          "size": 1405,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/全量债券监管集中度.csv",
+          "sha256": "8b661eb4067b2421b2cb1d213c4e5787f10adceb6828041411eecda7c3326bd1",
+          "size": 97274,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/分类信用限额.csv",
+          "sha256": "7f42506550f8fdbe6111e5b5e73bb45e1849861f482fc1f4a8137a7d18b313bb",
+          "size": 114205,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/单一信用限额.csv",
+          "sha256": "551e017fa0dfaef6b866a1d71fe83d2998b1f209c81a80b6f2c1d7e3c142d8a9",
+          "size": 158523,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/地域类明细.csv",
+          "sha256": "a55c4092ebd6d529231472e6918906a0ec88845d59c0bfd9763ea8aa04d4e4ef",
+          "size": 5597,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/特定信用限额.csv",
+          "sha256": "02b22d2ef186f1cbc5e79e50fa7a85358a24938b71a1706dc0d643dba0f07e91",
+          "size": 8580,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/高收益明细1.csv",
+          "sha256": "9144a271508fa65b5a5c82264f1404edac08bbf60d57c5b9fe9a97d7f67ebe0a",
+          "size": 807,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/高收益明细2.csv",
+          "sha256": "62a8450b255b8e64c87f4750344a7dc8b12115f00faf461052b95337318085e6",
+          "size": 1076,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/高风险明细1.csv",
+          "sha256": "629b7fada504f9926aebdb5fef87b8afaaf183e05d86d91437da55e167ee7619",
+          "size": 210,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "display_snapshots/高风险明细2.csv",
+          "sha256": "0091c7fc7481ca65ea368a392adf75a446f2ae5ca45645398c0a54de4cac3991",
+          "size": 472,
+          "type": "file"
+        },
+        {
+          "mode": "0777",
+          "path": "stage0_output",
+          "type": "directory"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/issuer_wind_code_mapping.csv",
+          "sha256": "202a477df0be7f174c37a70d775d57629f802bf866ba3cba229d89859c329f02",
+          "size": 584260,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/债券池日期.xlsx",
+          "sha256": "07ceb73c0d4d90bdce0a8b7825aab3fd8af2795ac99e7b2f9debf55b617249a8",
+          "size": 5422,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/公司净资产_手工.xlsx",
+          "sha256": "1d5c0da309f9e633b0272146bb5416f332fa5ce1f4fef6809634c5d5d6e7c95a",
+          "size": 7066,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/公司净资产_手工_每日.xlsx",
+          "sha256": "1c1ef40a467c2ee2792647bf1677145d44dc45e27996a2eb42d0e640eefd2b50",
+          "size": 9642,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/原始风控部债券池_主体.xlsx",
+          "sha256": "c29bfa6e8cfabac3190d9df4099dab5716c22749da2c489e158573b76d10233f",
+          "size": 143720,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/调整实控人_北京国有资本.xlsx",
+          "sha256": "cb6e3b1f2d4e9dae0c97e78fabbcc4e9edadaef1b1e1f74777cb7883e1b0f937",
+          "size": 6045,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/调整实控人名单.xlsx",
+          "sha256": "a0c71b0aacda2958db4669c50c5f860a146ad50ccbf252bfa10fb9061dd894c8",
+          "size": 420136,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/风控部债券池.xlsx",
+          "sha256": "f8ca12ff25b53664c4c8cfa2ea3b2bcc45c6f78e564c1fd4e50989996dcbe03d",
+          "size": 2840099,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/风控部债券池_主体.xlsx",
+          "sha256": "88ec658100393fa7226927f4557b5dcfe1b21693050fec03984a4e8ac1bb5781",
+          "size": 174909,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/风控部债券池_主体_虚拟添加.xlsx",
+          "sha256": "a1ecfacb77383d9349776b2f172c84e424480bd90187d365ebf2709098ff4d48",
+          "size": 7498,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage0_output/风控部债券池_主体_虚拟添加_每日.xlsx",
+          "sha256": "e63ed48605d9c9e9298276b4aad9b92437f08a026769ad0e9484c59da354502b",
+          "size": 7447,
+          "type": "file"
+        },
+        {
+          "mode": "0777",
+          "path": "stage1_output",
+          "type": "directory"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/中债隐含评级AAA&AAA+.xlsx",
+          "sha256": "fdc8e95a83252e4c9a03c705e32ddfb405c5a9e0c3dc1d872b62646ae9f344f5",
+          "size": 9233,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/债券持仓明细表.xlsx",
+          "sha256": "dc2131a5996b9b0aa571418a08ecdb7adf92c9135883e1d164544ae714adb7f9",
+          "size": 56533,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/债券持仓明细表_信用债.xlsx",
+          "sha256": "ae8ebb28b047fc7f942ba411c1322dcd0d0b7d7118a4efb66b6a5a4bf4ab4cae",
+          "size": 81118,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/债券持仓明细表_信用债_合并风险限额相关.xlsx",
+          "sha256": "ea986a96c4b1ef965c572d492ea8b55ec3dc6672cffb9602de40528af2d4a02b",
+          "size": 104660,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/债券持仓明细表_全量债券监管集中度.xlsx",
+          "sha256": "7034bbd99c515053799a759779b54b2c45dc4bf6be291f5cdd0c0871e3246f40",
+          "size": 98784,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一主体总持仓.xlsx",
+          "sha256": "35854991c65b92de347ced5b3267f254148639cff2072f0a6cce5c3b65e0d31e",
+          "size": 19921,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一主体规模限额.xlsx",
+          "sha256": "f951f59cd3792d670d3ed0425a313dec6a653ab58f1f678f80cb5aa30c026615",
+          "size": 6110,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一债券总持仓.xlsx",
+          "sha256": "0e2b63b208a88a78d63cdfd2fac33a1493aa92bc1b5bcaf122eddbc90778d944",
+          "size": 40484,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一债券规模限额.xlsx",
+          "sha256": "b2fb839e01b81b615e82524d79c2797e86e32656007f1e362115481cf0bf4f63",
+          "size": 6158,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一债券集中度限额.xlsx",
+          "sha256": "c11b9d1e76aeddfb4c8d6b44154be3df2df0495ef1b054177f49e72b4267b2eb",
+          "size": 6221,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一实控人总持仓.xlsx",
+          "sha256": "a11520a84953f52262e0fbd7d87ae4c8e6e55f08defbd1934a2624277a9cd3f0",
+          "size": 14023,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一实控人规模限额.xlsx",
+          "sha256": "5ee0f881db0baf33e5eb20bf838b716c421fb74145e20f4a85dbbdbb69d2488f",
+          "size": 6111,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一担保人总持仓.xlsx",
+          "sha256": "f2144a61ea0fb9284e65030d7856d82ccec1004d646d349755ebf65acdc957a7",
+          "size": 6101,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一担保人总持仓_不剔除.xlsx",
+          "sha256": "f68c13cd7be10faf7311d98993e4b65216119eccf74b0fabe042d22bcf877f7b",
+          "size": 6168,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/单一担保公司规模限额.xlsx",
+          "sha256": "5d896d3d50c96ecc3d55859fcbcd461791aa963aa1ccde2717e8b0ee885a30e4",
+          "size": 8318,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/发行人类型调整表.xlsx",
+          "sha256": "a8a11c890c77540b465ea1f90a86a591be11afcfb6adfc4dd22f2a95405a1d41",
+          "size": 6482,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/特定主体总持仓.xlsx",
+          "sha256": "b7299f46867570f308ad36596ca845c419d9b5f5b0caad2318e9e395572bec94",
+          "size": 5982,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/特定主体限额.xlsx",
+          "sha256": "52c811ababfe969baaa53aeb26864a7e2ae5773f1d183f6ab1c934c601634b3d",
+          "size": 6752,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/特定实控人总持仓.xlsx",
+          "sha256": "f1fae3e2d6ac5920860a218b9f2c6a939c95c0a2fe705a46e32d84f4cd0120c1",
+          "size": 5765,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/特定实控人限额.xlsx",
+          "sha256": "7871c793d7ac8475618a71471f2f7a3d5768d25fb5e95360be3194f2eeca4f45",
+          "size": 6166,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/特批单一债券限额.xlsx",
+          "sha256": "0459d72a2242c8a71b274f8ee6dcbd823a4641fa9ce5f0ea00cc185d2bbcf3a1",
+          "size": 6094,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/穿透高收益债券.xlsx",
+          "sha256": "893118471ea08b20352281cec862499c224d6a292b71addce91dd2dc7a3a22dd",
+          "size": 8009,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/调整实控人名单.xlsx",
+          "sha256": "76c2fd8ce2eb047f165dc38249cd63a0f1e78f72f8375aca103f7533f373651b",
+          "size": 420066,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_债券持仓明细表_信用债1_1.xlsx",
+          "sha256": "e94372cbfc7166c52f526ef879f48f6615a04165025d9baefaf2063b5b249f1d",
+          "size": 13390,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_债券持仓明细表_信用债1_2.xlsx",
+          "sha256": "a7906ed7757f4b44a3e8035cd923437993989bb1b18a809dc3bb3f38ba515d4a",
+          "size": 148645,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_全量债券监管集中度.xlsx",
+          "sha256": "d5ea8916f20b4aa07e4177cac61ab5ae0ec145661f516f0b73e5542edfd9426d",
+          "size": 114813,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_单一主体.xlsx",
+          "sha256": "2f4ec9b1a01bcefdc1a084fb0a5b1ff26c10cdced60b1b5ce3637bd1e5e647f1",
+          "size": 27104,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_单一债券.xlsx",
+          "sha256": "8a56aea06c5f9985676fa9666bbbb7cb4226915e78a1be3948d9bb7c5cbd2913",
+          "size": 44391,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_单一实控人.xlsx",
+          "sha256": "de5d34d2cbd5d99cf2389cea5572d5c5e844f0edf962af330634d636f6cdb7e0",
+          "size": 15517,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_单一实控人_取最高额度.xlsx",
+          "sha256": "140bc767645d73de61468d95d4a5907bf0a2fc4d56508dfc98017930354691f0",
+          "size": 18802,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_单一担保人.xlsx",
+          "sha256": "26639bc36a3216bc06ee134a9e089da789d6bba906e9e8471ac9a2d8f7ccaad5",
+          "size": 6146,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_特定主体.xlsx",
+          "sha256": "6a464d0d60b2070ee597a9283339da73d3fe83207710c1a4a7e6ef1ff1aa21f0",
+          "size": 7607,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/限额明细_特定实控人.xlsx",
+          "sha256": "a7221036e81bd7b4b2725f189357075ae09f62463d313bcf16ada56e104ee0ef",
+          "size": 6837,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/风控部主体池.xlsx",
+          "sha256": "7c08f66d72262d8ebca610ced42c9481b80aa4f10262947ba658d03ed3ed5bb8",
+          "size": 174909,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage1_output/风控部债券池.xlsx",
+          "sha256": "9c9d4e3299bdf68c4b7d58ff03e815f7401cef6c1bac8ce4e11205ddb5aed53d",
+          "size": 2840034,
+          "type": "file"
+        },
+        {
+          "mode": "0777",
+          "path": "stage2_output",
+          "type": "directory"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/信用债总持仓.xlsx",
+          "sha256": "d02df56ce31400347e0dc485f734bf69d2f4ab8624f27c4597f529823eec2959",
+          "size": 5432,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/债券持仓明细表_信用债.xlsx",
+          "sha256": "7fb49d13398863a077b5ed2881ac04406384af95046a790cc1b818becfe8f658",
+          "size": 81118,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/债券持仓明细表_信用债_合并风险限额相关.xlsx",
+          "sha256": "0d3fa164e7e1ce1a5f89dc62ece0c19bec791eabe57da9fd3e21e845412a85f3",
+          "size": 104660,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/单一地域城投总持仓.xlsx",
+          "sha256": "ff8111c3977bf917dfa94cf8ce246dfc38eb1ca087c7e1b97919a7da43539e3e",
+          "size": 6388,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/单一地域总持仓.xlsx",
+          "sha256": "bd8cbade6641b4a749b4781fd7585669eaa55b3dfe90c524589eff80da4ad4cd",
+          "size": 6848,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/地域集中度限额(含城投).xlsx",
+          "sha256": "e6229cad1fabafc4eac7432521dedc99c6163535d945213ae94251c31aa38d35",
+          "size": 6328,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/金融工具池设置.xlsx",
+          "sha256": "e3bdd9d8b0722123f06ab4339d5e04319f9aab295d6032b5a2d669148e5ce75f",
+          "size": 7271,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_债券持仓明细表_信用债2.xlsx",
+          "sha256": "ac2bd4a5f83e84de80d8d98f6d9e3813e83eff6eb8d8dee618a40ceb6e2b9242",
+          "size": 94905,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_地域集中度限额(含城投).xlsx",
+          "sha256": "e82130a5c91c0cf7583e0210a0f7290ea9afa162f621438adde8b9e21dbed5f7",
+          "size": 9004,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_高收益.xlsx",
+          "sha256": "8e2f98a4032e5a40aa489b932aab590d9e5c3a641e2a0194835defd11158d580",
+          "size": 8286,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_高收益_投资本金规模.xlsx",
+          "sha256": "053d4b4647fece01c97d1530172b17fa46273dd1befc4f3ba6b3edb2c5d4efe0",
+          "size": 6944,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_高风险省份.xlsx",
+          "sha256": "bd21b56a64238b919f1fab41a1e512443472b601cab26b03f9bc66950e89d30b",
+          "size": 5650,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_高风险省份2.xlsx",
+          "sha256": "e9eac37b078a859a467b0f17720d2f928b8dda966c9f58c4b42ba30b46c4b4bc",
+          "size": 5547,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_高风险行业.xlsx",
+          "sha256": "a3b604df66fae6879ac9aaa5df28f5920ac3561c1c03d823bf7dc7b8215f883d",
+          "size": 5643,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/限额明细_高风险行业_2.xlsx",
+          "sha256": "b8889c99dad68bcdfd00e35bf6b6b5f2f1d1c7c6da976062c65cad28fc51e529",
+          "size": 5801,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险省份.xlsx",
+          "sha256": "11573d93602d89882f1903ca445db96c944a82d00d1ac42783027cdc24b0ce1b",
+          "size": 5645,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险省份总持仓.xlsx",
+          "sha256": "a4fb42ba59d014e08f67a1da61dd885bbece5acdc80aa9e6e1036b865b36305d",
+          "size": 5537,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险省份总持仓_2.xlsx",
+          "sha256": "fa46bc8bb577521f81ce7664f2cc81f0e61fb3d697d5dbb137b2a0ced576edb7",
+          "size": 5539,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险行业.xlsx",
+          "sha256": "7338f5f0fec73e0abd9d27e273effba59291b859cc6af74a4e52af92e3381cff",
+          "size": 5909,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险行业总持仓.xlsx",
+          "sha256": "3c843fd61a5f9df65208337ba4188a7075de42e215252d225d32f26fd73cee4c",
+          "size": 5533,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险行业总持仓_2.xlsx",
+          "sha256": "4f3c43d3310f44f5eb9fab3952ce158d5af90b920fa2fa6695b788beedca856a",
+          "size": 5743,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "stage2_output/高风险限额.xlsx",
+          "sha256": "3ff1398b35db417ed858b111aa1e5e1d1bdd3e8e0e0afeae1e955e5ecf6f21cf",
+          "size": 5468,
+          "type": "file"
+        }
+      ],
+      "exists": true,
+      "root": "/Users/dellawang/Desktop/LimitMonitorAutomation/data/current",
+      "root_mode": "0777",
+      "root_type": "directory"
+    },
+    "/Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/issuer_wind_code_mapping.csv": {
+      "entries": [],
+      "exists": true,
+      "root": "/Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/issuer_wind_code_mapping.csv",
+      "root_mode": "0666",
+      "root_sha256": "202a477df0be7f174c37a70d775d57629f802bf866ba3cba229d89859c329f02",
+      "root_size": 584260,
+      "root_type": "file"
+    },
+    "/Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/风控部债券池_主体.xlsx": {
+      "entries": [],
+      "exists": true,
+      "root": "/Users/dellawang/Desktop/LimitMonitorAutomation/data/current/stage0_output/风控部债券池_主体.xlsx",
+      "root_mode": "0666",
+      "root_sha256": "88ec658100393fa7226927f4557b5dcfe1b21693050fec03984a4e8ac1bb5781",
+      "root_size": 174909,
+      "root_type": "file"
+    },
+    "/Users/dellawang/Desktop/LimitMonitorAutomation/data_source_0123": {
+      "entries": [
+        {
+          "mode": "0666",
+          "path": "债券持仓表.xlsx",
+          "sha256": "a45641ca4588d9501c2828e223b65ba223a7ece50abc6be14d53f2be9b7eed44",
+          "size": 66647566,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "净资产.xlsx",
+          "sha256": "b8a26866781d60cb5fa0da08294865d53616a7365a8d7e7d69c1a87f74f9bb7f",
+          "size": 15891,
+          "type": "file"
+        },
+        {
+          "mode": "0600",
+          "path": "发行人类型调整表.xlsx",
+          "sha256": "ef509169d5c737c87b0a1f7302fadd8ed6b2d4e898493b641a46fdd9637a1edd",
+          "size": 11721,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "德勤-主体评级列表.xlsx",
+          "sha256": "3767bba6af1affd2b2720e2918a699c511ecbec6b6e997d08fc5651a2f6b8e34",
+          "size": 1026501,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "标准日期表.xlsx",
+          "sha256": "2b90877b544707e387a2cc2038bc35d09b09177e41b07e8c422441b49ac30049",
+          "size": 2158468,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "统计报表底稿1_债券.xlsx",
+          "sha256": "dd5e34f661fe4168204795ae0c44504225f6e3584781df7bcf2fbe3e738d0944",
+          "size": 9593195,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "统计报表底稿2_债券SPPI.xlsx",
+          "sha256": "5c655f3b4cac75e12470dd055a4a6d4b21b7f55db399a00a0e47eef2cc4c6dde",
+          "size": 3475349,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "金融工具池设置.xlsx",
+          "sha256": "7251130cf375644dc7d43dd8d130e2b7bac76feae731e45c599bb3c1a611f39d",
+          "size": 220604,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "限额监控_阶段0_指标设置.xlsx",
+          "sha256": "039057aa5aef0faab355374705c14f590f9fd220b1bc2fc57d69b77b0a66e6b2",
+          "size": 4544549,
+          "type": "file"
+        },
+        {
+          "mode": "0600",
+          "path": "限额配置_当前.xlsx",
+          "sha256": "3b8afc3a84cca30c7a6966ec5e8892c44055ecc64c693ded89ab67509e318560",
+          "size": 29504,
+          "type": "file"
+        },
+        {
+          "mode": "0666",
+          "path": "风控部债券池.accdb",
+          "sha256": "d2ce9da9e193503d5e42c3e254e5494147e7fc322a89e522fd2713501c681348",
+          "size": 283623424,
+          "type": "file"
+        },
+        {
+          "mode": "0600",
+          "path": "风控部债券池_主体_虚拟添加.xlsx",
+          "sha256": "4253e258e03764765bb93a1a21e018bb95fa4904f494f4118a2f5caa068e2157",
+          "size": 26291,
+          "type": "file"
+        }
+      ],
+      "exists": true,
+      "root": "/Users/dellawang/Desktop/LimitMonitorAutomation/data_source_0123",
+      "root_mode": "0755",
+      "root_type": "directory"
+    }
+  },
+  "protected_unchanged": true,
+  "runtime": {
+    "dependencies": {
+      "PyYAML": "6.0.3",
+      "loguru": "0.7.3",
+      "numpy": "2.4.2",
+      "openpyxl": "3.1.5",
+      "pandas": "3.0.1"
+    },
+    "environment": "test",
+    "git": {
+      "binary_sha256": "492bd04fb367c1d51dce2be4eb6d6778829a3623dc4327318dfcdd81bc4fac2e",
+      "path": "/Applications/Xcode.app/Contents/Developer/usr/bin/git",
+      "version": "git version 2.50.1 (Apple Git-155)"
+    },
+    "mdb_export": {
+      "binary_sha256": "378d637294fc7d0202f9441776bd6f548e47ac4970bdc4bc3664297167b6780a",
+      "path": "/opt/homebrew/Cellar/mdbtools/1.0.1/bin/mdb-export",
+      "version": "mdbtools v1.0.1"
+    },
+    "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "profile": "local",
+    "python_executable": "/opt/homebrew/bin/python3",
+    "python_version": "3.14.3"
+  },
+  "sandbox_probes": {
+    "inside_write": "allowed",
+    "loopback_bind": "denied",
+    "outside_write": "denied"
+  },
+  "schema_version": 1,
+  "stages": [
+    {
+      "logical_fingerprint": {
+        "entries": [
+          {
+            "kind": "csv",
+            "logical_sha256": "22462eb870b2d425920a4eda0a266ed08dd2cb1d0e76177d6cf905b53bf77cf5",
+            "physical_sha256": "202a477df0be7f174c37a70d775d57629f802bf866ba3cba229d89859c329f02",
+            "physical_size": 584260,
+            "relative_path": "issuer_wind_code_mapping.csv"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "e6e9878295aeebd70e95dcaa6d8642454d238c72bd7fe41361add5955c7d044f",
+            "physical_sha256": "5035f64af2f3ecc01437055f0df1ee3fca1bfc6f9b05510b50dd6f088904387a",
+            "physical_size": 4953,
+            "relative_path": "债券池日期.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "cf8088b008199810906f36951d34c2bc4a0c210d77fa2fb299d65c66b478bea3",
+            "physical_sha256": "2bcfe04a51c2eb87b07b7156b579fc682bf06642c34d937f4ebfb3d4baad74be",
+            "physical_size": 6607,
+            "relative_path": "公司净资产_手工.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "998755604eb675e13dd6b51ebf169cefe484ffe701610e025593cfbbd685754b",
+            "physical_sha256": "779f68d84bff3eab4ce8bad0440b8ab290f2626f0062adfb68c21c898807c556",
+            "physical_size": 9179,
+            "relative_path": "公司净资产_手工_每日.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "85bec978ad0e54c836403f46488eeed8e9659a30efe6b4864bfcf0f815834bf7",
+            "physical_sha256": "c972e98b864bb33f0b18f3c33a24467e89ed1ce63d38623f4342393ccca837b6",
+            "physical_size": 162388,
+            "relative_path": "原始风控部债券池_主体.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "fc0ae8a69891c9d8dd2d3015a472e06878d709f72f0812ee42ed6d17dc036be2",
+            "physical_sha256": "88dce32d4a9cd9dc49f8c2993eb8daa5a6df8f7fce9449440db43b0b288d29b8",
+            "physical_size": 5538,
+            "relative_path": "调整实控人_北京国有资本.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "86edf89d6547c660baf2ad78717cc2c4fd5ab3c9e8bb0dddc7af2d1ee54569b2",
+            "physical_sha256": "583191f4fd6104b26507a492c6387ad0217d377980d4a9ebc1809d6a9078cbc5",
+            "physical_size": 463626,
+            "relative_path": "调整实控人名单.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "892c5f7d0a4ce9d2650edf4259a8e78c5a3fde3eef4649179bc78e95b3edf417",
+            "physical_sha256": "57a35ea8a5965d2a0f207e127dd8e0de87d9e376ee10a6583878b3ef51d56ba2",
+            "physical_size": 3128543,
+            "relative_path": "风控部债券池.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "c7a9fe8c5306c11697256209074c6ec852c90d8b5017ed7e7032b4fba8b1c1db",
+            "physical_sha256": "61aa1027fbfbea84f4fcde8b0a034fae02b5ff92a68da2b646d994cefe93073d",
+            "physical_size": 185893,
+            "relative_path": "风控部债券池_主体.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "1e9d57942be2e2a8ef57a24af730091b5bfeb9797282a6c1684a491bc31ffc6a",
+            "physical_sha256": "f88a1761edd7eaebb165d879bc53fea39e0f7b4eb7514407c4aa14ec774bcbff",
+            "physical_size": 7591,
+            "relative_path": "风控部债券池_主体_虚拟添加.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "730f66173f81575dd5c7c5aea835eed9007a90f72c9eb5bcc7575fde99658a5b",
+            "physical_sha256": "563b18f7f76d4cf01adce4445fafca91e4d45d9b8e5c9c1d95cc7275c5efab0f",
+            "physical_size": 7138,
+            "relative_path": "风控部债券池_主体_虚拟添加_每日.xlsx"
+          }
+        ],
+        "logical_sha256": "d97010754d2214c7b4edf2e89808e698a6577631a802765711dc851f5c326565",
+        "schema_version": 1
+      },
+      "stage": "stage0",
+      "table_count": 10,
+      "tables": [
+        {
+          "column_count": 1,
+          "name": "债券池日期",
+          "row_count": 1
+        },
+        {
+          "column_count": 2,
+          "name": "公司净资产_手工",
+          "row_count": 78
+        },
+        {
+          "column_count": 2,
+          "name": "公司净资产_手工_每日",
+          "row_count": 365
+        },
+        {
+          "column_count": 3,
+          "name": "原始风控部债券池_主体",
+          "row_count": 5846
+        },
+        {
+          "column_count": 4,
+          "name": "调整实控人_北京国有资本",
+          "row_count": 10
+        },
+        {
+          "column_count": 4,
+          "name": "调整实控人名单",
+          "row_count": 9495
+        },
+        {
+          "column_count": 9,
+          "name": "风控部债券池",
+          "row_count": 54276
+        },
+        {
+          "column_count": 4,
+          "name": "风控部债券池_主体",
+          "row_count": 5205
+        },
+        {
+          "column_count": 4,
+          "name": "风控部债券池_主体_虚拟添加",
+          "row_count": 75
+        },
+        {
+          "column_count": 3,
+          "name": "风控部债券池_主体_虚拟添加_每日",
+          "row_count": 63
+        }
+      ]
+    },
+    {
+      "logical_fingerprint": {
+        "entries": [
+          {
+            "kind": "xlsx",
+            "logical_sha256": "81922ab2090fe150e688790d68778239b3e6368c63b09d4ff60b717ea6f1eb4f",
+            "physical_sha256": "0d5d691140b2a0722ccf2adb49bda72d71bdaf9c2efc1c9fddc1c83ec121d2d6",
+            "physical_size": 8606,
+            "relative_path": "中债隐含评级AAA&AAA+.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "dacf75d825f8a87695c28dc822eacebaf99a2100fc9772afea84cd4ffbb98529",
+            "physical_sha256": "51e5543868ba8fcd01cf396f1a257caaf2aa3fd2caf9d86243eb356abce45227",
+            "physical_size": 62910,
+            "relative_path": "债券持仓明细表.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "0c2cd40d67be8310d63d976fe576a7927dc1da016da07a1c983505b493e7d4ae",
+            "physical_sha256": "e37963ac570d97e7f52b59baec47461f7bd26d2c8b0664066e6be2b7a1728eb1",
+            "physical_size": 97554,
+            "relative_path": "债券持仓明细表_信用债.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "b8fd4e2921bdbf8422bbf53672f509461c8ac460938551becfa9dde251373dfc",
+            "physical_sha256": "9972ec66c5b128128ca9937eb107ee2a347fc9ac11bc1c8c6122bbaa28d30726",
+            "physical_size": 126494,
+            "relative_path": "债券持仓明细表_信用债_合并风险限额相关.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "33349ffbb0696d28298475ad9f2e7173395e0d5062153d37a7e6d98dbebe0496",
+            "physical_sha256": "8826a841b48b03da7eabf1d10c2acbe6ab50c04f1a89c5cb10287b53daf975a7",
+            "physical_size": 118050,
+            "relative_path": "债券持仓明细表_全量债券监管集中度.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "322148108f3c1ae80c48a45f6ebc6cf5084386cdae2dc1cd31420888dd3ac057",
+            "physical_sha256": "65acc52b7b77b37beb032866bfc350e2e1b8e8f07034a4b1c44279533bf5696b",
+            "physical_size": 20022,
+            "relative_path": "单一主体总持仓.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "b3a2006dfc7d205553c012ee6fb21e09857456808f3139b55a16e311dd594fd5",
+            "physical_sha256": "ddeaaac1ce7c774a93946d112dc6023162dcf5a0006f98e496baaf560f5f2d02",
+            "physical_size": 5737,
+            "relative_path": "单一主体规模限额.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "7269dd983a5e69eff942552b28c7aea2b7c21a47060f7379a6af30b86f8f17bb",
+            "physical_sha256": "7b8fad47c70f29afb0cc757f5c90a09a1528548cb6016c1dec9b44168de8238f",
+            "physical_size": 40313,
+            "relative_path": "单一债券总持仓.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "8e14010691ee3a2e3911e233bc4f4c94b45e07aa7dcfbef7ff544af365fb028f",
+            "physical_sha256": "c702042beb8600ecfec3f49eb0d432b50a988cd12673e21531984c777878dc37",
+            "physical_size": 5738,
+            "relative_path": "单一债券规模限额.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "92d2114fd7f6b44f4929725badf1664fd0e06180b83f8dabddf2f259c6280189",
+            "physical_sha256": "94158c9ce480f0b4ec74c2ee17068553c888b3be583073315cf0f90acf254d32",
+            "physical_size": 5817,
+            "relative_path": "单一债券集中度限额.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "eedfb5da9c364ec818cf483854ae8731538b9e7f2a0a161049ca325c4db52ed5",
+            "physical_sha256": "03a3702d52731ce305355efd8ffe3a907c921a1fa4d325897705860bfe2847e0",
+            "physical_size": 14429,
+            "relative_path": "单一实控人总持仓.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "e70db15a5883ee28042a45840fe854d27aed00cd9c0447f86f6fac5c50f967d8",
+            "physical_sha256": "9fdbb656d81942c2f303b7fa0a7de0acce88e55195bffef33fb1f26ff9694e7d",
+            "physical_size": 5741,
+            "relative_path": "单一实控人规模限额.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "df77402c02bfa05c782c706a01b5f633b3e93028eceb13f566776418e167c0b2",
+            "physical_sha256": "2d553be766e08507c9654f14404c3a2b19d32c49c883b9d7e8f6d23f831196fa",
+            "physical_size": 5657,
+            "relative_path": "单一担保人总持仓.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "5da236c972bf8dffa016f33688278de0e3d3c1d178d7ca87573468bbf5489494",
+            "physical_sha256": "7bebb853ea0bd02196b0cd856f142b72b56ea5113c041c019c7b45214de1bf33",
+            "physical_size": 5705,
+            "relative_path": "单一担保人总持仓_不剔除.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "352a893bcfe2242da9c830fa1a792248fbd21b7b03b8b156118c882a880768c1",
+            "physical_sha256": "93e820c77c1809d825b8dec021fc9afb0a88443dde95e9b6401d9cdbf972d898",
+            "physical_size": 8395,
+            "relative_path": "单一担保公司规模限额.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "f7dc3e6eaa4ae83335859eaa7b78e33ec81b4a924140bc36783c425bc8c033c3",
+            "physical_sha256": "b8a0a069c059ffa8f6ea3a6852ba4e36b22dd6628399336c311488c57755175f",
+            "physical_size": 6007,
+            "relative_path": "发行人类型调整表.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "1f388ea6310bd8c1149a5a4b69951bb2dcddf550adb92216985ab065c9cc701f",
+            "physical_sha256": "4e5d3b2a62ebeb276bf741e52ea4a50022938efb6642871209ea20cdd2f46c53",
+            "physical_size": 5546,
+            "relative_path": "特定主体总持仓.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "5bb0967ad247fe3477908068d844f604586cc0c424786270a27420c0d2da8106",
+            "physical_sha256": "fae06c59e5d0485d345f258c26b70632faad1054f14b4ae2b3d90066301cab93",
+            "physical_size": 6383,
+            "relative_path": "特定主体限额.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "67010970554d181e99c4dc8c408086e104aec64f1ed531ffe3fd9c46ebc1d519",
+            "physical_sha256": "2a0727613d02fa86983b29109316dfdbde50bfdef6b9e77c51db9005b6136293",
+            "physical_size": 5307,
+            "relative_path": "特定实控人总持仓.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "9b8a5a03900dbd2500fc74d8df2f7293100eb27e20e4300a8242008c41013c24",
+            "physical_sha256": "786fe2cd615c6d5cd5e6fad4fe940457a82f67651d0ae60c198da80c4fa2551f",
+            "physical_size": 5793,
+            "relative_path": "特定实控人限额.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "5a183161af131d5e5ea96d4dd3c5d28281b0d6c1d16aad124e026c427b976770",
+            "physical_sha256": "96cd42e0b96f64a4ee684c0b16498a078f957b54cb45976ea196c20d31ffa6a8",
+            "physical_size": 5632,
+            "relative_path": "特批单一债券限额.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "adbc1ccc07ad83b0d1aaeb125b0b1a685d9279c84f6d61d9c741efd554f04260",
+            "physical_sha256": "670398ba13427009805f65aa0c73cb01bffd9d007b189e13ff078278ea5ba2bc",
+            "physical_size": 7541,
+            "relative_path": "穿透高收益债券.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "d04c598a4d088b6a15c75f9c0c83690add0de6aae12baf57e9d60eb01ae0fb82",
+            "physical_sha256": "709e3af377b4f4313cf6747d1bc9be0bb879223bbca4cfcf9b0186df6665ae4c",
+            "physical_size": 463588,
+            "relative_path": "调整实控人名单.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "56554bae1c4a565f2bf4d87bebd6e6304ba51082d951aae275ad064d147ead6c",
+            "physical_sha256": "4c92413a66f023d2d43899a2d72e45ac6f2502463341b071c50c9a1566352590",
+            "physical_size": 14887,
+            "relative_path": "限额明细_债券持仓明细表_信用债1_1.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "a2fea699be86fe0507d3f02945055244f96467f06a7b30d725bebf5be43fe279",
+            "physical_sha256": "af77425cba6f4833c50b137cf7f35d3cf23bf148a7a700e95cfc17f2c7b53e02",
+            "physical_size": 190835,
+            "relative_path": "限额明细_债券持仓明细表_信用债1_2.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "35cc6ea83f103e2ac3027dd6474a161348a0d8b855b599ef7595861697ef2887",
+            "physical_sha256": "99e9d544302113fa108ecfb7b7223b92741053ea0e17f6c34e577039919a337c",
+            "physical_size": 138552,
+            "relative_path": "限额明细_全量债券监管集中度.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "fb4e44d0d1542154e5d95657692925f84269fbcb50744bec2a825b4db5ffa9b7",
+            "physical_sha256": "e0e5d463657759271d9e924ed1347b9dd8e842ed15445f49daeb814144d08c55",
+            "physical_size": 28163,
+            "relative_path": "限额明细_单一主体.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "b8106f84a98620aef4063b3f4d3c0ec32f958abec7b1eb87d18f6199a6cf05fb",
+            "physical_sha256": "bbe13a5b98eb4969f9c967dc4838b569682e9fa7652f3cc9a606e8ee7b00629c",
+            "physical_size": 45900,
+            "relative_path": "限额明细_单一债券.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "33d2976df8556784d462db267a7cb0b341598c442159d741b7b00dc97d408233",
+            "physical_sha256": "f215b43f71888a9b2c715f42ecea456006bcf6076b8b763526890a5cadee65e8",
+            "physical_size": 15716,
+            "relative_path": "限额明细_单一实控人.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "0a8f76fdda20a27542351f922ceea4536c466e38d9ff89c67d48c6c7a2c77ee8",
+            "physical_sha256": "5f1dd3c48adbe12e1171d0afebb4abe1b5426847d421bfb44ae44a737de1c192",
+            "physical_size": 19638,
+            "relative_path": "限额明细_单一实控人_取最高额度.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "2ec80ca3d52006a863cfd42d88fe855bdf7dbea568a9bc0e32127c7ac5a548b3",
+            "physical_sha256": "27011e044854a75d20fae86cd03c51346b9f7c5a62c02df4908e0709083e62fe",
+            "physical_size": 5745,
+            "relative_path": "限额明细_单一担保人.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "323fab141e2d8d6dbb8ecb4a1b9ed9be27d99ce8a4dab568f193b358e6a61225",
+            "physical_sha256": "51831c8b0d6106ed748928042fe64ab4467b0c57d8e6b8e42727365a1a0ae336",
+            "physical_size": 7214,
+            "relative_path": "限额明细_特定主体.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "3d1f6cdd8462a5ae6adbb714f228bedb2ff9814e5dcd0ef880232b0c751d755d",
+            "physical_sha256": "f78e6b708c3fdea392a455b3ce06da3facd7061aaa33971efa13d455258516d1",
+            "physical_size": 6411,
+            "relative_path": "限额明细_特定实控人.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "34947d3b59f7456f94f5fb7dd30e73e60cd44c15a5ff738db87abeda024d5419",
+            "physical_sha256": "5ffb422bdb33ff0df3553725dbb5712048397d5de59f6f081203ce99779b9e5c",
+            "physical_size": 185892,
+            "relative_path": "风控部主体池.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "da66dfe74b8ed1b4aa17c57b9065fec1550ac800f6f49de0460b4fe8b96763f3",
+            "physical_sha256": "8125efdb2a879b169893d52c98300057b30907447698b436a2f7be216d3542d1",
+            "physical_size": 3037338,
+            "relative_path": "风控部债券池.xlsx"
+          }
+        ],
+        "logical_sha256": "9f5c5c1528159bd07e1949c6f74222bba0803c9df496f07b99cf31dfb707b2ed",
+        "schema_version": 1
+      },
+      "stage": "stage1",
+      "table_count": 35,
+      "tables": [
+        {
+          "column_count": 5,
+          "name": "中债隐含评级AAA&AAA+",
+          "row_count": 83
+        },
+        {
+          "column_count": 18,
+          "name": "债券持仓明细表",
+          "row_count": 615
+        },
+        {
+          "column_count": 28,
+          "name": "债券持仓明细表_信用债",
+          "row_count": 541
+        },
+        {
+          "column_count": 39,
+          "name": "债券持仓明细表_信用债_合并风险限额相关",
+          "row_count": 541
+        },
+        {
+          "column_count": 26,
+          "name": "债券持仓明细表_全量债券监管集中度",
+          "row_count": 758
+        },
+        {
+          "column_count": 5,
+          "name": "单一主体总持仓",
+          "row_count": 366
+        },
+        {
+          "column_count": 7,
+          "name": "单一主体规模限额",
+          "row_count": 18
+        },
+        {
+          "column_count": 13,
+          "name": "单一债券总持仓",
+          "row_count": 459
+        },
+        {
+          "column_count": 7,
+          "name": "单一债券规模限额",
+          "row_count": 20
+        },
+        {
+          "column_count": 7,
+          "name": "单一债券集中度限额",
+          "row_count": 22
+        },
+        {
+          "column_count": 4,
+          "name": "单一实控人总持仓",
+          "row_count": 290
+        },
+        {
+          "column_count": 7,
+          "name": "单一实控人规模限额",
+          "row_count": 18
+        },
+        {
+          "column_count": 5,
+          "name": "单一担保人总持仓",
+          "row_count": 13
+        },
+        {
+          "column_count": 4,
+          "name": "单一担保人总持仓_不剔除",
+          "row_count": 16
+        },
+        {
+          "column_count": 11,
+          "name": "单一担保公司规模限额",
+          "row_count": 43
+        },
+        {
+          "column_count": 3,
+          "name": "发行人类型调整表",
+          "row_count": 37
+        },
+        {
+          "column_count": 4,
+          "name": "特定主体总持仓",
+          "row_count": 12
+        },
+        {
+          "column_count": 5,
+          "name": "特定主体限额",
+          "row_count": 31
+        },
+        {
+          "column_count": 4,
+          "name": "特定实控人总持仓",
+          "row_count": 7
+        },
+        {
+          "column_count": 4,
+          "name": "特定实控人限额",
+          "row_count": 23
+        },
+        {
+          "column_count": 6,
+          "name": "特批单一债券限额",
+          "row_count": 12
+        },
+        {
+          "column_count": 4,
+          "name": "穿透高收益债券",
+          "row_count": 56
+        },
+        {
+          "column_count": 4,
+          "name": "调整实控人名单",
+          "row_count": 9495
+        },
+        {
+          "column_count": 50,
+          "name": "限额明细_债券持仓明细表_信用债1_1",
+          "row_count": 33
+        },
+        {
+          "column_count": 70,
+          "name": "限额明细_债券持仓明细表_信用债1_2",
+          "row_count": 498
+        },
+        {
+          "column_count": 36,
+          "name": "限额明细_全量债券监管集中度",
+          "row_count": 621
+        },
+        {
+          "column_count": 8,
+          "name": "限额明细_单一主体",
+          "row_count": 459
+        },
+        {
+          "column_count": 25,
+          "name": "限额明细_单一债券",
+          "row_count": 318
+        },
+        {
+          "column_count": 5,
+          "name": "限额明细_单一实控人",
+          "row_count": 275
+        },
+        {
+          "column_count": 8,
+          "name": "限额明细_单一实控人_取最高额度",
+          "row_count": 283
+        },
+        {
+          "column_count": 7,
+          "name": "限额明细_单一担保人",
+          "row_count": 12
+        },
+        {
+          "column_count": 13,
+          "name": "限额明细_特定主体",
+          "row_count": 22
+        },
+        {
+          "column_count": 13,
+          "name": "限额明细_特定实控人",
+          "row_count": 13
+        },
+        {
+          "column_count": 4,
+          "name": "风控部主体池",
+          "row_count": 5205
+        },
+        {
+          "column_count": 9,
+          "name": "风控部债券池",
+          "row_count": 54276
+        }
+      ]
+    },
+    {
+      "logical_fingerprint": {
+        "entries": [
+          {
+            "kind": "xlsx",
+            "logical_sha256": "aa1961567cf840231d23341c73766a650575585232eeb63354d77d87e9c14f94",
+            "physical_sha256": "193eb0be2a5bc54ff6baccb1de794abd8f9ee982304ec63558cf177e7527367f",
+            "physical_size": 4981,
+            "relative_path": "信用债总持仓.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "0c2cd40d67be8310d63d976fe576a7927dc1da016da07a1c983505b493e7d4ae",
+            "physical_sha256": "fc5d846bf543408a40291d330e7a6a51c457a3ab34ef7fe5ac55637f8b94f55f",
+            "physical_size": 97554,
+            "relative_path": "债券持仓明细表_信用债.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "b8fd4e2921bdbf8422bbf53672f509461c8ac460938551becfa9dde251373dfc",
+            "physical_sha256": "278ebb8879f7fe863d866c7eed0b5a3a0e6f2a2b2a2ddd23361593ad53ec72f9",
+            "physical_size": 126494,
+            "relative_path": "债券持仓明细表_信用债_合并风险限额相关.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "be9adc2eefdcc15c0b06184dcf6d4945876b07d69dfc8d0ba332bd2b9054b068",
+            "physical_sha256": "6e66fafcc56c82e98308132496706c4a8e085326129ad58edbbb65bec121f981",
+            "physical_size": 5962,
+            "relative_path": "单一地域城投总持仓.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "d16581548160ca6273dc5a33a92dd62c621bc77e13e3f4f4f664d5b67f32329b",
+            "physical_sha256": "b0f657031a92b4ba3f3058e1d210ec17554d57dee4250b0f8660441566a2a802",
+            "physical_size": 6400,
+            "relative_path": "单一地域总持仓.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "b32e4c51fa4da9645d5faf7a346f07e71c35fb4ffe28d2da1bb6b26e3d560ede",
+            "physical_sha256": "54551789ac0c15a86610b644ff607834c2db9cb82b5334a9da407904421543e1",
+            "physical_size": 5905,
+            "relative_path": "地域集中度限额(含城投).xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "f5975f34fde50c871fd05675ea1613f85923cd1ec9176993288ee9fd26cfe829",
+            "physical_sha256": "68aaa14a0828c6dcc140498ad397fc5c40dbf6f7a217f12479d04452475da630",
+            "physical_size": 6615,
+            "relative_path": "金融工具池设置.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "5e06574daf17b973485d40c4835a98ce2e6646f5118dbe25d5b1c70525ffe03e",
+            "physical_sha256": "a45e5a885436c6b0a9ac63093c1ae490bc468de574c58aa1398df17ccf9e697a",
+            "physical_size": 130786,
+            "relative_path": "限额明细_债券持仓明细表_信用债2.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "c5f782bedb6839e48ecdb49f4f4019992eaababf56574dc0c0e918d29c2b825c",
+            "physical_sha256": "007a5d0dfc6239891e8b5c5f6fbfed4d4bd0e7d8adec214aae493f1939cc4705",
+            "physical_size": 8737,
+            "relative_path": "限额明细_地域集中度限额(含城投).xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "10bb711dd35e92624b6160b12bce359417279fd9836a9df76e5b45bc8996dc3c",
+            "physical_sha256": "00f6269e9776dfca60cb4c3ab7dd9c0c0c2891e02b8582ee802e0358011350d3",
+            "physical_size": 8147,
+            "relative_path": "限额明细_高收益.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "db679da7c161a6795c409af4cbca2a9c131e69a185c34a51506d1fd27fa9161e",
+            "physical_sha256": "f4b2ab0cf200568c1603a3d13b85f51a82acd029d404a820f88e732806d92a31",
+            "physical_size": 6547,
+            "relative_path": "限额明细_高收益_投资本金规模.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "5109f2011a85c1d871aa5d4f92fb53a0341ce181de56c7cbcb001dd0f5fd2617",
+            "physical_sha256": "213f786ecb3e08a3e5d104128b8f492ca34dad8269441774bdaa46db059d42ef",
+            "physical_size": 5202,
+            "relative_path": "限额明细_高风险省份.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "59a67d01157a4847056dccd61e7c454d07c3ed4f432d3ee2674e2841dd75760c",
+            "physical_sha256": "05f169b401875529a7cfe22e334e18cc83e99e94d0159a9a7f773c6edb058f22",
+            "physical_size": 5096,
+            "relative_path": "限额明细_高风险省份2.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "a2635bab040418be16d3bcbee7d58c4d76febea43cd4c327dbdb549f737531e6",
+            "physical_sha256": "59679ea5b6e5e717157e258bdeff48ca30ef561c874dd0bc7ba65b53212fa955",
+            "physical_size": 5193,
+            "relative_path": "限额明细_高风险行业.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "dcad92e91a3ccce43821e90871025815db449b1edcfa17fb25f9b3a8a23263e5",
+            "physical_sha256": "820d6049f384041211c4b4123505e5ed37626e9ce79d9ea8fe40cd091834f4b7",
+            "physical_size": 5371,
+            "relative_path": "限额明细_高风险行业_2.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "920370a947ba4fef14ae350823c4eeef5bbbe03d42d5fe4f61257fe1cfa45e78",
+            "physical_sha256": "c73d472bf8f5c25bea5b8ae4062c41bc31dfa2d931e3df71670b60df5365a268",
+            "physical_size": 5205,
+            "relative_path": "高风险省份.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "4c43b53ce0d8414f12d59cec789c6c5628d03e10ccdf96a266707f815e908475",
+            "physical_sha256": "6c1ad636d185917d8de9ccb7b1d707918b3b3fd11d3fd52d92cd172c7ca2d8e1",
+            "physical_size": 5099,
+            "relative_path": "高风险省份总持仓.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "df2cb7352b67cd1c6e4de1e36aa7b4e4a0453bb27d96b979ec92991bc16447ad",
+            "physical_sha256": "4215f91762fbab37422781b97627894382ad5c580a0188a514dfcf2af24ae350",
+            "physical_size": 5086,
+            "relative_path": "高风险省份总持仓_2.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "040e8a7a0245cc30f634ab483af6595d6e45ddb955b88296fb3e37d9b9c15e3e",
+            "physical_sha256": "bb060cdb932cf123490d83c8e2df41433002d1cb7a0d07cc7eca61bf644c0a7d",
+            "physical_size": 5502,
+            "relative_path": "高风险行业.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "233aa7afe0c46f394a43d42c65d666bd0a3d279493c411ed53a55b13379531c0",
+            "physical_sha256": "3d4764c4a7bad784b5607601f472b04c9f966f91e010e4d1b862c29332607343",
+            "physical_size": 5087,
+            "relative_path": "高风险行业总持仓.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "5ac5f23c073e16c6d6a5cef93d648a8b0fadb313557ac92b7e4ce2a829846f64",
+            "physical_sha256": "efd521622b11e692853bf404ab1e1343d97af2a9cc8557915b017179e1825550",
+            "physical_size": 5308,
+            "relative_path": "高风险行业总持仓_2.xlsx"
+          },
+          {
+            "kind": "xlsx",
+            "logical_sha256": "11fe8f2880bc3ca3fe21b7c0923c70b1a1e49049f0b60cd59359ba128091bc93",
+            "physical_sha256": "fd7989cb5a8605c5a22ed62245c5d5c60a98ff00e032452cf43272d06108a3ba",
+            "physical_size": 5022,
+            "relative_path": "高风险限额.xlsx"
+          }
+        ],
+        "logical_sha256": "1d8793c341c76672dad46d289f32a6f66d48ff555c9e2cfd9b1441f52f4b3b8a",
+        "schema_version": 1
+      },
+      "stage": "stage2",
+      "table_count": 22,
+      "tables": [
+        {
+          "column_count": 2,
+          "name": "信用债总持仓",
+          "row_count": 1
+        },
+        {
+          "column_count": 28,
+          "name": "债券持仓明细表_信用债",
+          "row_count": 541
+        },
+        {
+          "column_count": 39,
+          "name": "债券持仓明细表_信用债_合并风险限额相关",
+          "row_count": 541
+        },
+        {
+          "column_count": 5,
+          "name": "单一地域城投总持仓",
+          "row_count": 20
+        },
+        {
+          "column_count": 5,
+          "name": "单一地域总持仓",
+          "row_count": 30
+        },
+        {
+          "column_count": 4,
+          "name": "地域集中度限额(含城投)",
+          "row_count": 35
+        },
+        {
+          "column_count": 2,
+          "name": "金融工具池设置",
+          "row_count": 87
+        },
+        {
+          "column_count": 48,
+          "name": "限额明细_债券持仓明细表_信用债2",
+          "row_count": 512
+        },
+        {
+          "column_count": 16,
+          "name": "限额明细_地域集中度限额(含城投)",
+          "row_count": 35
+        },
+        {
+          "column_count": 22,
+          "name": "限额明细_高收益",
+          "row_count": 20
+        },
+        {
+          "column_count": 10,
+          "name": "限额明细_高收益_投资本金规模",
+          "row_count": 20
+        },
+        {
+          "column_count": 10,
+          "name": "限额明细_高风险省份",
+          "row_count": 1
+        },
+        {
+          "column_count": 3,
+          "name": "限额明细_高风险省份2",
+          "row_count": 4
+        },
+        {
+          "column_count": 10,
+          "name": "限额明细_高风险行业",
+          "row_count": 1
+        },
+        {
+          "column_count": 4,
+          "name": "限额明细_高风险行业_2",
+          "row_count": 9
+        },
+        {
+          "column_count": 4,
+          "name": "高风险省份",
+          "row_count": 7
+        },
+        {
+          "column_count": 5,
+          "name": "高风险省份总持仓",
+          "row_count": 1
+        },
+        {
+          "column_count": 3,
+          "name": "高风险省份总持仓_2",
+          "row_count": 4
+        },
+        {
+          "column_count": 4,
+          "name": "高风险行业",
+          "row_count": 14
+        },
+        {
+          "column_count": 5,
+          "name": "高风险行业总持仓",
+          "row_count": 1
+        },
+        {
+          "column_count": 3,
+          "name": "高风险行业总持仓_2",
+          "row_count": 9
+        },
+        {
+          "column_count": 3,
+          "name": "高风险限额",
+          "row_count": 2
+        }
+      ]
+    }
+  ],
+  "status": "success"
+}
