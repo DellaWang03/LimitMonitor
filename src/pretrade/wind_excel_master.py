@@ -8,6 +8,7 @@ import csv
 from dataclasses import dataclass
 import platform
 import re
+import time
 from typing import Any, ContextManager, Mapping, Protocol
 
 import pandas as pd
@@ -145,6 +146,9 @@ class XlwingsFormulaEvaluator:
             target = sheet.range("A1").resize(len(formulas), 1)
             target.formula = [[formula] for formula in formulas.values()]
             app.calculate()
+            # Wind Excel 公式异步返回；沿用 Stage0 已在 Windows 验证的
+            # calculate 后等待方式，避免把 Fetching... 当作最终值读回。
+            time.sleep(min(5 + len(formulas) // 100, 30))
             raw_values = target.value
             if len(formulas) == 1:
                 raw_values = [raw_values]

@@ -218,6 +218,31 @@ def test_master_formula_evaluator_uses_hidden_windows_session(
     assert result == {"main_security_code": "主证券", "industry": "行业"}
 
 
+def test_master_formula_evaluator_waits_for_windows_wind_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_xlwings = _FakeXlwings(values=["Fetching...", "Fetching..."])
+    monkeypatch.setitem(sys.modules, "xlwings", fake_xlwings)
+    monkeypatch.setattr(wind_excel_master.platform, "system", lambda: "Windows")
+
+    def finish_wind_calculation(_seconds: float) -> None:
+        fake_xlwings.sheet.ranges["A1"].values = ["2180399.IB", "公用事业"]
+
+    monkeypatch.setattr(time, "sleep", finish_wind_calculation)
+
+    result = XlwingsFormulaEvaluator().evaluate(
+        {
+            "main_security_code": '=b_info_anchorbond("1980083.IB")',
+            "industry": '=b_issuer_windindustry("1980083.IB",4)',
+        }
+    )
+
+    assert result == {
+        "main_security_code": "2180399.IB",
+        "industry": "公用事业",
+    }
+
+
 def test_master_formula_evaluator_uses_macos_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
