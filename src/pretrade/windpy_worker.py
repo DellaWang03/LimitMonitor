@@ -1,4 +1,4 @@
-"""macOS 交易前 WindPy 的短生命周期进程入口。"""
+"""交易前 WindPy 的跨平台短生命周期进程入口。"""
 
 from __future__ import annotations
 

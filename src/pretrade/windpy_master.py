@@ -112,7 +112,7 @@ class WindPyBondMasterProvider:
         if not self._field_mapping_verified:
             return _missing("Wind 字段映射尚未通过真实环境验收")
 
-        if self._gateway is None and _IS_MACOS:
+        if self._gateway is None and (_IS_MACOS or sys.platform == "win32"):
             query = _query_production_windpy_isolated(input_code)
             if query.reason is not None:
                 return _missing(query.reason)
@@ -260,7 +260,7 @@ def _start_gateway(gateway: WindGateway) -> int:
 
 
 def _query_production_windpy_isolated(bond_code: str) -> _WindQueryResult:
-    """在独立进程主线程执行 macOS WindPy，并由父进程提供硬超时。"""
+    """在独立进程主线程执行生产 WindPy，并由父进程提供硬超时。"""
 
     command = (
         sys.executable,

@@ -379,6 +379,38 @@ def test_macos_production_provider_uses_isolated_windpy_process(
     assert calls == ["184072.SH"]
 
 
+def test_windows_production_provider_uses_isolated_windpy_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def isolated_query(bond_code: str):
+        calls.append(bond_code)
+        return windpy_master._WindQueryResult(0, [_wind_row()], None)
+
+    def forbidden_parent_import():
+        raise AssertionError("Windows Streamlit 进程不得直接加载 WindPy")
+
+    monkeypatch.setattr(windpy_master, "_IS_MACOS", False)
+    monkeypatch.setattr(windpy_master.sys, "platform", "win32")
+    monkeypatch.setattr(
+        windpy_master, "_query_production_windpy_isolated", isolated_query
+    )
+    monkeypatch.setattr(
+        WindPyBondMasterProvider,
+        "_load_production_gateway",
+        staticmethod(forbidden_parent_import),
+    )
+
+    result = WindPyBondMasterProvider(
+        excel_gateway=_excel(),
+        field_mapping_verified=True,
+    ).resolve("184072.SH", DAY)
+
+    assert result.source is MasterSource.WIND
+    assert calls == ["184072.SH"]
+
+
 def test_isolated_windpy_query_is_fail_closed_on_hard_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
