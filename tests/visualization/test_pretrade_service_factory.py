@@ -41,12 +41,17 @@ def _capture_field_mapping_flag(monkeypatch, value: str | None) -> bool:
     return captured["verified"]
 
 
-def test_wind_field_mapping_is_fail_closed_by_default(monkeypatch) -> None:
-    assert _capture_field_mapping_flag(monkeypatch, None) is False
+def test_wind_field_mapping_is_enabled_by_default(monkeypatch) -> None:
+    assert _capture_field_mapping_flag(monkeypatch, None) is True
 
 
 def test_wind_field_mapping_can_be_enabled_after_real_acceptance(monkeypatch) -> None:
     assert _capture_field_mapping_flag(monkeypatch, "true") is True
+
+
+@pytest.mark.parametrize("value", ["0", "false", "no", "off"])
+def test_wind_field_mapping_can_be_explicitly_disabled(monkeypatch, value) -> None:
+    assert _capture_field_mapping_flag(monkeypatch, value) is False
 
 
 def test_factory_wraps_missing_database_configuration(monkeypatch) -> None:

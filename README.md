@@ -90,17 +90,17 @@ set DB_PASSWORD=<password>
 set DB_NAME=<database>
 ```
 
-非持仓债依赖真实 WindPy + Excel/Wind 字段验收。验收完成后才可显式启用；
-未设置时服务保持失败关闭，不会把缺失主数据当作可计算：
+非持仓债默认启用真实 WindPy + Excel/Wind 主数据查询；缺失或非法主数据仍返回
+不可计算，不会按 0 处理。需要在单机维护或 Wind 环境异常时临时关闭，可设置：
 
 ```bash
-export LIMIT_MONITOR_WIND_FIELD_MAPPING_VERIFIED=true
+export LIMIT_MONITOR_WIND_FIELD_MAPPING_VERIFIED=false
 ```
 
-Windows 可在未提交的 `config\local_env.bat` 中设置：
+Windows 可在未提交的 `config\local_env.bat` 中临时关闭：
 
 ```bat
-set LIMIT_MONITOR_WIND_FIELD_MAPPING_VERIFIED=true
+set LIMIT_MONITOR_WIND_FIELD_MAPPING_VERIFIED=false
 ```
 
 ## 四、每日运行

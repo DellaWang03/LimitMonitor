@@ -27,5 +27,5 @@ def get_pretrade_risk_service() -> PretradeRiskService:
 
 def _wind_field_mapping_verified() -> bool:
     return os.environ.get(
-        "LIMIT_MONITOR_WIND_FIELD_MAPPING_VERIFIED", ""
-    ).strip().lower() in {"1", "true", "yes", "on"}
+        "LIMIT_MONITOR_WIND_FIELD_MAPPING_VERIFIED", "true"
+    ).strip().lower() not in {"0", "false", "no", "off"}
