@@ -23,7 +23,6 @@ from src.visualization.components.pretrade_ui import (
     render_pretrade_input_summary,
     render_pretrade_status,
     rewrite_explanation_column,
-    user_facing_input_message,
 )
 from src.visualization.components.tables import render_data_table
 from src.visualization.pretrade_presenter import (
@@ -38,6 +37,14 @@ from src.visualization.pretrade_service import get_pretrade_risk_service
 
 _DEFAULT_ACCOUNT = "自营部交易性"
 _INPUT_COLUMNS = ("债券代码", "拟买金额(万)_PR", "拟买入账户", "拟买全价成本(万)")
+_EDITOR_CONFIRMATION_MESSAGE = (
+    "金额单位为万元；高收益债需填写全价成本。"
+    "完成最后一个单元格录入后，请按 Enter 确认，再点击「计算组合结果」。"
+)
+_BASKET_INPUT_INVALID_MESSAGE = (
+    "录入内容未确认或格式不正确。请按 Enter 确认最后编辑的单元格，"
+    "并检查债券代码、金额和账户后重新提交。"
+)
 
 
 def _empty_basket(default_account: str = _DEFAULT_ACCOUNT) -> pd.DataFrame:
@@ -97,7 +104,7 @@ def _render_basket_editor(
     """
 
     with st.container(key="page10_pretrade_editor_shell"):
-        st.caption("金额单位为万元；高收益债需填写全价成本。")
+        st.caption(_EDITOR_CONFIRMATION_MESSAGE)
         default_account = _DEFAULT_ACCOUNT if _DEFAULT_ACCOUNT in accounts else accounts[0]
         source = (
             initial_frame.copy(deep=True)
@@ -397,9 +404,10 @@ def render(filters: dict[str, Any], data_loader: Any) -> None:
             st.session_state.pop("page10_pretrade_submitted_lines", None)
             st.error(SNAPSHOT_UNAVAILABLE_MESSAGE)
         except (TypeError, ValueError) as exc:
+            del exc
             st.session_state.pop("page10_pretrade_result", None)
             st.session_state.pop("page10_pretrade_submitted_lines", None)
-            st.error(user_facing_input_message(str(exc)))
+            st.error(_BASKET_INPUT_INVALID_MESSAGE)
         except Exception:
             st.session_state.pop("page10_pretrade_result", None)
             st.session_state.pop("page10_pretrade_submitted_lines", None)
