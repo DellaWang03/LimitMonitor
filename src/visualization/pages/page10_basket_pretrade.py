@@ -350,35 +350,42 @@ def render(filters: dict[str, Any], data_loader: Any) -> None:
         return
 
     st.markdown("#### 交易清单")
-    edited = _render_basket_editor(
-        accounts,
-        initial_frame=st.session_state.get("page10_pretrade_submitted_lines"),
-    )
-    input_count, input_total = _input_overview(edited)
-    render_pretrade_input_summary(
-        ("已录入", f"{input_count} 笔交易"),
-        ("拟买金额合计", f"{input_total:,.2f} 万元"),
-    )
-
-    _spacer, calculate, clear = st.columns([5.4, 1.6, 1])
-    with calculate:
-        calculate_clicked = st.button(
-            "计算组合结果",
-            type="primary",
-            width="stretch",
-            key="page10_pretrade_calculate",
+    with st.form(
+        key="page10_pretrade_form",
+        enter_to_submit=False,
+        border=False,
+    ):
+        edited = _render_basket_editor(
+            accounts,
+            initial_frame=st.session_state.get("page10_pretrade_submitted_lines"),
         )
-    with clear:
-        if st.button(
-            "清空",
-            type="secondary",
-            width="stretch",
-            key="page10_pretrade_clear",
-        ):
-            st.session_state.pop("page10_pretrade_lines", None)
-            st.session_state.pop("page10_pretrade_result", None)
-            st.session_state.pop("page10_pretrade_submitted_lines", None)
-            st.rerun()
+        input_count, input_total = _input_overview(edited)
+        render_pretrade_input_summary(
+            ("已录入", f"{input_count} 笔交易"),
+            ("拟买金额合计", f"{input_total:,.2f} 万元"),
+        )
+
+        _spacer, calculate, clear = st.columns([5.4, 1.6, 1])
+        with calculate:
+            calculate_clicked = st.form_submit_button(
+                "计算组合结果",
+                type="primary",
+                width="stretch",
+                key="page10_pretrade_calculate",
+            )
+        with clear:
+            clear_clicked = st.form_submit_button(
+                "清空",
+                type="secondary",
+                width="stretch",
+                key="page10_pretrade_clear",
+            )
+
+    if clear_clicked:
+        st.session_state.pop("page10_pretrade_lines", None)
+        st.session_state.pop("page10_pretrade_result", None)
+        st.session_state.pop("page10_pretrade_submitted_lines", None)
+        st.rerun()
 
     if calculate_clicked:
         try:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager, nullcontext
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -183,6 +184,81 @@ def test_page10_editor_restores_the_last_submitted_lines(monkeypatch) -> None:
     )
 
     assert captured[0].loc[0, "债券代码"] == "1980082.IB"
+
+
+def test_page10_one_form_submit_calculates_the_current_editor_values(
+    monkeypatch,
+) -> None:
+    """点击计算必须同时提交仍在编辑中的单元格，不能先失焦再点第二次。"""
+
+    edited = page10_basket_pretrade._empty_basket().copy()
+    edited.loc[0, "债券代码"] = "1980083.IB"
+    edited.loc[0, "拟买金额(万)_PR"] = "100"
+    result = object()
+    checked_lines = []
+    inside_form = [False]
+    rerun_count = [0]
+
+    class _Service:
+        def check_basket(self, lines):
+            checked_lines.extend(lines)
+            return result
+
+    @contextmanager
+    def _form(key, **kwargs):
+        assert key == "page10_pretrade_form"
+        assert kwargs["enter_to_submit"] is False
+        inside_form[0] = True
+        try:
+            yield
+        finally:
+            inside_form[0] = False
+
+    def _render_editor(_accounts, *, initial_frame=None):
+        del initial_frame
+        assert inside_form[0], "编辑器必须与计算按钮处于同一表单"
+        return edited.copy(deep=True)
+
+    def _submit(label, **_kwargs):
+        assert inside_form[0]
+        return label == "计算组合结果"
+
+    fake_streamlit = SimpleNamespace(
+        session_state={},
+        form=_form,
+        form_submit_button=_submit,
+        columns=lambda widths: [nullcontext() for _ in widths],
+        spinner=lambda _message: nullcontext(),
+        markdown=lambda *_args, **_kwargs: None,
+        info=lambda *_args, **_kwargs: None,
+        error=lambda message: (_ for _ in ()).throw(
+            AssertionError(f"不应报错: {message}")
+        ),
+        rerun=lambda: rerun_count.__setitem__(0, rerun_count[0] + 1),
+    )
+    monkeypatch.setattr(page10_basket_pretrade, "st", fake_streamlit)
+    monkeypatch.setattr(page10_basket_pretrade, "inject_pretrade_ui_css", lambda: None)
+    monkeypatch.setattr(page10_basket_pretrade, "_render_title", lambda: None)
+    monkeypatch.setattr(page10_basket_pretrade, "_render_basket_editor", _render_editor)
+    monkeypatch.setattr(
+        page10_basket_pretrade, "render_pretrade_input_summary", lambda *_args: None
+    )
+    monkeypatch.setattr(
+        page10_basket_pretrade, "get_pretrade_risk_service", _Service
+    )
+    monkeypatch.setattr(
+        page10_basket_pretrade,
+        "account_options",
+        lambda _service, *, default_account: [default_account],
+    )
+
+    page10_basket_pretrade.render({}, SimpleNamespace(target_date=None))
+
+    assert [(line.bond_code, line.pr_wan) for line in checked_lines] == [
+        ("1980083.IB", 100.0)
+    ]
+    assert fake_streamlit.session_state["page10_pretrade_result"] is result
+    assert rerun_count == [1]
 
 
 def test_page10_no_longer_derives_editor_height_from_session_state() -> None:
