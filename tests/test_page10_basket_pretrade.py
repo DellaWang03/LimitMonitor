@@ -40,6 +40,87 @@ def test_page10_account_column_falls_back_to_free_text_without_accounts() -> Non
     assert config["type_config"]["type"] == "text"
 
 
+def test_page10_editor_instructs_users_to_confirm_the_final_cell(monkeypatch) -> None:
+    captions: list[str] = []
+
+    class _Recorder:
+        def __init__(self) -> None:
+            self.session_state = {}
+            self.column_config = page10_basket_pretrade.st.column_config
+
+        def container(self, **_kwargs):
+            from contextlib import nullcontext
+
+            return nullcontext()
+
+        def caption(self, text: str, **_kwargs) -> None:
+            captions.append(text)
+
+        def data_editor(self, frame, **_kwargs):
+            return frame
+
+    monkeypatch.setattr(page10_basket_pretrade, "st", _Recorder())
+
+    page10_basket_pretrade._render_basket_editor(["自营部交易性"])
+
+    assert "完成最后一个单元格录入后，请按 Enter 确认，再点击「计算组合结果」。" in captions
+
+
+def test_page10_shows_confirmation_guidance_for_input_errors(monkeypatch) -> None:
+    errors: list[str] = []
+
+    class _Column:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> bool:
+            return False
+
+    class _Recorder:
+        def __init__(self) -> None:
+            self.session_state = {}
+
+        def markdown(self, *_args, **_kwargs) -> None:
+            return None
+
+        def columns(self, _spec):
+            return (_Column(), _Column(), _Column())
+
+        def button(self, _label: str, **kwargs) -> bool:
+            return kwargs.get("key") == "page10_pretrade_calculate"
+
+        def error(self, message: str) -> None:
+            errors.append(message)
+
+        def info(self, *_args, **_kwargs) -> None:
+            return None
+
+    def raise_input_error(_frame):
+        raise ValueError("输入第 1 行的拟买金额必须为数字")
+
+    monkeypatch.setattr(page10_basket_pretrade, "st", _Recorder())
+    monkeypatch.setattr(page10_basket_pretrade, "inject_pretrade_ui_css", lambda: None)
+    monkeypatch.setattr(page10_basket_pretrade, "_render_title", lambda: None)
+    monkeypatch.setattr(page10_basket_pretrade, "account_options", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        page10_basket_pretrade,
+        "_render_basket_editor",
+        lambda _accounts: page10_basket_pretrade._empty_basket(),
+    )
+    monkeypatch.setattr(
+        page10_basket_pretrade,
+        "render_pretrade_input_summary",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(page10_basket_pretrade, "basket_lines_from_frame", raise_input_error)
+
+    page10_basket_pretrade.render({}, SimpleNamespace(target_date=None))
+
+    assert errors == [
+        "录入内容未确认或格式不正确。请按 Enter 确认最后编辑的单元格，并检查债券代码、金额和账户。"
+    ]
+
+
 def test_page10_uses_shared_pretrade_ui_and_user_facing_wait_copy() -> None:
     source = Path("src/visualization/pages/page10_basket_pretrade.py").read_text(
         encoding="utf-8"
@@ -70,7 +151,6 @@ def test_page10_never_shows_raw_exception_text_to_users() -> None:
     assert "st.error(str(exc))" not in source
     assert "SNAPSHOT_UNAVAILABLE_MESSAGE" in source
     assert "SERVICE_UNAVAILABLE_MESSAGE" in source
-    assert "user_facing_input_message" in source
 
 
 def test_page10_rewrites_explanation_columns_and_avoids_internal_wording() -> None:
