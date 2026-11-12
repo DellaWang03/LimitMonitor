@@ -162,7 +162,7 @@ def test_exact_asset_code_rows_with_real_master_conflict_remain_missing_snapshot
     assert wind.calls == []
 
 
-def test_held_master_preserves_anchor_fields_and_raw_controller() -> None:
+def test_held_master_preserves_anchor_fields_and_corrected_controller() -> None:
     frames = _kernel_input().detached_frames()
     frames["债券持仓明细表_信用债"].loc[0, "资产代码"] = "184072.SH"
     frames["债券持仓明细表_信用债"].loc[0, "资产名称"] = "21台州01"
@@ -180,7 +180,7 @@ def test_held_master_preserves_anchor_fields_and_raw_controller() -> None:
     assert result.master.main_security_code == "2180399.IB"
     assert result.master.asset_name == "21台州01"
     assert result.master.main_security_name == "21台州债01"
-    assert result.master.controller_name == "原始实控人"
+    assert result.master.controller_name == "修正后实控人"
 
 
 def test_incomplete_held_bond_never_falls_back_to_wind() -> None:
@@ -214,11 +214,16 @@ def test_held_bond_keeps_asset_and_main_security_names_required(
 
 def test_confirmed_nonheld_bond_calls_wind_once() -> None:
     wind = CountingProvider(_complete_master("900003.IB"))
+    frames = _kernel_input().detached_frames()
+    frames["调整实控人名单"] = pd.DataFrame([
+        {"主体wind代码": "10000002", "调整后实际控制人": "自有实控人"},
+    ])
 
-    result = SnapshotBondMasterResolver(wind).resolve(_kernel_input(), "900003.IB")
+    result = SnapshotBondMasterResolver(wind).resolve(make_kernel_input(frames), "900003.IB")
 
     assert result.source is MasterSource.WIND
     assert result.master is not None
+    assert result.master.controller_name == "自有实控人"
     assert wind.calls == ["900003.IB"]
 
 
@@ -233,7 +238,7 @@ def test_nonheld_master_uses_same_required_field_gate_as_snapshot() -> None:
     assert result.reason and "province" in result.reason
 
 
-def test_held_master_keeps_raw_controller_for_common_kernel_adjustment() -> None:
+def test_held_master_keeps_corrected_controller_like_common_kernel() -> None:
     frames = _kernel_input().detached_frames()
     frames["债券持仓明细表_信用债"].loc[
         0, "实际控制人名称"
@@ -249,4 +254,4 @@ def test_held_master_keeps_raw_controller_for_common_kernel_adjustment() -> None
 
     assert result.source is MasterSource.SNAPSHOT
     assert result.master is not None
-    assert result.master.controller_name == "原始实控人"
+    assert result.master.controller_name == "修正后实控人"

@@ -228,6 +228,55 @@ def service():
     return instance
 
 
+def test_missing_snapshot_controller_blocks_quote_and_basket_even_with_wind_value():
+    frames = _service_input().detached_frames()
+    frames["调整实控人名单"] = pd.DataFrame(columns=["主体wind代码", "调整后实际控制人"])
+    frames["债券持仓明细表_信用债"][["实际控制人名称", "实际控制人名称_修正"]] = None
+    service = PretradeRiskService(
+        store=FakeStore(make_kernel_input(frames)),
+        wind_provider=FixedProvider({"900002.IB": _master("900002.IB")}),
+        kernel=ProjectionKernel(),
+    )
+    quote = service.quote_single_bond("900002.IB", "自营部交易性")
+    assert quote.status == "不可计算"
+    assert quote.purchasable_pr_cap_wan is None
+    assert "无可用实控人" in quote.line_audits[0].uncomputable_reason
+    basket = service.check_basket([PretradeLine(1, "900002.IB", "自营部交易性", 10)])
+    assert basket.status == "不可计算"
+
+
+def test_yangguang_wind_controller_missing_uses_snapshot_for_quote_and_basket():
+    from src.pretrade.windpy_master import WindPyBondMasterProvider, DEFAULT_WIND_FIELDS
+    from .test_windpy_master import FakeGateway, _wind_row, _excel
+
+    gateway = FakeGateway(_wind_row(
+        SEC_NAME="21阳光财险", ISSUER="阳光财产保险股份有限公司",
+        ISSUERUPDATED="阳光财产保险股份有限公司", HOLDER_CONTROLLER=None,
+        WINDL1TYPE="金融债", WINDL2TYPE="保险公司债", NATURE1="公众企业",
+    ))
+    provider = WindPyBondMasterProvider(
+        gateway=gateway,
+        excel_gateway=_excel(main_code="2123016.IB", main_name="21阳光财险", balance=50.0,
+                             issuer_code="F0500063.00", industry="财产与意外伤害保险", province="北京"),
+        field_mapping_verified=True,
+    )
+    frames = _service_input().detached_frames()
+    frames["调整实控人名单"] = pd.DataFrame([
+        {"主体wind代码": "F0500063", "调整后实际控制人": "阳光保险集团股份有限公司"},
+    ])
+    service = PretradeRiskService(store=FakeStore(make_kernel_input(frames)),
+                                  wind_provider=provider, kernel=ProjectionKernel())
+    resolution = service._resolver.resolve(make_kernel_input(frames), "2123016.IB")
+    assert resolution.master.controller_name == "阳光保险集团股份有限公司"
+    assert resolution.master.outstanding_balance_yi == 50.0
+    assert "HOLDER_CONTROLLER" not in DEFAULT_WIND_FIELDS.split(",")
+    quote = service.quote_single_bond("2123016.IB", "自营部交易性")
+    assert quote.status == "未超限"
+    assert quote.purchasable_pr_cap_wan == 100.0  # 测试内核额度，不是生产可购额度。
+    basket = service.check_basket([PretradeLine(1, "2123016.IB", "自营部交易性", 25)])
+    assert basket.status == "未超限"
+
+
 def test_same_issuer_basket_is_combined_by_kernel_not_page_sum(service) -> None:
     result = service.check_basket(
         [

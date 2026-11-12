@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from dataclasses import replace
 from math import isfinite, isnan
 from typing import Any, ContextManager
 
@@ -10,6 +11,7 @@ import pandas as pd
 
 from src.common.security_code_normalizer import normalize_security_code_series
 from src.risk_core import ProductionKernelInput
+from src.risk_core.position_context import build_credit_risk_context
 
 from .service_models import (
     BondMaster,
@@ -30,7 +32,6 @@ _MASTER_COLUMNS = {
     "main_security_name": ("主证券名称",),
     "issuer_name": ("债务主体",),
     "issuer_wind_code": ("债务主体wind代码",),
-    "controller_name": ("实际控制人名称", "实际控制人名称_修正"),
     "guarantor_name": ("担保人",),
     "guarantor_wind_code": ("担保人wind代码",),
     "outstanding_balance_yi": ("债券余额(亿)",),
@@ -63,7 +64,8 @@ class SnapshotBondMasterResolver:
         if not isinstance(inputs, ProductionKernelInput):
             raise TypeError("inputs 必须是 ProductionKernelInput")
 
-        frame = inputs.frames.get(_HELD_POSITION_DATASET)
+        frames = inputs.frames
+        frame = frames.get(_HELD_POSITION_DATASET)
         if frame is None or not isinstance(frame, pd.DataFrame):
             return _missing_snapshot("持仓快照缺少信用债原始持仓")
         available_code_columns = [column for column in _CODE_COLUMNS if column in frame]
@@ -78,14 +80,14 @@ class SnapshotBondMasterResolver:
             result = self._wind_provider.resolve(normalized_code, inputs.business_date)
             if result.master is None:
                 return result
-            missing = missing_required_bond_master_fields(result.master)
+            missing = missing_required_bond_master_fields(result.master, require_controller=False)
             if missing:
                 return MasterResolution(
                     MasterSource.MISSING_MASTER,
                     None,
                     f"Wind 主数据缺少必填字段: {', '.join(missing)}",
                 )
-            return result
+            return _with_snapshot_controller(result, frames.get("调整实控人名单"), frame)
         if "资产代码" in held_rows:
             exact_asset = (
                 normalize_security_code_series(held_rows["资产代码"])
@@ -93,7 +95,60 @@ class SnapshotBondMasterResolver:
             )
             if exact_asset.any():
                 held_rows = held_rows.loc[exact_asset].copy()
-        return _master_from_held_rows(normalized_code, held_rows)
+        return _with_snapshot_controller(
+            _master_from_held_rows(normalized_code, held_rows), frames.get("调整实控人名单"), held_rows
+        )
+
+
+def _with_snapshot_controller(
+    result: MasterResolution,
+    adjustments: pd.DataFrame | None,
+    positions: pd.DataFrame,
+) -> MasterResolution:
+    """仅为拟买行解析实控人，复用原有持仓修正规则，不改动日常输入。"""
+    master = result.master
+    if master is None or master.bond_classification == "利率债":
+        return result
+
+    # 持仓券使用本券底稿；非持仓券可继承同主体已在快照中的底稿修正值。
+    issuer_key = str(master.issuer_wind_code).strip().split(".")[0]
+    issuer_codes = positions.get(
+        "债务主体wind代码", pd.Series(None, index=positions.index, dtype=object)
+    )
+    matched = issuer_codes.astype(str).str.strip().str.split(".").str[0].eq(issuer_key)
+    columns = ["资产代码", "债务主体wind代码", "实际控制人名称", "实际控制人名称_修正"]
+    rows = positions.loc[matched].reindex(columns=columns).copy()
+    if rows.empty:
+        rows = pd.DataFrame([{
+            "资产代码": master.input_code,
+            "债务主体wind代码": master.issuer_wind_code,
+            "实际控制人名称": None,
+            "实际控制人名称_修正": None,
+        }])
+    rows["内部证券账户名称"] = ""
+    rows["库存数量(万)_PR"] = 0.0
+    frames = {
+        "债券持仓明细表_信用债": rows,
+        "穿透高收益债券": pd.DataFrame(columns=["债券代码", "类型"]),
+    }
+    if adjustments is not None and {"主体wind代码", "调整后实际控制人"}.issubset(adjustments.columns):
+        frames["调整实控人名单"] = adjustments
+    try:
+        context = build_credit_risk_context(frames)
+    except (KeyError, ValueError) as exc:
+        return replace(result, source=MasterSource.MISSING_SNAPSHOT, master=None,
+                       reason=f"试算实控人无法按持仓口径解析: {exc}")
+    names = _distinct_values(context["实际控制人名称_修正"].tolist())
+    if len(names) != 1:
+        reason = ("快照中同主体实控人存在冲突记录" if names else
+                  "快照调整实控人名单及持仓底稿均无可用实控人")
+        return replace(result, source=MasterSource.MISSING_SNAPSHOT, master=None, reason=reason)
+    master = replace(master, controller_name=_as_optional_text(names[0]))
+    missing = missing_required_bond_master_fields(master)
+    if missing:
+        return replace(result, source=MasterSource.MISSING_SNAPSHOT, master=None,
+                       reason=f"主数据缺少必填字段: {', '.join(missing)}")
+    return replace(result, master=master)
 
 
 def _master_from_held_rows(
@@ -101,9 +156,7 @@ def _master_from_held_rows(
 ) -> MasterResolution:
     values: dict[str, Any | None] = {}
     for attribute, candidates in _MASTER_COLUMNS.items():
-        # 候选列是生产口径的优先级链（例如实际控制人保留原字段，
-        # 仅在其缺失时回退“实际控制人名称_修正”），并非需相互一致的
-        # 多份同义数据。
+        # 候选列是生产口径的优先级链，并非需相互一致的多份同义数据。
         distinct: list[Any] = []
         for column in candidates:
             if column not in held_rows:
@@ -132,7 +185,7 @@ def _master_from_held_rows(
             bond_name=_as_required_text(values["bond_name"]),
             issuer_name=_as_required_text(values["issuer_name"]),
             issuer_wind_code=_as_optional_text(values["issuer_wind_code"]),
-            controller_name=_as_optional_text(values["controller_name"]),
+            controller_name=None,  # 由原有持仓修正规则解析后执行完整校验。
             guarantor_name=_as_optional_text(values["guarantor_name"]),
             guarantor_wind_code=_as_optional_text(values["guarantor_wind_code"]),
             outstanding_balance_yi=_as_optional_finite_float(
@@ -152,7 +205,7 @@ def _master_from_held_rows(
         )
     except (TypeError, ValueError) as exc:
         return _missing_snapshot(f"持仓快照主数据规范化失败: {exc}")
-    missing = missing_required_bond_master_fields(master)
+    missing = missing_required_bond_master_fields(master, require_controller=False)
     if missing:
         return _missing_snapshot(f"持仓快照主数据缺少必填字段: {', '.join(missing)}")
     return MasterResolution(MasterSource.SNAPSHOT, master, None)

@@ -172,7 +172,8 @@ def test_provider_constructs_source_shaped_master_for_ordinary_bond() -> None:
     assert result.master.outstanding_balance_yi == 100.0
     assert result.master.issuer_name == "更新债务主体"
     assert result.master.issuer_wind_code == "F0999999.00"
-    assert result.master.controller_name == "原始实控人"
+    assert result.master.controller_name is None
+    assert "HOLDER_CONTROLLER" not in DEFAULT_WIND_FIELDS.split(",")
     assert result.master.guarantor_name == "0"
     assert result.master.guarantor_wind_code is None
     assert result.master.bond_classification == "信用债"

@@ -37,7 +37,7 @@ from .wind_excel_master import ExcelWindMasterGateway
 
 
 DEFAULT_WIND_FIELDS = (
-    "SEC_NAME,ISIN_CODE,ISSUER,ISSUERUPDATED,HOLDER_CONTROLLER,"
+    "SEC_NAME,ISIN_CODE,ISSUER,ISSUERUPDATED,"
     "AGENCY_GUARANTOR,WINDL1TYPE,WINDL2TYPE,NATURE1,MUNICIPALBONDWIND"
 )
 _WINDPY_PATH_ENV = "LIMIT_MONITOR_WINDPY_PATH"
@@ -66,7 +66,6 @@ class _WindRawFields:
     isin_code: object
     issuer: str | None
     issuer_updated: str | None
-    controller_name: str | None
     guarantor_name: str
     bond_type: str
     bond_type2: str
@@ -186,12 +185,10 @@ class WindPyBondMasterProvider:
             # 生产共同内核在信用债位置标准化时剔除利率债；现有地方
             # 政府债的发行人类型/实控人仅为占位，不参与信用维度。
             issuer_type = None
-            controller_name = None
         else:
             if raw.nature1 is None:
                 return _missing("Wind 主数据缺少发行人类型原始值")
             issuer_type = derive_issuer_type(raw.nature1)
-            controller_name = raw.controller_name
         wind_industry = _source_text(initial.wind_industry)
         city_investment = raw.is_city_investment_bond
         bond_category = derive_bond_category(
@@ -208,7 +205,7 @@ class WindPyBondMasterProvider:
                 bond_name=raw.asset_name,
                 issuer_name=issuer_name,
                 issuer_wind_code=issuer_wind_code,
-                controller_name=controller_name,
+                controller_name=None,  # 试算入口从同一持仓快照解析，不向 Wind 取值。
                 guarantor_name=raw.guarantor_name,
                 guarantor_wind_code=_guarantor_code(
                     raw.guarantor_name, initial.guarantor_wind_code
@@ -226,7 +223,7 @@ class WindPyBondMasterProvider:
             )
         except (TypeError, ValueError) as exc:
             return _missing(f"Wind 主数据规范化失败: {exc}")
-        missing = missing_required_bond_master_fields(master)
+        missing = missing_required_bond_master_fields(master, require_controller=False)
         if missing:
             return _missing(f"Wind 主数据缺少必填字段: {', '.join(missing)}")
         return MasterResolution(
@@ -341,7 +338,6 @@ def _parse_raw_fields(record: Mapping[str, Any]) -> tuple[_WindRawFields | None,
             isin_code=record.get("ISIN_CODE"),
             issuer=_source_text(record.get("ISSUER")),
             issuer_updated=_source_text(record.get("ISSUERUPDATED")),
-            controller_name=_source_text(record.get("HOLDER_CONTROLLER")),
             guarantor_name=guarantor_name,
             bond_type=bond_type,
             bond_type2=bond_type2,

@@ -83,11 +83,16 @@ _RATE_BOND_OPTIONAL_MASTER_FIELDS = frozenset(
 )
 
 
-def missing_required_bond_master_fields(master: BondMaster) -> tuple[str, ...]:
+def missing_required_bond_master_fields(
+    master: BondMaster, *, require_controller: bool = True
+) -> tuple[str, ...]:
     """返回快照与 Wind 共同内核输入所缺的同一组最小必填字段。"""
 
     missing: list[str] = []
     for field in _REQUIRED_BOND_MASTER_FIELDS:
+        # 试算先读取其他主数据，再按原有持仓口径解析实控人并完整校验。
+        if field == "controller_name" and not require_controller:
+            continue
         if (
             master.bond_classification == "利率债"
             and field in _RATE_BOND_OPTIONAL_MASTER_FIELDS
