@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 import pytest
 
@@ -79,6 +81,16 @@ def test_daily_pipeline_uses_the_required_success_sequence(monkeypatch) -> None:
     ]
 
 
+def test_daily_pipeline_console_output_is_cp936_safe(monkeypatch) -> None:
+    _install_dependencies(monkeypatch)
+    output = io.BytesIO()
+    console = io.TextIOWrapper(output, encoding="cp936", errors="strict")
+    monkeypatch.setattr(sys, "stdout", console)
+
+    assert daily.main(["--archive-date", "2026-07-15"]) == 0
+    console.flush()
+
+
 def test_archive_failure_does_not_publish_pretrade_pointer(monkeypatch) -> None:
     calls = _install_dependencies(monkeypatch, archive_error=RuntimeError("archive"))
 
@@ -115,8 +127,12 @@ def test_display_failure_keeps_published_data_and_returns_nonzero(monkeypatch) -
     (RuntimeError('Wind unavailable'), None, 3),
     ('READY', RuntimeError('display failed'), 2),
 ])
-def test_scitech_runs_after_core_publication_and_cannot_undo_it(monkeypatch, module_status, display_error, expected):
+@pytest.mark.parametrize('console_encoding', ['utf-8', 'cp936'])
+def test_scitech_runs_after_core_publication_and_cannot_undo_it(monkeypatch, module_status, display_error, expected, console_encoding):
     from src.scitech import service
+    output = io.BytesIO()
+    console = io.TextIOWrapper(output, encoding=console_encoding, errors='strict')
+    monkeypatch.setattr(sys, 'stdout', console)
     calls = _install_dependencies(monkeypatch, display_error=display_error)
     config = SimpleNamespace(get_data_dir=lambda: Path('/tmp/source'), get=lambda k, default: True)
     monkeypatch.setattr(daily, 'get_config', lambda: config)
@@ -136,6 +152,8 @@ def test_scitech_runs_after_core_publication_and_cannot_undo_it(monkeypatch, mod
     monkeypatch.setattr(service, 'run_extension', extension)
     assert daily.main(['--archive-date', '2026-07-15']) == expected
     assert calls == ['validate', 'runtime', 'build', 'archive', 'publish_current', 'display', 'scitech']
+    console.flush()
+    assert '科创监控' in output.getvalue().decode(console_encoding)
 
 
 def test_new_module_import_failure_does_not_prevent_core_publication(monkeypatch):

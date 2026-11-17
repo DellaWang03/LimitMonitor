@@ -205,7 +205,7 @@ def business_line_audit_frame(
     rows = []
     for item in audits:
         source = _business_source(item.master_source)
-        data_date = (
+        balance_data_date = (
             snapshot_data_date
             if item.master_source is not None
             and item.master_source.value == "SNAPSHOT"
@@ -216,13 +216,27 @@ def business_line_audit_frame(
                 "输入行": item.line_id,
                 "主数据状态": item.master_status,
                 "数据来源": source,
-                "数据日期": data_date,
+                "限额快照日期": snapshot_data_date,
+                "余额数据日期": balance_data_date,
+                "Wind 获取时间": (
+                    item.wind_fetched_at.isoformat(sep=" ", timespec="seconds")
+                    if item.wind_fetched_at is not None
+                    else "—"
+                ),
                 "说明": _business_reason(item.uncomputable_reason),
             }
         )
     return pd.DataFrame(
         rows,
-        columns=("输入行", "主数据状态", "数据来源", "数据日期", "说明"),
+        columns=(
+            "输入行",
+            "主数据状态",
+            "数据来源",
+            "限额快照日期",
+            "余额数据日期",
+            "Wind 获取时间",
+            "说明",
+        ),
     )
 
 

@@ -37,18 +37,23 @@ from src.visualization.pretrade_service import get_pretrade_risk_service
 
 _DEFAULT_ACCOUNT = "自营部交易性"
 _INPUT_COLUMNS = ("债券代码", "拟买金额(万)_PR", "拟买入账户", "拟买全价成本(万)")
-_PAGE10_INPUT_INVALID_MESSAGE = (
-    "录入内容未确认或格式不正确。请按 Enter 确认最后编辑的单元格，并检查债券代码、金额和账户。"
+_EDITOR_CONFIRMATION_MESSAGE = (
+    "金额单位为万元；高收益债需填写全价成本。"
+    "完成最后一个单元格录入后，请按 Enter 确认，再点击「计算组合结果」。"
+)
+_BASKET_INPUT_INVALID_MESSAGE = (
+    "录入内容未确认或格式不正确。请按 Enter 确认最后编辑的单元格，"
+    "并检查债券代码、金额和账户后重新提交。"
 )
 
 
-def _empty_basket() -> pd.DataFrame:
+def _empty_basket(default_account: str = _DEFAULT_ACCOUNT) -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
                 "债券代码": "",
                 "拟买金额(万)_PR": "",
-                "拟买入账户": _DEFAULT_ACCOUNT,
+                "拟买入账户": default_account,
                 "拟买全价成本(万)": "",
             }
         ],
@@ -75,31 +80,39 @@ def _input_overview(frame: pd.DataFrame) -> tuple[int, float]:
 
 
 def _account_column_config(accounts: list[str]) -> Any:
-    """账户列可选时限定为真实账户，取数失败时回落为自由文本，不阻断主流程。"""
+    """账户列只允许选择交易前 current 快照中的真实账户。"""
 
-    if accounts:
-        return st.column_config.SelectboxColumn(
-            "拟买账户",
-            width="medium",
-            options=accounts,
-            default=_DEFAULT_ACCOUNT,
-            help="仅可选择当前快照中实际存在的账户，避免账户名录入错误",
-        )
-    return st.column_config.TextColumn("拟买账户", width="medium")
+    if not accounts:
+        raise ValueError("交易前快照没有可用账户")
+    default = _DEFAULT_ACCOUNT if _DEFAULT_ACCOUNT in accounts else accounts[0]
+    return st.column_config.SelectboxColumn(
+        "拟买账户",
+        width="medium",
+        options=accounts,
+        default=default,
+        help="仅可选择当前交易前快照中实际存在的账户",
+    )
 
 
-def _render_basket_editor(accounts: list[str]) -> pd.DataFrame:
-    """渲染交易清单编辑器；结果态可由外层折叠以优先展示结论。
+def _render_basket_editor(
+    accounts: list[str], *, initial_frame: pd.DataFrame | None = None
+) -> pd.DataFrame:
+    """渲染交易清单编辑器；结果态不调用本函数。
 
     高度必须保持常量：Streamlit 会把 height 计入 data_editor 的组件 ID，
     一旦按录入行数动态调整，用户每新增一行都会让组件换新 ID 并丢失已录内容。
     """
 
     with st.container(key="page10_pretrade_editor_shell"):
-        st.caption("金额单位为万元；高收益债需填写全价成本。")
-        st.caption("完成最后一个单元格录入后，请按 Enter 确认，再点击「计算组合结果」。")
+        st.caption(_EDITOR_CONFIRMATION_MESSAGE)
+        default_account = _DEFAULT_ACCOUNT if _DEFAULT_ACCOUNT in accounts else accounts[0]
+        source = (
+            initial_frame.copy(deep=True)
+            if initial_frame is not None
+            else _empty_basket(default_account)
+        )
         return st.data_editor(
-            _empty_basket(),
+            source,
             key="page10_pretrade_lines",
             hide_index=True,
             num_rows="dynamic",
@@ -300,53 +313,101 @@ def render(filters: dict[str, Any], data_loader: Any) -> None:
         st.info("交易前试算仅支持已发布的最新交易前快照；请在侧边栏切换到「最新数据」。")
         return
 
-    accounts = account_options(data_loader, default_account=_DEFAULT_ACCOUNT)
-
-    if st.session_state.get("page10_pretrade_result") is None:
-        st.markdown("#### 交易清单")
-        edited = _render_basket_editor(accounts)
-    else:
-        with st.expander("交易清单（已提交，可展开修改）", expanded=False):
-            edited = _render_basket_editor(accounts)
-    input_count, input_total = _input_overview(edited)
-    render_pretrade_input_summary(
-        ("已录入", f"{input_count} 笔交易"),
-        ("拟买金额合计", f"{input_total:,.2f} 万元"),
-    )
-
-    _spacer, calculate, clear = st.columns([5.4, 1.6, 1])
-    with calculate:
-        calculate_clicked = st.button(
-            "计算组合结果",
-            type="primary",
-            width="stretch",
-            key="page10_pretrade_calculate",
+    result = st.session_state.get("page10_pretrade_result")
+    if result is not None:
+        submitted_frame = st.session_state.get(
+            "page10_pretrade_submitted_lines",
+            _empty_basket(),
         )
-    with clear:
-        if st.button(
-            "清空",
-            type="secondary",
-            width="stretch",
-            key="page10_pretrade_clear",
-        ):
-            st.session_state.pop("page10_pretrade_lines", None)
-            st.session_state.pop("page10_pretrade_result", None)
-            st.session_state.pop("page10_pretrade_submitted_lines", None)
-            st.rerun()
+        input_count, input_total = _input_overview(submitted_frame)
+        render_pretrade_input_summary(
+            ("已提交", f"{input_count} 笔交易"),
+            ("拟买金额合计", f"{input_total:,.2f} 万元"),
+        )
+        _spacer, modify, clear = st.columns([5.4, 1.6, 1])
+        with modify:
+            if st.button(
+                "修改交易清单",
+                type="primary",
+                width="stretch",
+                key="page10_pretrade_modify",
+            ):
+                st.session_state.pop("page10_pretrade_result", None)
+                st.rerun()
+        with clear:
+            if st.button(
+                "清空",
+                type="secondary",
+                width="stretch",
+                key="page10_pretrade_result_clear",
+            ):
+                st.session_state.pop("page10_pretrade_lines", None)
+                st.session_state.pop("page10_pretrade_result", None)
+                st.session_state.pop("page10_pretrade_submitted_lines", None)
+                st.rerun()
+        render_vertical_space(8)
+        _render_result(result, submitted_frame=submitted_frame)
+        return
+
+    try:
+        service = get_pretrade_risk_service()
+        accounts = account_options(service, default_account=_DEFAULT_ACCOUNT)
+    except PretradeServiceError:
+        st.error(SNAPSHOT_UNAVAILABLE_MESSAGE)
+        return
+
+    st.markdown("#### 交易清单")
+    with st.form(
+        key="page10_pretrade_form",
+        enter_to_submit=False,
+        border=False,
+    ):
+        edited = _render_basket_editor(
+            accounts,
+            initial_frame=st.session_state.get("page10_pretrade_submitted_lines"),
+        )
+        input_count, input_total = _input_overview(edited)
+        render_pretrade_input_summary(
+            ("已录入", f"{input_count} 笔交易"),
+            ("拟买金额合计", f"{input_total:,.2f} 万元"),
+        )
+
+        _spacer, calculate, clear = st.columns([5.4, 1.6, 1])
+        with calculate:
+            calculate_clicked = st.form_submit_button(
+                "计算组合结果",
+                type="primary",
+                width="stretch",
+                key="page10_pretrade_calculate",
+            )
+        with clear:
+            clear_clicked = st.form_submit_button(
+                "清空",
+                type="secondary",
+                width="stretch",
+                key="page10_pretrade_clear",
+            )
+
+    if clear_clicked:
+        st.session_state.pop("page10_pretrade_lines", None)
+        st.session_state.pop("page10_pretrade_result", None)
+        st.session_state.pop("page10_pretrade_submitted_lines", None)
+        st.rerun()
 
     if calculate_clicked:
         try:
             lines = basket_lines_from_frame(edited)
             with st.spinner("正在读取限额快照并计算风险，请稍候"):
-                result = get_pretrade_risk_service().check_basket(lines)
+                result = service.check_basket(lines)
         except PretradeServiceError:
             st.session_state.pop("page10_pretrade_result", None)
             st.session_state.pop("page10_pretrade_submitted_lines", None)
             st.error(SNAPSHOT_UNAVAILABLE_MESSAGE)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as exc:
+            del exc
             st.session_state.pop("page10_pretrade_result", None)
             st.session_state.pop("page10_pretrade_submitted_lines", None)
-            st.error(_PAGE10_INPUT_INVALID_MESSAGE)
+            st.error(_BASKET_INPUT_INVALID_MESSAGE)
         except Exception:
             st.session_state.pop("page10_pretrade_result", None)
             st.session_state.pop("page10_pretrade_submitted_lines", None)
@@ -358,14 +419,4 @@ def render(filters: dict[str, Any], data_loader: Any) -> None:
             )
             st.rerun()
 
-    result = st.session_state.get("page10_pretrade_result")
-    if result is None:
-        st.info("录入至少一笔拟买交易后，点击「计算组合结果」。")
-        return
-    submitted_frame = st.session_state.get(
-        "page10_pretrade_submitted_lines",
-        edited,
-    )
-
-    render_vertical_space(8)
-    _render_result(result, submitted_frame=submitted_frame)
+    st.info("录入至少一笔拟买交易后，点击「计算组合结果」。")

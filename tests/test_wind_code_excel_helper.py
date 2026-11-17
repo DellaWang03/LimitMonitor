@@ -4,6 +4,7 @@ import sys
 import threading
 import time
 
+import pandas as pd
 import pytest
 
 from src.common.wind_code_excel_helper import WindCodeExcelHelper
@@ -20,6 +21,7 @@ class _FakeRange:
     def __init__(self, *, stop_after_formula: bool = False, values=None) -> None:
         self.stop_after_formula = stop_after_formula
         self.values = values
+        self.read_count = 0
         self.resize_args: tuple[int, int] | None = None
         self.formula_value = None
         self.written_value = None
@@ -43,6 +45,7 @@ class _FakeRange:
 
     @property
     def value(self):
+        self.read_count += 1
         return self.values
 
     @value.setter
@@ -160,6 +163,44 @@ def test_wind_code_helper_uses_macos_automation_by_default(
     assert result.to_dict(orient="list") == expected
 
 
+def test_wind_code_helper_uses_staged_result_in_frozen_candidate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    pd.DataFrame(
+        {"发行人名称": ["甲公司"], "Wind代码": ["0"]}
+    ).to_excel(tmp_path / "wind_codes_result.xlsx", index=False)
+    helper = WindCodeExcelHelper(temp_dir=tmp_path)
+    helper.system = "Darwin"
+    monkeypatch.setenv("LIMIT_MONITOR_FROZEN_WIND_RESULT", "1")
+    monkeypatch.setenv("ENV", "test")
+    monkeypatch.setenv("LIMIT_MONITOR_PROFILE", "local")
+    monkeypatch.setattr(
+        helper,
+        "_get_via_macos_excel",
+        lambda _issuers: (_ for _ in ()).throw(
+            AssertionError("冻结候选不得启动 Excel")
+        ),
+    )
+
+    result = helper.batch_get_wind_codes(["甲公司"])
+
+    assert result.to_dict("records") == [
+        {"发行人名称": "甲公司", "Wind代码": 0}
+    ]
+
+
+def test_staged_wind_result_is_rejected_outside_test_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    helper = WindCodeExcelHelper(temp_dir=tmp_path)
+    monkeypatch.setenv("LIMIT_MONITOR_FROZEN_WIND_RESULT", "1")
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.setenv("LIMIT_MONITOR_PROFILE", "windows")
+
+    with pytest.raises(RuntimeError, match="仅允许测试环境"):
+        helper.batch_get_wind_codes(["甲公司"])
+
+
 def test_master_formula_evaluator_uses_hidden_windows_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -177,6 +218,94 @@ def test_master_formula_evaluator_uses_hidden_windows_session(
         ["=b_issuer_windindustry(\"X.IB\",4)"],
     ]
     assert result == {"main_security_code": "主证券", "industry": "行业"}
+
+
+def test_master_formula_evaluator_waits_for_windows_wind_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_xlwings = _FakeXlwings(values=["Fetching...", "Fetching..."])
+    monkeypatch.setitem(sys.modules, "xlwings", fake_xlwings)
+    monkeypatch.setattr(wind_excel_master.platform, "system", lambda: "Windows")
+
+    def finish_wind_calculation(_seconds: float) -> None:
+        fake_xlwings.sheet.ranges["A1"].values = ["2180399.IB", "公用事业"]
+
+    monkeypatch.setattr(time, "sleep", finish_wind_calculation)
+
+    result = XlwingsFormulaEvaluator().evaluate(
+        {
+            "main_security_code": '=b_info_anchorbond("1980083.IB")',
+            "industry": '=b_issuer_windindustry("1980083.IB",4)',
+        }
+    )
+
+    assert result == {
+        "main_security_code": "2180399.IB",
+        "industry": "公用事业",
+    }
+
+
+def test_master_formula_evaluator_returns_when_windows_results_are_stable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """已完成的 Wind 公式应在短轮询后返回，不能仍固定等待五秒。"""
+
+    fake_xlwings = _FakeXlwings(values=["2180399.IB", "公用事业"])
+    sleeps: list[float] = []
+    monkeypatch.setitem(sys.modules, "xlwings", fake_xlwings)
+    monkeypatch.setattr(wind_excel_master.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(
+        wind_excel_master.time, "sleep", lambda seconds: sleeps.append(seconds)
+    )
+
+    result = XlwingsFormulaEvaluator().evaluate(
+        {
+            "main_security_code": '=b_info_anchorbond("1980083.IB")',
+            "industry": '=b_issuer_windindustry("1980083.IB",4)',
+        }
+    )
+
+    target = fake_xlwings.sheet.ranges["A1"]
+    assert result == {
+        "main_security_code": "2180399.IB",
+        "industry": "公用事业",
+    }
+    assert target.read_count == 2
+    assert 0 < sum(sleeps) < 1
+
+
+def test_master_formula_evaluator_times_out_on_pending_windows_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Wind 持续 Fetching 时必须有界失败，并照常关闭工作簿和 Excel。"""
+
+    fake_xlwings = _FakeXlwings(values=["Fetching...", "Fetching..."])
+    now = [0.0]
+    monkeypatch.setitem(sys.modules, "xlwings", fake_xlwings)
+    monkeypatch.setattr(wind_excel_master.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(wind_excel_master.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        wind_excel_master.time,
+        "sleep",
+        lambda seconds: now.__setitem__(0, now[0] + seconds),
+    )
+    monkeypatch.setattr(
+        wind_excel_master,
+        "_windows_formula_timeout_seconds",
+        lambda _formula_count: 0.5,
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="Wind Excel 公式.*未返回完整结果"):
+        XlwingsFormulaEvaluator().evaluate(
+            {
+                "main_security_code": '=b_info_anchorbond("1980083.IB")',
+                "industry": '=b_issuer_windindustry("1980083.IB",4)',
+            }
+        )
+
+    assert fake_xlwings.book.closed is True
+    assert fake_xlwings.apps[0].quit_called is True
 
 
 def test_master_formula_evaluator_uses_macos_runner(

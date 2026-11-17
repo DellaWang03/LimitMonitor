@@ -233,7 +233,12 @@ def render(filters: dict[str, Any], data_loader: Any) -> None:
         st.info("交易前试算仅支持已发布的最新交易前快照；请在侧边栏切换到「最新数据」。")
         return
 
-    accounts = account_options(data_loader, default_account=_DEFAULT_ACCOUNT)
+    try:
+        service = get_pretrade_risk_service()
+        accounts = account_options(service, default_account=_DEFAULT_ACCOUNT)
+    except PretradeServiceError:
+        st.error(SNAPSHOT_UNAVAILABLE_MESSAGE)
+        return
 
     st.markdown("#### 查询条件")
     with st.form(
@@ -252,19 +257,12 @@ def render(filters: dict[str, Any], data_loader: Any) -> None:
                 key="page8_pretrade_bond_code",
             )
         with account_column:
-            if accounts:
-                account = st.selectbox(
-                    "拟买账户",
-                    accounts,
-                    key="page8_pretrade_account",
-                    help="仅可选择当前快照中实际存在的账户，避免账户名录入错误",
-                )
-            else:
-                account = st.text_input(
-                    "拟买账户",
-                    value=_DEFAULT_ACCOUNT,
-                    key="page8_pretrade_account",
-                )
+            account = st.selectbox(
+                "拟买账户",
+                accounts,
+                key="page8_pretrade_account",
+                help="仅可选择当前交易前快照中实际存在的账户",
+            )
         with button_column:
             submitted = st.form_submit_button(
                 "查询可购额度",
@@ -275,7 +273,7 @@ def render(filters: dict[str, Any], data_loader: Any) -> None:
     if submitted:
         try:
             with st.spinner("正在读取限额快照并计算风险，请稍候"):
-                quote = get_pretrade_risk_service().quote_single_bond(
+                quote = service.quote_single_bond(
                     bond_code,
                     account,
                 )

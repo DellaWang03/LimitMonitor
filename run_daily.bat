@@ -6,6 +6,8 @@ cd /d "%~dp0"
 set PROJECT_ROOT=%cd%
 set LIMIT_MONITOR_PROFILE=windows
 set LIMIT_MONITOR_ENV=production
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
 if exist "config\local_env.bat" call "config\local_env.bat"
 
 if exist ".venv\Scripts\python.exe" (
@@ -28,14 +30,12 @@ for %%V in (DB_HOST DB_PORT DB_USER DB_PASSWORD DB_NAME) do (
     )
 )
 
-for /f "tokens=1-3 delims=/ " %%a in ('date /t') do set TODAY=%%a-%%b-%%c
-
 echo =========================================
 echo 限额监控系统 - 每日数据更新
 echo 运行模式: %LIMIT_MONITOR_ENV%
 echo =========================================
 
-%PYTHON_BIN% scripts\run_daily_pipeline.py --archive-date %TODAY%
+%PYTHON_BIN% scripts\run_daily_pipeline.py
 set PIPELINE_STATUS=%ERRORLEVEL%
 if "%PIPELINE_STATUS%"=="3" (
     echo 警告: 既有数据已发布；科创监控存在失败或待核实记录
@@ -46,8 +46,8 @@ if "%PIPELINE_STATUS%"=="2" (
     exit /b 2
 )
 if not "%PIPELINE_STATUS%"=="0" (
-    echo ❌ 每日生产编排失败
+    echo [ERROR] 每日生产编排失败
     exit /b %PIPELINE_STATUS%
 )
 
-echo ✅ 每日生产编排完成
+echo [OK] 每日生产编排完成

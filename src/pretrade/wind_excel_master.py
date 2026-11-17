@@ -8,6 +8,7 @@ import csv
 from dataclasses import dataclass
 import platform
 import re
+import time
 from typing import Any, ContextManager, Mapping, Protocol
 
 import pandas as pd
@@ -20,6 +21,7 @@ _PROVINCE_OVERRIDES = {
     "292480007.IB": "海外",
     "102582786.IB": "海外",
 }
+_WINDOWS_FORMULA_POLL_INTERVAL_SECONDS = 0.5
 
 
 class FormulaEvaluator(Protocol):
@@ -137,7 +139,7 @@ class XlwingsFormulaEvaluator:
         app = None
         book = None
         try:  # pragma: no cover - 需 Windows Excel + Wind 的集成验证
-            # 保持 Windows 已验证的生产行为不变。
+            # 保留 Windows 已验证的隐藏 Excel 短生命周期方式。
             app = xw.App(visible=False, add_book=False)
             app.display_alerts = False
             book = app.books.add()
@@ -145,15 +147,70 @@ class XlwingsFormulaEvaluator:
             target = sheet.range("A1").resize(len(formulas), 1)
             target.formula = [[formula] for formula in formulas.values()]
             app.calculate()
-            raw_values = target.value
-            if len(formulas) == 1:
-                raw_values = [raw_values]
+            raw_values = _wait_for_windows_formula_values(target, len(formulas))
             return dict(zip(formulas, raw_values, strict=True))
         finally:
             if book is not None:
                 book.close()
             if app is not None:
                 app.quit()
+
+
+def _wait_for_windows_formula_values(target: Any, formula_count: int) -> list[Any]:
+    """轮询异步 Wind 公式；结果稳定即返回，超时则失败关闭。"""
+
+    timeout = _windows_formula_timeout_seconds(formula_count)
+    deadline = time.monotonic() + timeout
+    last_complete: tuple[str, ...] | None = None
+    while True:
+        raw_values = target.value
+        values = _formula_values(raw_values, formula_count)
+        if len(values) == formula_count and all(
+            _is_complete_windows_wind_value(value) for value in values
+        ):
+            signature = tuple(str(value).strip() for value in values)
+            if signature == last_complete:
+                return values
+            last_complete = signature
+        else:
+            last_complete = None
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError(
+                f"Wind Excel 公式在 {timeout:g} 秒内未返回完整结果"
+            )
+        time.sleep(min(_WINDOWS_FORMULA_POLL_INTERVAL_SECONDS, remaining))
+
+
+def _windows_formula_timeout_seconds(formula_count: int) -> float:
+    """保留既有 5～30 秒等待上限，仅把固定休眠改为提前返回。"""
+
+    return float(min(5 + formula_count // 100, 30))
+
+
+def _formula_values(raw_values: Any, formula_count: int) -> list[Any]:
+    if formula_count == 1:
+        return [raw_values]
+    if isinstance(raw_values, (list, tuple)):
+        return list(raw_values)
+    return []
+
+
+def _is_complete_windows_wind_value(value: Any) -> bool:
+    source = _source_value(value)
+    if source is None:
+        return False
+    normalized = str(source).casefold().replace(" ", "")
+    pending_markers = (
+        "fetching",
+        "requestingdata",
+        "loading",
+        "正在计算",
+        "正在请求",
+        "数据获取中",
+    )
+    return not any(marker in normalized for marker in pending_markers)
 
 
 def _formula(function_name: str, *arguments: object) -> str:

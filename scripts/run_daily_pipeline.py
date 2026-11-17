@@ -46,7 +46,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         datetime.strptime(args.archive_date, "%Y-%m-%d")
     except ValueError:
-        print(f"❌ archive_date 必须为 YYYY-MM-DD，收到: {args.archive_date!r}")
+        print(f"[ERROR] archive_date 必须为 YYYY-MM-DD，收到: {args.archive_date!r}")
         return 1
 
     try:
@@ -79,23 +79,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         archive_status = (archive_to_db(args.archive_date, receipt=receipt) if scitech_enabled
                           else archive_to_db(args.archive_date))
         if archive_status != 0:
-            print("❌ 既有归档返回失败状态；交易前 current 指针未发布。")
+            print("[ERROR] 既有归档返回失败状态；交易前 current 指针未发布。")
             return 1
         store.publish_current(snapshot_id)
     except Exception as exc:
-        print(f"❌ 日常生产编排失败：{type(exc).__name__}: {exc}")
+        print(f"[ERROR] 日常生产编排失败：{type(exc).__name__}: {exc}")
         return 1
 
     display_failed = False
     try:
         write_display_snapshots(CURRENT_DIR / "display_snapshots")
     except Exception as exc:
-        print(f"⚠️  展示快照生成失败；归档与交易前 current 已成功：{type(exc).__name__}: {exc}")
+        print(f"[WARN]  展示快照生成失败；归档与交易前 current 已成功：{type(exc).__name__}: {exc}")
         display_failed = True
 
     scitech_failed = scitech_config_error is not None
     if scitech_config_error:
-        print(f'⚠️ 科创配置无效，本次未执行科创分支：{scitech_config_error}')
+        print(f'[WARN] 科创配置无效，本次未执行科创分支：{scitech_config_error}')
     if scitech_enabled:
         try:
             from src.scitech.service import run_extension
@@ -104,14 +104,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"科创监控：{outcome}")
         except Exception as exc:
             scitech_failed = True
-            print(f"⚠️ 科创监控失败，既有结果保持已发布：{type(exc).__name__}: {exc}")
+            print(f"[WARN] 科创监控失败，既有结果保持已发布：{type(exc).__name__}: {exc}")
     if display_failed:
         return 2
     if scitech_failed:
-        print("⚠️ 既有归档与交易前 current 已成功，科创模块未完整完成。")
+        print("[WARN] 既有归档与交易前 current 已成功，科创模块未完整完成。")
         return 3
 
-    print("✅ 日常生产编排完成：既有归档与交易前 current 已发布。")
+    print("[OK] 日常生产编排完成：既有归档与交易前 current 已发布。")
     return 0
 
 

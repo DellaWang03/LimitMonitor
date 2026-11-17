@@ -64,6 +64,9 @@ def test_source_diff_accepts_only_planned_kernel_and_runtime_paths() -> None:
             ("M", "src/stage1/stage1_processor.py"),
             ("M", "src/stage1/stage1_limit_detail.py"),
             ("M", "src/stage2/stage2_processor.py"),
+            ("M", "src/stage0/stage0_processor.py"),
+            ("M", "src/common/macos_wind_excel.py"),
+            ("M", "src/common/wind_code_excel_helper.py"),
         )
     )
 
@@ -72,7 +75,10 @@ def test_source_diff_accepts_only_planned_kernel_and_runtime_paths() -> None:
         "src/common/access_reader.py",
         "src/common/financial_tool_pool.py",
         "src/common/financial_tool_pool_rules.py",
+        "src/common/macos_wind_excel.py",
+        "src/common/wind_code_excel_helper.py",
         "src/risk_core/kernel.py",
+        "src/stage0/stage0_processor.py",
         "src/stage1/stage1_limit_detail.py",
         "src/stage1/stage1_processor.py",
         "src/stage2/stage2_processor.py",
@@ -82,7 +88,6 @@ def test_source_diff_accepts_only_planned_kernel_and_runtime_paths() -> None:
 @pytest.mark.parametrize(
     "entry",
     [
-        ("M", "src/stage0/stage0_processor.py"),
         ("M", "src/common/business_rules.py"),
         ("M", "src/utils/config_loader.py"),
         ("M", "config/settings.yaml"),
@@ -96,6 +101,14 @@ def test_source_diff_rejects_every_path_or_status_outside_plan(
 ) -> None:
     with pytest.raises(UnsafeTestEnvironment, match="允许范围"):
         runner._validate_source_diff_entries((entry,))
+
+
+def test_candidate_child_environment_forces_staged_wind_results(tmp_path: Path) -> None:
+    environment = runner._candidate_child_environment(
+        runner.PipelinePaths.create(tmp_path)
+    )
+
+    assert environment["LIMIT_MONITOR_FROZEN_WIND_RESULT"] == "1"
 
 
 def test_pipeline_result_requires_exact_stage_order_and_counts(tmp_path: Path) -> None:

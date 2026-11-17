@@ -28,5 +28,14 @@ def test_daily_windows_wrapper_has_only_one_pipeline_entrypoint() -> None:
     assert "run_stage2.py" not in content
     assert "scripts\\daily_archive.py" not in content
     assert "scripts\\generate_display_snapshot.py" not in content
+    assert "date /t" not in content
+    assert "--archive-date" not in content
+    assert "PYTHONUTF8=1" in content
+    assert "PYTHONIOENCODING=utf-8" in content
+    assert "set PIPELINE_STATUS=%ERRORLEVEL%" in content
+    for code in (2, 3):
+        assert f'if "%PIPELINE_STATUS%"=="{code}" (' in content
+        assert f"exit /b {code}" in content
+    content.encode("cp936")
     for variable in ("DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME"):
         assert variable in content

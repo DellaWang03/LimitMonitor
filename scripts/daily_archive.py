@@ -202,8 +202,8 @@ def archive_to_db(archive_date: str, *, receipt: Optional[dict] = None) -> int:
 
     任一步失败：异常向上抛；若失败发生在第 6 步，数据事务整体回滚。
     """
-    print("📦 开始每日归档（DB 单点写入）...")
-    print(f"📅 archive_date: {archive_date}")
+    print("[ARCHIVE] 开始每日归档（DB 单点写入）...")
+    print(f"[DATE] archive_date: {archive_date}")
     print("=" * 70)
 
     if not CURRENT_DIR.exists():
@@ -246,7 +246,7 @@ def archive_to_db(archive_date: str, *, receipt: Optional[dict] = None) -> int:
     )
 
     print("\n" + "=" * 70)
-    print("✅ 归档完成（已切 is_current=1）")
+    print("[OK] 归档完成（已切 is_current=1）")
     print(f"   archive_date : {archive_date}")
     print(f"   data_date    : {data_date}")
     print(f"   tables       : {len(stage_tables)} 张（4 stage0 + 12 业务）")
@@ -272,17 +272,17 @@ def main() -> int:
     try:
         datetime.strptime(archive_date, "%Y-%m-%d")
     except ValueError:
-        print(f"❌ archive_date 必须为 'YYYY-MM-DD' 格式，收到: {archive_date!r}")
+        print(f"[ERROR] archive_date 必须为 'YYYY-MM-DD' 格式，收到: {archive_date!r}")
         return 1
 
     try:
         return archive_to_db(archive_date)
     except FileNotFoundError as e:
-        print(f"\n❌ 归档失败（产物缺失）: {e}")
+        print(f"\n[ERROR] 归档失败（产物缺失）: {e}")
         return 1
     except Exception as e:
         print(
-            "\n❌ 归档失败：数据快照未提交。"
+            "\n[ERROR] 归档失败：数据快照未提交。"
             "若失败发生在 schema 预同步阶段，可能仅留下建表/补列结果。"
         )
         print(f"   详细错误: {e}")

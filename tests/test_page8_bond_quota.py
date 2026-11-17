@@ -4,6 +4,7 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
+from src.pretrade.pretrade_service import PretradeServiceError
 from src.visualization.pages import page8_bond_quota
 
 
@@ -88,3 +89,19 @@ def test_page8_historical_mode_does_not_call_current_pretrade_service(monkeypatc
     page8_bond_quota.render({}, SimpleNamespace(target_date=date(2026, 7, 10)))
 
     assert messages == ["交易前试算仅支持已发布的最新交易前快照；请在侧边栏切换到「最新数据」。"]
+
+
+def test_page8_handles_service_factory_failure_as_snapshot_unavailable(monkeypatch) -> None:
+    messages: list[str] = []
+    monkeypatch.setattr(page8_bond_quota, "st", SimpleNamespace(error=messages.append))
+    monkeypatch.setattr(page8_bond_quota, "inject_pretrade_ui_css", lambda: None)
+    monkeypatch.setattr(page8_bond_quota, "_render_title", lambda: None)
+    monkeypatch.setattr(
+        page8_bond_quota,
+        "get_pretrade_risk_service",
+        lambda: (_ for _ in ()).throw(PretradeServiceError("missing db")),
+    )
+
+    page8_bond_quota.render({}, SimpleNamespace(target_date=None))
+
+    assert messages == [page8_bond_quota.SNAPSHOT_UNAVAILABLE_MESSAGE]
