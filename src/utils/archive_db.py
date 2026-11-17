@@ -258,6 +258,7 @@ class ArchiveDB:
         alert_warning_threshold: float,
         alert_overlimit_threshold: float,
         high_yield_annual_limit_wan: float,
+        receipt: Optional[dict] = None,
     ) -> None:
         """
         在 schema 已预同步的前提下，单事务完成：
@@ -340,6 +341,15 @@ class ArchiveDB:
                             ),
                         },
                     )
+                    # 在同一事务、同一日期锁内取得本次版本，避免事后误认其他批次。
+                    if receipt is not None:
+                        captured_at = conn.execute(text(
+                            'SELECT captured_at FROM archive_meta WHERE data_date = :data_date'
+                        ), {'data_date': data_date}).scalar()
+                if receipt is not None:
+                    receipt.update(data_date=data_date, parent_version=(
+                        captured_at.isoformat() if hasattr(captured_at, 'isoformat') else str(captured_at)
+                    ))
             finally:
                 self._release_data_date_lock(conn, lock_name)
 

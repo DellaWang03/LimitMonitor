@@ -36,9 +36,18 @@ echo 运行模式: %LIMIT_MONITOR_ENV%
 echo =========================================
 
 %PYTHON_BIN% scripts\run_daily_pipeline.py --archive-date %TODAY%
-if errorlevel 1 (
+set PIPELINE_STATUS=%ERRORLEVEL%
+if "%PIPELINE_STATUS%"=="3" (
+    echo 警告: 既有数据已发布；科创监控存在失败或待核实记录
+    exit /b 3
+)
+if "%PIPELINE_STATUS%"=="2" (
+    echo 警告: 既有数据已发布；展示快照生成失败，请同时检查科创分支日志
+    exit /b 2
+)
+if not "%PIPELINE_STATUS%"=="0" (
     echo ❌ 每日生产编排失败
-    exit /b 1
+    exit /b %PIPELINE_STATUS%
 )
 
 echo ✅ 每日生产编排完成

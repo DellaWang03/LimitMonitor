@@ -65,7 +65,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         store.prepare_schema()
         snapshot_id = build_ready_context(runtime, store)
 
-        if archive_to_db(args.archive_date) != 0:
+        # 旧入口/调用者仍可不传回执；科创分支只绑定本次事务实际发布的版本。
+        scitech_config_error = None
+        try:
+            getter = getattr(config, 'get', None)
+            scitech_enabled = getter('scitech.enabled', False) if getter else False
+            if not isinstance(scitech_enabled, bool):
+                raise ValueError('scitech.enabled 必须为 YAML 布尔值 true/false')
+        except Exception as exc:
+            scitech_enabled = False
+            scitech_config_error = f'{type(exc).__name__}: {exc}'
+        receipt = {} if scitech_enabled else None
+        archive_status = (archive_to_db(args.archive_date, receipt=receipt) if scitech_enabled
+                          else archive_to_db(args.archive_date))
+        if archive_status != 0:
             print("❌ 既有归档返回失败状态；交易前 current 指针未发布。")
             return 1
         store.publish_current(snapshot_id)
@@ -73,11 +86,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"❌ 日常生产编排失败：{type(exc).__name__}: {exc}")
         return 1
 
+    display_failed = False
     try:
         write_display_snapshots(CURRENT_DIR / "display_snapshots")
     except Exception as exc:
         print(f"⚠️  展示快照生成失败；归档与交易前 current 已成功：{type(exc).__name__}: {exc}")
+        display_failed = True
+
+    scitech_failed = scitech_config_error is not None
+    if scitech_config_error:
+        print(f'⚠️ 科创配置无效，本次未执行科创分支：{scitech_config_error}')
+    if scitech_enabled:
+        try:
+            from src.scitech.service import run_extension
+            outcome = run_extension(runtime, config, receipt, ArchiveDB.from_env().engine)
+            scitech_failed = outcome['status'] != 'READY'
+            print(f"科创监控：{outcome}")
+        except Exception as exc:
+            scitech_failed = True
+            print(f"⚠️ 科创监控失败，既有结果保持已发布：{type(exc).__name__}: {exc}")
+    if display_failed:
         return 2
+    if scitech_failed:
+        print("⚠️ 既有归档与交易前 current 已成功，科创模块未完整完成。")
+        return 3
 
     print("✅ 日常生产编排完成：既有归档与交易前 current 已发布。")
     return 0

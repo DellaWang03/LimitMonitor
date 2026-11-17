@@ -189,6 +189,10 @@ class DataLoader:
             )
         return dict(self._archive_meta)
 
+    def get_snapshot_identity(self) -> Dict[str, str]:
+        """只读快照标识，供附加页面绑定同一日期、同一归档批次。"""
+        return {'data_date': self.data_date_str, 'parent_version': self._snapshot_version}
+
     @staticmethod
     def get_available_dates() -> List[date]:
         """

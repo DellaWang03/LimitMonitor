@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import pytest
 
 from scripts import run_daily_pipeline as daily
 
@@ -107,3 +108,63 @@ def test_display_failure_keeps_published_data_and_returns_nonzero(monkeypatch) -
         "publish_current",
         "display",
     ]
+
+
+@pytest.mark.parametrize('module_status,display_error,expected', [
+    ('READY', None, 0), ('PARTIAL', None, 3), ('FAILED', None, 3),
+    (RuntimeError('Wind unavailable'), None, 3),
+    ('READY', RuntimeError('display failed'), 2),
+])
+def test_scitech_runs_after_core_publication_and_cannot_undo_it(monkeypatch, module_status, display_error, expected):
+    from src.scitech import service
+    calls = _install_dependencies(monkeypatch, display_error=display_error)
+    config = SimpleNamespace(get_data_dir=lambda: Path('/tmp/source'), get=lambda k, default: True)
+    monkeypatch.setattr(daily, 'get_config', lambda: config)
+    receipt_value = {'data_date': '2026-07-10', 'parent_version': '2026-07-15T10:20:00.123456'}
+    def archive(date, *, receipt):
+        calls.append('archive')
+        assert date == '2026-07-15'
+        receipt.update(receipt_value)
+        return 0
+    def extension(runtime, config, receipt, engine):
+        calls.append('scitech')
+        assert receipt == receipt_value  # 不用运行日期，也不事后读 global current
+        if isinstance(module_status, Exception):
+            raise module_status
+        return {'status': module_status}
+    monkeypatch.setattr(daily, 'archive_to_db', archive)
+    monkeypatch.setattr(service, 'run_extension', extension)
+    assert daily.main(['--archive-date', '2026-07-15']) == expected
+    assert calls == ['validate', 'runtime', 'build', 'archive', 'publish_current', 'display', 'scitech']
+
+
+def test_new_module_import_failure_does_not_prevent_core_publication(monkeypatch):
+    import builtins
+    calls = _install_dependencies(monkeypatch)
+    monkeypatch.setattr(daily, 'get_config', lambda: SimpleNamespace(
+        get_data_dir=lambda: Path('/tmp/source'), get=lambda k, default: True))
+    def archive(date, **kwargs):
+        calls.append('archive')
+        return 0
+    monkeypatch.setattr(daily, 'archive_to_db', archive)
+    original_import = builtins.__import__
+    def guarded(name, *args, **kwargs):
+        if name.startswith('src.scitech'):
+            raise ImportError('module unavailable')
+        return original_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, '__import__', guarded)
+    assert daily.main(['--archive-date', '2026-07-15']) == 3
+    assert calls == ['validate', 'runtime', 'build', 'archive', 'publish_current', 'display']
+
+
+@pytest.mark.parametrize('setting', ['false', RuntimeError('科创配置读取失败')])
+def test_invalid_optional_configuration_does_not_block_existing_publication(monkeypatch, setting):
+    calls = _install_dependencies(monkeypatch)
+    def get_setting(*args):
+        if isinstance(setting, Exception):
+            raise setting
+        return setting
+    monkeypatch.setattr(daily, 'get_config', lambda: SimpleNamespace(
+        get_data_dir=lambda: Path('/tmp/source'), get=get_setting))
+    assert daily.main(['--archive-date', '2026-07-15']) == 3
+    assert calls == ['validate', 'runtime', 'build', 'archive', 'publish_current', 'display']

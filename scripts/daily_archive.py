@@ -186,7 +186,7 @@ def _load_stage_tables() -> dict[str, pd.DataFrame]:
 # ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
-def archive_to_db(archive_date: str) -> int:
+def archive_to_db(archive_date: str, *, receipt: Optional[dict] = None) -> int:
     """
     执行单点归档写库。
 
@@ -242,6 +242,7 @@ def archive_to_db(archive_date: str) -> int:
         alert_warning_threshold=warning,
         alert_overlimit_threshold=overlimit,
         high_yield_annual_limit_wan=high_yield_annual_limit_wan,
+        **({'receipt': receipt} if receipt is not None else {}),
     )
 
     print("\n" + "=" * 70)

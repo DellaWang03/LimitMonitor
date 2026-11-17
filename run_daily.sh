@@ -36,7 +36,13 @@ echo "========================================="
 "$PYTHON_BIN" scripts/run_daily_pipeline.py --archive-date "$TODAY"
 status=$?
 if [ "$status" -ne 0 ]; then
-    echo "❌ 每日生产编排失败（退出码: $status）"
+    if [ "$status" -eq 3 ]; then
+        echo "⚠️ 既有数据已发布；科创监控存在失败或待核实记录"
+    elif [ "$status" -eq 2 ]; then
+        echo "⚠️ 既有数据已发布；展示快照生成失败，请同时检查科创分支日志"
+    else
+        echo "❌ 每日生产编排失败（退出码: $status）"
+    fi
     exit "$status"
 fi
 

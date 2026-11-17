@@ -435,6 +435,15 @@ class Stage1Processor:
         file_path = self._data_file_path("统计报表底稿1_债券.xlsx")
         logger.info(f"  读取数据源: {file_path}")
         raw = pd.read_excel(file_path, sheet_name="债券持仓明细表")
+        # 同次读取的旁路副本；不扩充旧标准化输出或共同内核输入。
+        # 新字段缺失也不得阻断旧业务，完整性由科创分支自行校验。
+        try:
+            scitech_columns = ['日期', '部门', '内部证券账户名称', '资产代码',
+                               '资产名称', '库存数量(万)_PR', '回售/到期日']
+            self._scitech_bond_input = raw[[c for c in scitech_columns if c in raw]].copy(deep=True)
+        except Exception:
+            self._scitech_bond_input = None
+            logger.warning('科创输入捕获失败，既有持仓处理继续')
         result = normalize_bond_position(raw)
         logger.info(f"  债券持仓明细表: {len(result)} 行, {len(result.columns)} 列")
         return result

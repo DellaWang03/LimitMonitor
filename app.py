@@ -142,7 +142,11 @@ def main():
         }
         
         # 渲染选中的页面
-        if selected_page in page_map:
+        if selected_page == '科创资产监控':
+            # 科创表缺失或模块导入异常不影响任何旧页面。
+            from src.visualization.pages import page11_scitech
+            page11_scitech.render(filters, data_loader)
+        elif selected_page in page_map:
             page_map[selected_page].render(filters, data_loader)
         else:
             st.error(f"未找到页面: {selected_page}")

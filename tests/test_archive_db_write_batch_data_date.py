@@ -181,3 +181,28 @@ def test_write_batch_fails_when_data_date_lock_cannot_be_acquired():
     sqls = [sql for sql, _ in conn.executed]
     assert any("GET_LOCK" in sql for sql in sqls)
     assert not any("DELETE FROM archive_meta" in sql for sql in sqls)
+
+
+def test_optional_receipt_captures_version_inside_transaction_and_publishes_after_commit():
+    from datetime import datetime
+    class ReceiptConnection(_FakeConnection):
+        def execute(self, statement, params=None):
+            result = super().execute(statement, params)
+            if str(statement).startswith('SELECT captured_at'):
+                return _FakeResult(scalar_value=datetime(2026, 11, 16, 10, 0, 0, 123456))
+            return result
+    conn = ReceiptConnection()
+    db = _make_archive_db(conn)
+    db._write_dataframe_in_conn = lambda **kwargs: 0
+    class Receipt(dict):
+        def update(self, **kwargs):
+            assert _index_containing(conn, 'TRANSACTION_COMMIT') < len(conn.executed)
+            super().update(**kwargs)
+    receipt = Receipt()
+    db.write_batch(archive_date='2026-11-16', data_date='2026-11-13',
+                   stage_tables={'stage1_credit_1_2': pd.DataFrame({'资产名称': ['测试债']})},
+                   alert_warning_threshold=0.8, alert_overlimit_threshold=1.0,
+                   high_yield_annual_limit_wan=5000, receipt=receipt)
+    assert receipt == {'data_date': '2026-11-13', 'parent_version': '2026-11-16T10:00:00.123456'}
+    assert _index_containing(conn, 'INSERT INTO archive_meta') < _index_containing(conn, 'SELECT captured_at')
+    assert _index_containing(conn, 'SELECT captured_at') < _index_containing(conn, 'TRANSACTION_COMMIT')
