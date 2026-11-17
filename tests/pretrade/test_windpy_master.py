@@ -460,9 +460,11 @@ def test_isolated_windpy_query_parses_only_prefixed_worker_payload(
     assert result.reason is None
 
 
+@pytest.mark.parametrize("stdio_encoding", ["utf-8", "gb18030"])
 def test_isolated_windpy_query_executes_worker_with_configured_fake_module(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
+    stdio_encoding,
 ) -> None:
     (tmp_path / "WindPy.py").write_text(
         "import pandas as pd\n"
@@ -481,12 +483,24 @@ def test_isolated_windpy_query_executes_worker_with_configured_fake_module(
         encoding="utf-8",
     )
     monkeypatch.setenv("LIMIT_MONITOR_WINDPY_PATH", str(tmp_path))
+    monkeypatch.setenv("PYTHONIOENCODING", stdio_encoding)
 
     result = windpy_master._query_production_windpy_isolated("2605080.IB")
 
     assert result.error_code == 0
     assert result.rows == [{"SEC_NAME": "26广东债06"}]
     assert result.reason is None
+
+
+def test_isolated_query_rejects_invalid_output_encoding(monkeypatch) -> None:
+    def invalid_output(*_args, **_kwargs):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid output")
+
+    monkeypatch.setattr(windpy_master.subprocess, "run", invalid_output)
+    result = windpy_master._query_production_windpy_isolated("2605080.IB")
+    assert result.error_code != 0
+    assert result.rows == []
+    assert "编码" in result.reason
 
 
 def test_provider_is_fail_closed_until_real_field_mapping_is_verified() -> None:

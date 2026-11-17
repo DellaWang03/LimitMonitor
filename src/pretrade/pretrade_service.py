@@ -96,11 +96,13 @@ class PretradeRiskService:
         )
 
     def _load_current_context(self):
-        snapshot = self._store.get_current_snapshot()
-        if snapshot is None:
-            raise PretradeServiceError("交易前当前快照不存在")
         try:
+            snapshot = self._store.get_current_snapshot()
+            if snapshot is None:
+                raise PretradeServiceError("交易前当前快照不存在")
             inputs = self._store.load_kernel_input(snapshot.snapshot_id)
+        except PretradeServiceError:
+            raise
         except Exception as exc:
             raise PretradeServiceError("交易前当前快照读取失败") from exc
         return snapshot, inputs

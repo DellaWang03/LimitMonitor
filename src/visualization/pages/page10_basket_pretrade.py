@@ -395,22 +395,19 @@ def render(filters: dict[str, Any], data_loader: Any) -> None:
         st.rerun()
 
     if calculate_clicked:
+        # 失败时保留编辑器的原始基底；改变基底会让下次重运行丢失已编辑的行。
         try:
             lines = basket_lines_from_frame(edited)
             with st.spinner("正在读取限额快照并计算风险，请稍候"):
                 result = service.check_basket(lines)
         except PretradeServiceError:
             st.session_state.pop("page10_pretrade_result", None)
-            st.session_state.pop("page10_pretrade_submitted_lines", None)
             st.error(SNAPSHOT_UNAVAILABLE_MESSAGE)
-        except (TypeError, ValueError) as exc:
-            del exc
+        except (TypeError, ValueError):
             st.session_state.pop("page10_pretrade_result", None)
-            st.session_state.pop("page10_pretrade_submitted_lines", None)
             st.error(_BASKET_INPUT_INVALID_MESSAGE)
         except Exception:
             st.session_state.pop("page10_pretrade_result", None)
-            st.session_state.pop("page10_pretrade_submitted_lines", None)
             st.error(SERVICE_UNAVAILABLE_MESSAGE)
         else:
             st.session_state["page10_pretrade_result"] = result

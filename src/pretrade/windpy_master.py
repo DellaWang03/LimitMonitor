@@ -272,6 +272,8 @@ def _query_production_windpy_isolated(bond_code: str) -> _WindQueryResult:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             check=False,
             timeout=_WINDPY_SUBPROCESS_TIMEOUT_SECONDS,
         )
@@ -281,6 +283,8 @@ def _query_production_windpy_isolated(bond_code: str) -> _WindQueryResult:
             [],
             f"Wind 请求超时（{_WINDPY_SUBPROCESS_TIMEOUT_SECONDS}秒）",
         )
+    except UnicodeError:
+        return _WindQueryResult(1, [], "Wind 子进程返回的文本编码无效")
     except OSError as exc:
         return _WindQueryResult(
             1,
