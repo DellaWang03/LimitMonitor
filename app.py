@@ -1,6 +1,7 @@
 """
 限额监控可视化系统 - 主应用入口（支持历史数据）
 """
+import logging
 import streamlit as st
 import sys
 from pathlib import Path
@@ -26,6 +27,8 @@ from src.visualization.pages import (
     page10_basket_pretrade,
 )
 
+
+logger = logging.getLogger(__name__)
 
 # 页面配置
 st.set_page_config(
@@ -151,16 +154,13 @@ def main():
         else:
             st.error(f"未找到页面: {selected_page}")
     
-    except FileNotFoundError as e:
-        st.error(f"❌ 数据文件未找到: {str(e)}")
-        st.info("💡 提示: 请先运行每日数据更新脚本生成数据")
-        st.code("bash run_daily.sh  # macOS/Linux\nrun_daily.bat     # Windows")
-    
-    except Exception as e:
-        st.error(f"❌ 系统错误: {str(e)}")
-        import traceback
-        with st.expander("查看详细错误信息"):
-            st.code(traceback.format_exc())
+    except FileNotFoundError:
+        logger.exception('看板所需数据未就绪')
+        st.error('当前数据暂不可用，请稍后刷新或联系维护人员。')
+    except Exception:
+        logger.exception('看板页面加载失败')
+        st.error('页面暂时无法加载，请刷新重试；如仍有问题，请联系维护人员。')
+
 
 
 if __name__ == "__main__":
